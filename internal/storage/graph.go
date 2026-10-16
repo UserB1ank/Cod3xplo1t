@@ -115,6 +115,9 @@ type FullStore interface {
 	GraphStore
 	ASGStore
 	IdempotencyStore
+
+	// AuditStore is the path engine's persistence contract (P4).
+	AuditStore
 }
 
 // sameAnalysis reports whether two serialised manifests describe the same

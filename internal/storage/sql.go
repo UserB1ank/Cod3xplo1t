@@ -258,6 +258,11 @@ func (s *SQL) DeleteSnapshot(ctx context.Context, id string) error {
 			return mapSQLError(err)
 		}
 	}
+	// So do the snapshot's audits: leaving them behind would let a deleted
+	// snapshot keep answering audit queries.
+	if _, err := s.deleteAuditRowsForSnapshot(ctx, tx, id); err != nil {
+		return err
+	}
 	res, err := tx.ExecContext(ctx, s.rebind(`DELETE FROM snapshots WHERE snapshot_id = ?`), id)
 	if err != nil {
 		return mapSQLError(err)

@@ -61,10 +61,10 @@ Status codes used across the API:
 | `405` | wrong method for an existing path |
 | `409` | conflicting immutable write, source changed mid-snapshot, snapshot tree unavailable, `idempotency_in_progress`, `idempotency_key_reuse`, `scg_missing` |
 | `412` | `If-Match` did not match the current `ETag` |
-| `428` | `PATCH` without the `If-Match` it requires |
+| `428` | a mutation that requires `If-Match` (`PATCH /api/projects/{id}`, `POST /api/paths/{id}/pause`, `/resume`, `/cancel`) without the header |
 | `413` | request body larger than 1 MiB |
 | `422` | snapshot limit exceeded |
-| `501` | the server was started without the graph or attack-surface service (`graph_unavailable`, `asg_unavailable`) |
+| `501` | the server was started without the graph, attack-surface or audit service (`graph_unavailable`, `asg_unavailable`, `audit_unavailable`) |
 | `503` | query exceeded its time budget |
 
 ## Idempotency and optimistic concurrency
@@ -289,6 +289,156 @@ summary's `limitations`, `coverage` and `evidence_counts`.
 Query parameters: `kind` (comma-separated `REACHES`, `CROSSES`, `PROTECTED_BY`,
 `MAY_AFFECT`, `DERIVED_FROM`, `SUPPORTED_BY`, `VERIFIED_BY`), `from`, `to`
 (comma-separated node ids) and `limit`.
+
+## Audits and paths (P4)
+
+An audit turns the stored attack surface of one snapshot into ranked AuditPaths:
+each path is an entry point, a target sensitive operation and the chain between
+them, plus the evidence and the score that justify its position in the queue.
+Every path carries `path_status`, `open_questions`, `limitations` and a score
+stamped with `score_version`, so a ranking can be challenged without re-running
+the analysis. Paths derived from `REACHES` are call-graph reachability, not
+dataflow: they say a sensitive operation is reachable from an entry point, never
+that attacker-controlled data reaches it.
+
+`POST /api/audits` is the only route that does generation work; the lease and
+lifecycle verbs change scheduling state, and everything else is a read.
+
+| Endpoint | Capability | Description |
+|---|---|---|
+| `POST /api/audits` | `writer` | generate and rank the audit paths (accepts `Idempotency-Key`) |
+| `GET /api/audits` | `reader` | list audits |
+| `GET /api/audits/{id}` | `reader` | one audit |
+| `GET /api/audits/{id}/paths` | `reader` | page of paths in queue order |
+| `GET /api/audits/{id}/events` | `reader` | bounded page of the audit's event log |
+| `GET /api/audits/{id}/next` | `reader` | the path a scheduler would serve next, without leasing it |
+| `POST /api/audits/{id}/reclaim-expired` | `writer` | recover paths whose lease expired |
+| `POST /api/audits/{id}/rescore` | `writer` | replay the ranking from the stored feature snapshots |
+| `GET /api/paths/{id}` | `reader` | one path with its feature history and its events |
+| `POST /api/audits/{id}/claim` | `writer` | lease the audit queue's next pick to an owner (canonical) |
+| `POST /api/paths/{id}/claim` | `writer` | same operation reached through a path id (alias) |
+| `POST /api/paths/{id}/heartbeat` | `writer` | extend a lease the owner still holds |
+| `POST /api/paths/{id}/release` | `writer` | return a path to the queue without a verdict |
+| `POST /api/paths/{id}/pause` | `writer` | pause a path (requires `If-Match`) |
+| `POST /api/paths/{id}/resume` | `writer` | queue a paused path again (requires `If-Match`) |
+| `POST /api/paths/{id}/cancel` | `writer` | remove a path from the queue for good (requires `If-Match`) |
+
+### `POST /api/audits`
+
+```json
+{
+  "snapshot_id": "snap-...",
+  "force": false,
+  "budget": {"max_depth": 2, "max_branches": 4, "max_tool_calls": 30},
+  "limits": {"max_paths": 2000, "max_active_leases": 4, "exploration_fraction": 0.2},
+  "sensitivity": {"substring": 0.9}
+}
+```
+
+`budget`, `limits` and `sensitivity` are optional; unset values take the engine
+defaults and are stored with the audit. The request is identified by a
+configuration hash over the snapshot and those inputs, so repeating the same
+request returns the same audit:
+
+- `201 {"audit": {...}, "path_count": 12, "replayed": false}` on generation;
+- `200 {"audit": {...}, "path_count": 12, "replayed": true}` when the audit
+  already exists and `force` is false — the audit id is unchanged;
+- `force: true` regenerates and rescores, keeping the same path ids because they
+  are derived from the attack surface, so two runs are comparable.
+
+A negative bound or a sensitivity outside `[0,1]` is `400 invalid_request`.
+Errors: `404 not_found` for a snapshot that was never frozen, `409 asg_missing`
+for a snapshot without an attack surface — that message names
+`POST /api/snapshots/{id}/asg`, which is the fix.
+
+### `GET /api/audits` and `GET /api/audits/{id}`
+
+Parameters: `snapshot_id`, `status` (`GENERATING`, `READY`, `FAILED`), `limit`,
+`offset`. The listing answers `{"audits": [...], "total": N}`. An unknown audit
+id is `404 not_found`.
+
+### `GET /api/audits/{id}/paths`
+
+Parameters: `status` (comma-separated lifecycle statuses), `path_status`
+(comma-separated `candidate`, `statically_supported`, `unresolved`), `entry` and
+`target` (ASG node ids), `min_priority`, `sort` (`priority` — the default and the
+queue order — `created` or `path_id`), `limit`, `offset`. The page is
+`{"audit_id": ..., "paths": [...], "total": N, "objective_counts": {...}}`. A
+typo in `status`, `path_status`, `sort` or `min_priority` is `400
+invalid_request` rather than a silently empty page.
+
+### `GET /api/audits/{id}/events`
+
+Parameters: `path_id`, `after_seq` (strictly greater than), `limit`. The answer
+is `{"audit_id": ..., "events": [...], "total": N, "next_after_seq": N}`.
+
+Server-sent events are deferred to the WebUI phase: the browser client and its
+reconnection semantics do not exist yet, and `after_seq` already makes a poll a
+resumable cursor, so streaming now would add a transport without adding an
+answer.
+
+### `GET /api/audits/{id}/next`
+
+Returns `{"audit_id": ..., "path": {...}, "leased": false}` — the path the
+scheduler would serve next, with no lease taken, so two callers see the same
+answer until one of them claims. An audit with nothing queued is `404 not_found`.
+
+### `GET /api/paths/{id}`
+
+Returns `{"path": {...}, "features": [...], "events": [...]}` and sets an `ETag`
+over the path version. `features` is the append-only score history: a rescore or
+a forced audit adds a version instead of overwriting the ranking it replaces.
+
+### Lease verbs
+
+`POST /api/audits/{id}/claim` with `{"owner": "...", "ttl_seconds": 300}` leases
+the path the scheduler picks next in that audit and moves it to `ANALYZING`. The
+route is audit-scoped because the decision is: the ceiling on active leases is a
+property of the audit, and the schedule is chosen by marginal coverage over the
+whole queue rather than row by row. The answer is the path that was actually
+leased.
+
+`POST /api/paths/{id}/claim` is the same operation reached through a path id: it
+resolves that path's audit and then leases the scheduler's next pick. It is a
+convenience for a worker that already holds a path id, **not** a request for that
+particular path — use the audit route when you want the queue, and treat the
+leased id in the answer as authoritative.
+
+`POST /api/paths/{id}/heartbeat` with the same body extends a lease the owner
+still holds. `POST /api/paths/{id}/release` with `{"owner": "...", "reason":
+"..."}` returns the path to `QUEUED` without a verdict.
+
+The codes separate the ways a lease can fail: `409 lease_held` (another owner
+holds it), `409 lease_expired` (the lease is gone), `409 budget_exceeded` (the
+audit's active-lease ceiling is reached) and `404 not_found` (nothing is queued).
+`POST /api/audits/{id}/reclaim-expired` with `{"limit": 10}` recovers expired
+leases; the engine's sweep is store-wide, so the answer reports the paths of this
+audit plus `recovered_total` for the whole sweep.
+
+### Lifecycle verbs
+
+`POST /api/paths/{id}/pause`, `/resume` and `/cancel` take `{"reason": "..."}`
+and require `If-Match` with the path's `ETag` from `GET /api/paths/{id}` (`428`
+without the header, `412` when it is stale), exactly like the project rename.
+When the state machine refuses the change — a cancelled path cannot be resumed —
+the answer is `409 invalid_transition` and the message lists the legal targets
+from the current status. A concluded path must be re-audited rather than
+resurrected.
+
+### Audit error codes
+
+| Code | HTTP | Meaning |
+|---|---|---|
+| `not_found` | `404` | the snapshot, audit, path or queued work does not exist |
+| `invalid_request` | `400` | malformed body or an unknown filter value |
+| `invalid_transition` | `409` | the state machine refuses the change (the legal targets are in the message) |
+| `version_conflict` | `409` | the optimistic-concurrency check lost |
+| `lease_held` | `409` | another owner holds the lease |
+| `lease_expired` | `409` | the lease expired; claim the path again |
+| `budget_exceeded` | `409` | the audit's active-lease ceiling is reached |
+| `asg_missing` | `409` | the snapshot has no attack surface yet |
+| `audit_unavailable` | `501` | the server was started without the path engine |
+| `precondition_required` / `precondition_failed` | `428` / `412` | `If-Match` is missing or stale |
 
 ## Provenance
 

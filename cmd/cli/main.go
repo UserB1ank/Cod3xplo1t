@@ -46,6 +46,8 @@ func main() {
 		err = runSCG(ctx, args[1:])
 	case "asg":
 		err = runASG(ctx, args[1:])
+	case "audit":
+		err = runAudit(ctx, args[1:])
 	case "version", "--version", "-v":
 		fmt.Printf("codexploit %s (snapshot schema %d, manifest schema %d)\n", version, repository.SchemaVersion, analysis.SchemaVersion)
 	case "help", "--help", "-h":
@@ -75,6 +77,9 @@ Usage:
   codexploit scg unresolved --snapshot <id> [--symbol <sym>]
   codexploit asg build --source <git-url|path> [flags]   snapshot, manifest, SCG and attack surface
   codexploit asg summary|nodes|node|entrypoints|edges --snapshot <id>
+  codexploit audit create --snapshot <id> [--force] [--json]   generate and rank audit paths
+  codexploit audit list|show|paths|path|events|next|order ...
+  codexploit audit claim|heartbeat|release|pause|resume|cancel|reclaim|rescore ...
   codexploit snapshots list [--workspace <dir>]          list snapshots in a workspace
   codexploit snapshots remove --id <snapshot-id>         delete a snapshot (unfreezes the tree first)
   codexploit version

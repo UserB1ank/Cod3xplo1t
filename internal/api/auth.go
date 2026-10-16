@@ -320,6 +320,34 @@ func requiredCapability(method, path string) (Capability, bool) {
 		case method == http.MethodPost && action == "asg":
 			return CapWrite, true
 		}
+
+	// /api/audits ... and /api/paths ...
+	//
+	// Reading an audit or a path is a read; every POST under them is an operator
+	// action or a build, so it is a write. The lease verbs (claim, heartbeat,
+	// release) are writes as well: a worker that changes who owns a path is
+	// spending the audit's budget, not observing it.
+	case rest == "audits":
+		switch method {
+		case http.MethodGet:
+			return CapRead, true
+		case http.MethodPost:
+			return CapWrite, true
+		}
+	case strings.HasPrefix(rest, "audits/"):
+		switch method {
+		case http.MethodGet:
+			return CapRead, true
+		case http.MethodPost:
+			return CapWrite, true
+		}
+	case strings.HasPrefix(rest, "paths/"):
+		switch method {
+		case http.MethodGet:
+			return CapRead, true
+		case http.MethodPost:
+			return CapWrite, true
+		}
 	}
 	return CapNone, false
 }

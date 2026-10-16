@@ -14,6 +14,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/analysis"
 	"github.com/open-mcp-ai/Codexploit/internal/asg"
 	"github.com/open-mcp-ai/Codexploit/internal/graph"
+	"github.com/open-mcp-ai/Codexploit/internal/path"
 	"github.com/open-mcp-ai/Codexploit/internal/repository"
 	"github.com/open-mcp-ai/Codexploit/internal/scg"
 	"github.com/open-mcp-ai/Codexploit/internal/scg/gofrontend"
@@ -60,8 +61,11 @@ type Runtime struct {
 	Graph      *graph.Service
 	ASGBuilder *asg.Builder
 	ASG        *graph.ASGService
-	Workspace  string
-	closers    []func() error
+	// Audit is the path engine: it generates candidate AuditPaths, ranks them and
+	// serves the scheduling queue.
+	Audit     *path.Service
+	Workspace string
+	closers   []func() error
 }
 
 // Build constructs a runtime, applying migrations when a SQL database is used.
@@ -130,6 +134,11 @@ func (r *Runtime) wireGraphServices(store storage.FullStore) {
 	// asg.SCGReader with its narrow read methods.
 	r.ASGBuilder = asg.NewBuilder(r.Graph)
 	r.ASG = graph.NewASGService(store, r.Graph)
+	// The path engine reads the same two graphs through its own narrow readers, and
+	// writes audits through the store.
+	facts := graph.NewPathFacts(r.Graph, r.ASG, store)
+	engine := path.NewEngine(facts, facts)
+	r.Audit = path.NewService(store, engine)
 }
 
 // Close releases every resource the runtime owns.

@@ -89,6 +89,7 @@ func run() error {
 		api.WithBuilder(rt.Builder),
 		api.WithASG(rt.ASG),
 		api.WithASGBuilder(rt.ASGBuilder),
+		api.WithAudit(rt.Audit),
 		api.WithAuth(auth),
 		api.WithIdempotencyTTL(*idemTTL),
 		api.WithLogger(logger),

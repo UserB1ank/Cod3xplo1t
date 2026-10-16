@@ -36,6 +36,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/analysis"
 	"github.com/open-mcp-ai/Codexploit/internal/asg"
 	"github.com/open-mcp-ai/Codexploit/internal/graph"
+	"github.com/open-mcp-ai/Codexploit/internal/path"
 	"github.com/open-mcp-ai/Codexploit/internal/repository"
 	"github.com/open-mcp-ai/Codexploit/internal/scg"
 	"github.com/open-mcp-ai/Codexploit/internal/storage"
@@ -60,8 +61,12 @@ type Server struct {
 	// ASG and ASGBuilder are the attack-surface read and build paths. They are
 	// separate from Graph/Builder so a deployment can serve the SCG without the
 	// P3 layer, in which case every ASG route answers 501 instead of guessing.
-	ASG          *graph.ASGService
-	ASGBuilder   *asg.Builder
+	ASG        *graph.ASGService
+	ASGBuilder *asg.Builder
+	// Audit is the path engine. It is separate from the graph services so a
+	// deployment can serve the SCG/ASG without the P4 layer, in which case every
+	// audit route answers 501 instead of pretending an audit is missing.
+	Audit        *path.Service
 	AllowNetwork bool
 	Logger       *slog.Logger
 	// Auth decides who may do what. When it is nil the server refuses every API
@@ -165,6 +170,22 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/snapshots/{id}/asg/nodes/{nodeID}", s.handleASGNode)
 	mux.HandleFunc("GET /api/snapshots/{id}/asg/entrypoints", s.handleASGEntryPoints)
 	mux.HandleFunc("GET /api/snapshots/{id}/asg/edges", s.handleASGEdges)
+	mux.HandleFunc("POST /api/audits", s.withIdempotency(s.handleCreateAudit))
+	mux.HandleFunc("GET /api/audits", s.handleListAudits)
+	mux.HandleFunc("GET /api/audits/{id}", s.handleGetAudit)
+	mux.HandleFunc("GET /api/audits/{id}/paths", s.handleAuditPaths)
+	mux.HandleFunc("GET /api/audits/{id}/events", s.handleAuditEvents)
+	mux.HandleFunc("GET /api/audits/{id}/next", s.handleAuditNext)
+	mux.HandleFunc("POST /api/audits/{id}/reclaim-expired", s.handleReclaimExpired)
+	mux.HandleFunc("POST /api/audits/{id}/rescore", s.handleRescore)
+	mux.HandleFunc("GET /api/paths/{id}", s.handleGetPath)
+	mux.HandleFunc("POST /api/paths/{id}/pause", s.handlePathTransition("pause"))
+	mux.HandleFunc("POST /api/paths/{id}/resume", s.handlePathTransition("resume"))
+	mux.HandleFunc("POST /api/paths/{id}/cancel", s.handlePathTransition("cancel"))
+	mux.HandleFunc("POST /api/audits/{id}/claim", s.handleClaimAudit)
+	mux.HandleFunc("POST /api/paths/{id}/claim", s.handleClaimPath)
+	mux.HandleFunc("POST /api/paths/{id}/heartbeat", s.handleHeartbeat)
+	mux.HandleFunc("POST /api/paths/{id}/release", s.handleReleasePath)
 	return mux
 }
 

@@ -30,6 +30,10 @@ type Memory struct {
 	// idempotency survives for the lifetime of the store, which is what makes a
 	// retry after a restart safe when the store is a database.
 	idempotency map[idempotencyKey]IdempotencyRecord
+	// audits holds the P4 audit documents: one aggregate per audit with its path
+	// generation, its append-only feature snapshots and its event log, so a
+	// generation replacement is a single swap under the store lock.
+	audits map[string]*auditDocument
 }
 
 type memorySnapshot struct {
@@ -48,6 +52,7 @@ func NewMemory() *Memory {
 		graphs:       map[string]*memoryGraph{},
 		asgDocuments: map[string]*asg.Document{},
 		idempotency:  map[idempotencyKey]IdempotencyRecord{},
+		audits:       map[string]*auditDocument{},
 	}
 }
 
@@ -188,6 +193,9 @@ func (m *Memory) DeleteSnapshot(_ context.Context, id string) error {
 	delete(m.graphs, id)
 	// The attack surface is derived from the snapshot, so it dies with it.
 	delete(m.asgDocuments, id)
+	// So do the audits of the snapshot: leaving them behind would let a deleted
+	// snapshot keep answering audit queries.
+	m.deleteAuditsForSnapshotLocked(id)
 	return nil
 }
 
