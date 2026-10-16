@@ -208,7 +208,7 @@ than overwriting the previous ranking.
 | Table | Contents |
 |---|---|
 | `audits` | one row per audit: versions, status, budgets, coverage, counts, limitations |
-| `audit_paths` | one row per path: steps, signature, cluster, evidence refs, objectives, questions, features, score, lease |
+| `audit_paths` | one row per path: steps, signature, cluster, evidence refs, objectives, questions, features, score, lease, attempts, `next_attempt_at` (when a failed attempt may run again) |
 | `path_features` | append-only score snapshots `(path_id, seq)` |
 | `path_events` | append-only event log, `(audit_id, seq)` unique |
 

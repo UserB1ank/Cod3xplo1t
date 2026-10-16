@@ -440,3 +440,20 @@ been verified in the tree; nothing is listed from memory alone.
   message. An entry that quietly outlives its fix is worse than no entry.
 - Keep the class honest: a designed evidence class is a `DEVIATION`, not a bug; an
   uncalibrated heuristic is a `RISK`, not a `GAP`.
+
+## 8. Closed by P7 (scheduling and fault recovery)
+
+Two entries above were closed by the P7 work; they are listed here rather than
+silently deleted, so a reader of an older report knows where they went:
+
+- **5.3 (path-scoped claim)** — closed. `PathCoordinator.ClaimSpecificPath` and
+  `agent.Runner.RunPath` claim and execute a *named* path, which is what a scheduler
+  needs; the audit-scoped route remains the canonical HTTP spelling for a queue pick,
+  and the path route is still documented as an alias.
+- **5.6 (no worker loop, no retry policy)** — closed. `internal/schedule` runs the
+  loop, retries are bounded and deferred through `audit_paths.next_attempt_at`,
+  cancelled paths are never retried, and `Run` releases its leases when it stops.
+
+Still open from that list, and now recorded as such: no distributed coordination
+beyond lease safety, no incremental analysis or change-impact cache, no score
+calibration, and no MCP surface for paths, runs or findings.

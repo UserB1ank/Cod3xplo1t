@@ -23,7 +23,8 @@ documentation lives under [`docs/`](docs/) — see the
 | P4 | AuditPath generation (bounded, evidence-linked), exact and approximate dedup, versioned risk/value scoring, scheduling queue with leases, events and state machine, REST + CLI | **implemented** (rule and graph based; the agent runtime and verification are later phases) |
 | P5 | Agent runtime: bounded task building with a minimal code slice, structured hypotheses with cited evidence, tool allowlist enforced in Go, expansion policy, run/event/hypothesis store, REST + CLI | **implemented** (scripted and generic CLI adapters; verification is the next phase) |
 | P6 | Verification: bounded plans with a stated disproof condition, scope and approval gates, isolated execution with quotas, immutable redacted evidence, findings that stay apart (confirmed / refuted / inconclusive / blocked), reports (Markdown, JSON, SARIF) | **implemented** (scripted and restricted CLI executors; isolation is a deployment contract) |
-| P7 | Incremental analysis, calibration, WebUI | not started |
+| P7 | Resident scheduler: due-path dispatch under a concurrency budget, bounded retries with durable backoff, lease-based crash recovery, metrics, REST + CLI | **implemented** |
+| Not yet | Incremental analysis and change-impact caching, score calibration, WebUI, MCP exposure of paths/runs/findings | not started |
 
 The Go frontend is currently the only language frontend; files in other source
 languages are listed and counted, never silently dropped. See
@@ -290,6 +291,26 @@ redacted before storage. `refuted` requires contradicting evidence, `inconclusiv
 is not a refutation, and `blocked` means the run could not start — the three are
 never conflated. See [`docs/verification.md`](docs/verification.md).
 
+### Scheduling (P7)
+
+```bash
+# the server can run the loop itself
+bin/server --scheduler --scheduler-interval 30 --scheduler-concurrency 4 …
+
+# or drive it by hand
+bin/cli scheduler status --json
+bin/cli scheduler tick --concurrency 2
+bin/cli scheduler reclaim --limit 50
+bin/cli scheduler run --interval 30          # foreground; Ctrl-C releases its leases
+```
+
+The scheduler claims a path before dispatching it, so two schedulers (or two ticks)
+cannot run the same work; a failed dispatch is deferred with an exponential,
+deterministic-jitter backoff that is stored on the path, which is what makes a crash
+lose nothing; a worker that dies simply stops heartbeating and its lease is reclaimed.
+Cancelled paths are never retried. Retries, due times, metrics and the recovery path
+are documented in [`docs/scheduling.md`](docs/scheduling.md).
+
 ### Managing snapshots
 
 ```bash
@@ -387,6 +408,7 @@ codes: [`docs/mcp-tools.md`](docs/mcp-tools.md).
 | [`docs/audit-paths.md`](docs/audit-paths.md) | AuditPath generation, dedup and clustering, scoring formulas, state machine, leases, events |
 | [`docs/agent-runtime.md`](docs/agent-runtime.md) | agent runtime: task shape, answer protocol, bounded divergence, stop conditions, adapters, isolation |
 | [`docs/verification.md`](docs/verification.md) | verification: plan and scope model, evidence immutability and redaction, verdict derivation, executors, reports |
+| [`docs/scheduling.md`](docs/scheduling.md) | scheduler loop, lease-based concurrency, bounded retries with durable backoff, crash recovery, metrics |
 | [`docs/known-issues.md`](docs/known-issues.md) | every gap, deviation and risk in the current tree, with evidence and a next action |
 | [`docs/api.md`](docs/api.md) | REST interface reference |
 | [`docs/mcp-tools.md`](docs/mcp-tools.md) | MCP tool catalogue |
