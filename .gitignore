@@ -1,0 +1,21 @@
+# Build output
+/bin/
+/dist/
+# Binaries accidentally produced in the repository root by `go build ./cmd/...`
+/server
+/cli
+/mcp
+
+# Local scratch space produced by the CLI / server (snapshots, DB, exports)
+/.codexploit/
+/work/
+*.db
+*.db-journal
+*.db-wal
+
+# Toolchain caches kept inside the workspace for sandboxed runs
+/.cache/
+
+# OS noise
+.DS_Store
+Thumbs.db
