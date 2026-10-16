@@ -30,7 +30,8 @@ been verified in the tree; nothing is listed from memory alone.
 | P3 attack surface | 6 | `DEVIATION` |
 | P4 audit paths | 7 | `RISK` |
 | Platform and deployment | 5 | `RISK` |
-| Not started (P6–P7, WebUI) | 4 | `GAP` |
+| Not started (P7, WebUI) | 3 | `GAP` |
+| Verification (P6) | 3 | `DEVIATION` |
 | Agent runtime (P5) | 3 | `DEVIATION` |
 
 ---
@@ -422,7 +423,7 @@ been verified in the tree; nothing is listed from memory alone.
 | 7.1 | `DEVIATION` | **P5 is implemented** but two pieces are deferred by design: expansion requests are decided by policy inside the run rather than approved by an operator, and adapters cannot be network-sandboxed by Go alone (the deployment contract is a restricted container/VM). See `docs/agent-runtime.md` | the design's `EXPAND_REQUEST` approval flow assumed an operator in the loop; recording every decision in the run events keeps it auditable, and isolation remains an operational requirement |
 | 7.1b | `GAP` | MCP exposes no run, hypothesis or attack-path tools; the agent's own tool access is the orchestrator's registry, not MCP | an external agent or UI cannot read runs/hypotheses over MCP; REST covers it for now | `internal/mcp/server.go` |
 | 7.1c | `RISK` | A run's tool results are truncated (20 000 characters) and its slice is bounded (240 lines), so an agent can reason from incomplete evidence | a conclusion drawn from a truncated slice can be wrong; every truncation is recorded in the result and the task carries the upstream limitations | `docs/agent-runtime.md`, `internal/agent/protocol.go` (`MaxToolResultChars`) |
-| 7.2 | `GAP` | Verification worker (P6): isolated execution, resource limits, evidence capture, `CONFIRMED`/`REFUTED`/`INCONCLUSIVE`/`BLOCKED` | no finding can be confirmed or refuted, so `VERIFYING` and `CONCLUDED` are states nothing reaches on its own |
+| 7.2 | `DEVIATION` | **P6 is implemented**, with four recorded limits: no exploit synthesis (a plan is built from path evidence; a real PoC is supplied as an explicit plan), Go cannot network-sandbox a subprocess (the deployment contract is a restricted container/VM), severity stays the hypothesis's hint rather than a verified model, and verification has no worker queue (it is requested per hypothesis) | a `confirmed` finding is reproduced, `refuted` needs contradicting evidence, and `inconclusive`/`blocked` are not refutations — those distinctions are enforced in code; the limits are operational |
 | 7.3 | `GAP` | Evidence store, findings store and report engines (P6): immutable evidence, candidate/confirmed/refuted findings, SARIF/JSON/Markdown/HTML reports | without them there is no deliverable for a user; the audit ends at a ranked path list |
 | 7.4 | `GAP` | Incremental analysis, dependency-impact caching and benchmark calibration (P7) | full rebuilds per commit and uncalibrated weights are the two costs that grow fastest |
 | 7.5 | `GAP` | WebUI (design §12): SCG/ASG views, path workbench, agent monitoring, finding centre, reports | all read-only APIs it needs exist; the ASG route table and the path queue are already shaped for it |

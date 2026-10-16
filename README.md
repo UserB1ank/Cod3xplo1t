@@ -22,7 +22,8 @@ documentation lives under [`docs/`](docs/) — see the
 | P3 | Attack surface extraction: entry points, inputs, sinks, controls, assets, bounded reachability, ASG candidate, REST + CLI | **implemented** (rule-based; the semantic-agent and verification layers are later phases) |
 | P4 | AuditPath generation (bounded, evidence-linked), exact and approximate dedup, versioned risk/value scoring, scheduling queue with leases, events and state machine, REST + CLI | **implemented** (rule and graph based; the agent runtime and verification are later phases) |
 | P5 | Agent runtime: bounded task building with a minimal code slice, structured hypotheses with cited evidence, tool allowlist enforced in Go, expansion policy, run/event/hypothesis store, REST + CLI | **implemented** (scripted and generic CLI adapters; verification is the next phase) |
-| P6–P7 | Verification, evidence and reports, incremental optimisation, WebUI | not started |
+| P6 | Verification: bounded plans with a stated disproof condition, scope and approval gates, isolated execution with quotas, immutable redacted evidence, findings that stay apart (confirmed / refuted / inconclusive / blocked), reports (Markdown, JSON, SARIF) | **implemented** (scripted and restricted CLI executors; isolation is a deployment contract) |
+| P7 | Incremental analysis, calibration, WebUI | not started |
 
 The Go frontend is currently the only language frontend; files in other source
 languages are listed and counted, never silently dropped. See
@@ -269,6 +270,26 @@ stored or requested**, an agent may only claim `candidate`/`inconclusive`/`refut
 (confirmation belongs to verification), and a `finding_candidate` must cite
 evidence. See [`docs/agent-runtime.md`](docs/agent-runtime.md).
 
+### Verification and findings (P6)
+
+```bash
+# create the finding for a hypothesis and run a verification plan over it
+bin/cli verify hyp-… --executor scripted --scripted-steps @steps.json --json
+bin/cli verifications show vrun-…
+bin/cli verifications evidence vrun-… --kind runtime_log
+bin/cli findings list --audit audit-… --status confirmed
+bin/cli findings show find-…
+bin/cli report audit-… --format sarif --out report.sarif
+```
+
+Verification runs only against an authorized repository and snapshot; a dynamic
+proof needs a recorded `--approved-by`, and the environment is least-privilege by
+default (read-only source, no network, bounded CPU/memory/disk/processes/time, host
+container socket refused outright). Evidence is immutable, content-addressed and
+redacted before storage. `refuted` requires contradicting evidence, `inconclusive`
+is not a refutation, and `blocked` means the run could not start — the three are
+never conflated. See [`docs/verification.md`](docs/verification.md).
+
 ### Managing snapshots
 
 ```bash
@@ -365,6 +386,7 @@ codes: [`docs/mcp-tools.md`](docs/mcp-tools.md).
 | [`docs/asg.md`](docs/asg.md) | Attack Surface Graph: node and edge kinds, rule tables, evidence model, reachability, limits |
 | [`docs/audit-paths.md`](docs/audit-paths.md) | AuditPath generation, dedup and clustering, scoring formulas, state machine, leases, events |
 | [`docs/agent-runtime.md`](docs/agent-runtime.md) | agent runtime: task shape, answer protocol, bounded divergence, stop conditions, adapters, isolation |
+| [`docs/verification.md`](docs/verification.md) | verification: plan and scope model, evidence immutability and redaction, verdict derivation, executors, reports |
 | [`docs/known-issues.md`](docs/known-issues.md) | every gap, deviation and risk in the current tree, with evidence and a next action |
 | [`docs/api.md`](docs/api.md) | REST interface reference |
 | [`docs/mcp-tools.md`](docs/mcp-tools.md) | MCP tool catalogue |

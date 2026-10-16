@@ -413,3 +413,51 @@ store, so the guarantee survives a restart, a crash or a load-balancer hop —
   (`Status.Active`), `internal/path/service.go` (`transition`).
 - Deleting a snapshot deletes its runs, events and hypotheses —
   `internal/storage/memory.go`, `internal/storage/sql.go` (`DeleteSnapshot`).
+
+## 19. Verification cannot overstate what it established
+
+- A verdict is derived, never asserted: `DeriveOutcome` demotes a claimed
+  confirmation without reproduction evidence (and without the steps that reproduced
+  it), demotes a claimed refutation without contradicting evidence, and turns a run
+  that could not start into `BLOCKED`. An executor cannot set a finding's final
+  status — `internal/verify/protocol.go` (`DeriveOutcome`), `internal/verify/service.go`.
+- `blocked` is not `refuted` and `inconclusive` is not a refutation: the three
+  evidence lists on a finding stay apart, and the report renderers restate the
+  distinction — `internal/verify/model.go` (`FindingStatus`),
+  `internal/verify/report.go`.
+- Evidence is immutable and content-addressed **within its scope**: the id covers
+  kind, snapshot, the verification run (or the hypothesis before a run exists) and
+  the content hash; the store's identity for a re-append is `(id, content hash,
+  content)`, with timestamps and locations treated as provenance, so a re-derived
+  object is a no-op that keeps the stored one. There is no update path, and a
+  correction is a new object with a `supersedes` link — `internal/verify/model.go` (`EvidenceID`),
+  `internal/verify/protocol.go` (`NewEvidence`), `internal/verify/store.go`
+  (`AppendEvidence`, same id with different content is a conflict).
+- Evidence is redacted before it is stored and the redaction is recorded; the hash
+  covers the stored bytes, so hash and content always agree —
+  `internal/verify/protocol.go` (`Redact`, `hashContent`).
+- A plan states its disproof condition up front, and a dynamic proof requires a
+  recorded human approval; a plan without it is refused with `approval_required` and
+  writes nothing — `internal/verify/protocol.go` (`ValidatePlan`, `Authorize`).
+- Isolation limits are enforced as refusals, not as configuration: read-only source,
+  network policy checked against the scope, quota ceilings, and `mount_host_socket`
+  rejected outright — `internal/verify/protocol.go`, `migrations/0008_verification.sql`.
+- A run's evidence list is derived from the evidence that names the run, so a run
+  can never cite evidence that was not stored — `internal/verify/model.go`,
+  `internal/storage/{memory_verify.go,sql_verify.go}`.
+- The same plan for the same hypothesis is the same verification: `(hypothesis_id,
+  plan_hash)` is unique and a rerun replays instead of executing again —
+  `migrations/0008_verification.sql`, `internal/verify/model.go`
+  (`VerificationRunID`).
+
+## 20. Cross-package storage interfaces use scoped method names
+
+- Go has no method overloading, and every layer adds methods to the same two
+  concrete stores. Any store interface whose method names are generic
+  (`CreateRun`, `AppendEvents`, `ListEvents`, `NextEventSeq`, …) must therefore scope
+  them: the audit log uses audit-scoped names, the agent runtime uses run-scoped
+  names, the verification layer uses verification-scoped names — `internal/path/store.go`,
+  `internal/agent/store.go`, `internal/verify/store.go`, `internal/storage/*.go`.
+- This is not cosmetic: two unscoped interfaces make `FullStore` undeclarable and
+  leave the concrete stores unable to implement either. It has already cost two
+  rounds of rework, so a new layer adds a prefix before it adds a method.
