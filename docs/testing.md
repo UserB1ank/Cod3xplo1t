@@ -117,3 +117,23 @@ and no prefix.
 | `internal/mcp` | tool surface, argument validation, error codes, provenance block (`server_test.go`) |
 | `internal/app` | wiring, migrations, memory vs file store (`app_test.go`) |
 | `cmd/cli`, `cmd/server` | flag parsing, human output, authentication construction (`main_test.go`, `scg_test.go`) |
+
+## Testing the path engine (P4)
+
+The AuditPath engine is tested without a database and without a graph service:
+
+- `internal/path/fake_test.go` holds an in-memory `Store` and readers built from a
+  fixture attack surface. The fake enforces the same invariants the real stores
+  must hold — a transition and its event together, lease ownership, optimistic
+  concurrency, append-only score snapshots — so the contract is exercised in both
+  places.
+- Time is injected (`Engine.Now`, `Service.Now`). A test that depends on the wall
+  clock is a test that fails at midnight on a slow runner.
+- Determinism is asserted by generating twice and comparing the serialised
+  document, and by planning the same queue twice and comparing the pick order.
+- Scoring is asserted against the documented formula, not against stored numbers:
+  the test recomputes `R`, `C`, `U` and `P` from the features and compares. A
+  changed coefficient must therefore fail a test, not slip through a golden file.
+- The storage backends are covered separately with the same table-driven style as
+  the graph and ASG stores (`fullStores(t)`, memory and sqlite, always `-race`), so
+  both paths must behave identically.

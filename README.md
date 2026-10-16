@@ -20,7 +20,8 @@ documentation lives under [`docs/`](docs/) — see the
 | P1 | Workspace, immutable snapshot chain, repository manifest (languages, frameworks, dependencies, entrypoints, build descriptors, coverage, unknowns) | **implemented** |
 | P2 | Source Code Graph (modules, files, symbols, call sites, arguments, call edges), bounded graph queries, REST API and MCP server | **implemented** (Go frontend) |
 | P3 | Attack surface extraction: entry points, inputs, sinks, controls, assets, bounded reachability, ASG candidate, REST + CLI | **implemented** (rule-based; the semantic-agent and verification layers are later phases) |
-| P4–P7 | Path engine, agent runtime, verification, productisation | not started |
+| P4 | AuditPath generation (bounded, evidence-linked), exact and approximate dedup, versioned risk/value scoring, scheduling queue with leases, events and state machine, REST + CLI | **implemented** (rule and graph based; the agent runtime and verification are later phases) |
+| P5–P7 | Agent runtime, verification, productisation | not started |
 
 The Go frontend is currently the only language frontend; files in other source
 languages are listed and counted, never silently dropped. See
@@ -202,6 +203,44 @@ sensitive operations.
 What every node and edge means, which rules produced them, and what the ASG
 deliberately does not claim are in [`docs/asg.md`](docs/asg.md).
 
+### Audit paths (P4)
+
+```bash
+# generate and rank candidate paths for a snapshot (needs an ASG)
+bin/cli audit create --snapshot snap-0123456789abcdef0123456789abcdef
+
+# inspect the ranking and one path in full
+bin/cli audit list                                # audits in this workspace
+bin/cli audit show  audit-0123456789abcdef0123456789abcdef
+bin/cli audit paths audit-… --sort priority       # the ranking, one row per path
+bin/cli audit path  path-…                        # steps, evidence, questions, score breakdown
+
+# scheduling: what is next, and lease it
+bin/cli audit order audit-…                       # pick order, incl. the exploration reserve
+bin/cli audit next  audit-…                       # the path a worker would take
+bin/cli audit claim audit-… --owner worker-1 --ttl 300
+bin/cli audit heartbeat path-… --owner worker-1 --ttl 300
+bin/cli audit release   path-… --owner worker-1
+bin/cli audit pause|resume|cancel path-… --reason "…"
+bin/cli audit reclaim                             # return expired leases to the queue
+bin/cli audit rescore audit-…                     # replay the ranking; drift is reported
+```
+
+Audit and path ids are positional arguments; `--ttl` is in seconds. `audit paths`
+takes `--status`, `--path-status`, `--entry`, `--target`, `--min-priority`,
+`--sort` and `--limit`; `audit events` takes `--audit`, `--path` and `--after`.
+
+`audit create` is idempotent: the same request returns the same audit instead of a
+second ranking, and `--force` regenerates it with the same path ids while appending
+a new score version. `audit claim` leases the next pick of the audit's queue (the
+route is audit-scoped because the active-lease ceiling is), and the leased path is
+printed — which is not necessarily the one you passed in. Every path carries its `path_status` (how much static evidence
+supports it), its open questions, its limitations and a versioned score whose
+feature breakdown is printed by `audit path`. Priorities order attention; they are
+not vulnerability probabilities. Generation, dedup, the scoring formula, the state
+machine and the lease model are documented in
+[`docs/audit-paths.md`](docs/audit-paths.md).
+
 ### Managing snapshots
 
 ```bash
@@ -296,6 +335,8 @@ codes: [`docs/mcp-tools.md`](docs/mcp-tools.md).
 | [`docs/contracts.md`](docs/contracts.md) | every invariant the code enforces, with the file that enforces it |
 | [`docs/scg.md`](docs/scg.md) | Source Code Graph: nodes, edges, ids, resolution classes, query budgets, coverage, limits |
 | [`docs/asg.md`](docs/asg.md) | Attack Surface Graph: node and edge kinds, rule tables, evidence model, reachability, limits |
+| [`docs/audit-paths.md`](docs/audit-paths.md) | AuditPath generation, dedup and clustering, scoring formulas, state machine, leases, events |
+| [`docs/known-issues.md`](docs/known-issues.md) | every gap, deviation and risk in the current tree, with evidence and a next action |
 | [`docs/api.md`](docs/api.md) | REST interface reference |
 | [`docs/mcp-tools.md`](docs/mcp-tools.md) | MCP tool catalogue |
 | [`docs/testing.md`](docs/testing.md) | how to run the suite and what CI does |

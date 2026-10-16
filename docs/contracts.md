@@ -307,3 +307,76 @@ store, so the guarantee survives a restart, a crash or a load-balancer hop —
 - The MCP surface is closed: unknown symbol kinds and unknown slice `include`
   values are rejected rather than silently widening a search —
   `internal/mcp/server.go` (`parseKind`, `sliceIncludes`).
+
+## 15. Attack-surface claims cite SCG evidence
+
+- No ASG node or edge exists without `scg_refs` and without the rule that produced
+  it; `Document.Validate` rejects the document otherwise —
+  `internal/asg/model.go` (`Validate`), `internal/asg/extract.go` (`addNode`,
+  `addEdge`).
+- A rule states its class: callee name, package and text classes are ANDed and the
+  members inside a class are ORed, so "the name matches" never alone justifies a
+  finding — `internal/asg/rules.go` (`MatchRule.matches`).
+- Presence is not effectiveness: every control node carries
+  `effectiveness: not assessed`, and the document always lists the limitations that
+  say so — `internal/asg/extract.go` (`controlFrom`,
+  `addStructuralLimitations`).
+- Framework attribution is reported, not assumed: `framework_attribution` is
+  `receiver provenance or resolved package`, `ambiguous` or `unknown`, and an
+  unknown attribution lists its candidates — `internal/asg/extract.go`
+  (`entryPointFrom`).
+- The document is versioned by `hash(snapshot, scg_version, engine, ruleset_hash)`,
+  so an edited rule table produces a new attack surface instead of quietly changing
+  an old one — `internal/asg/model.go` (`Version`), `internal/asg/build.go`.
+
+## 16. AuditPaths are reproducible and bounded
+
+- `path_id` covers audit, snapshot, entry, target and the canonical edge sequence;
+  `signature` covers the same without the audit, which is the cross-audit identity.
+  Two audits may hold the same path; one audit may not hold it twice — that is a
+  unique index, not a convention — `internal/path/model.go` (`PathID`,
+  `Signature`), `migrations/0006_audit_paths.sql`.
+- Every path carries evidence: SCG refs (symbols and call edges) and ASG refs
+  (entry, boundary, inputs, controls, target, assets) are filled by the generator
+  and never empty — `internal/path/generate.go` (`buildPath`).
+- Scoring is versioned and replayable: features are normalised to `[0,1]`,
+  `dataflow_evidence` is always `0` with a stated reason, weights and a feature
+  snapshot are stored per path, and `Rescore` reports priority drift instead of
+  absorbing it — `internal/path/score.go`, `internal/path/service.go` (`Rescore`),
+  `migrations/0006_audit_paths.sql` (`path_features`).
+- Generation is bounded and says where it stopped: entry points, sinks per entry
+  point, chain queries, paths and depth all have caps, each hit is recorded in
+  `coverage` and restated in the audit's limitations —
+  `internal/path/generate.go` (`GenerateResult.Coverage`).
+- A call chain is not a taint chain: `path_status` distinguishes
+  `statically_supported`, `candidate` and `unresolved` by how much observed
+  evidence exists, and no path claims data propagation —
+  `internal/path/generate.go` (`PathCandidate` handling), `internal/path/model.go`.
+- `audit_id` covers the snapshot, the configuration hash and the score version, so
+  the same request replays the same audit and a changed configuration produces a
+  different one — `internal/path/service.go` (`ConfigHash`, `AuditID`).
+
+## 17. Path state, leases and events are atomic
+
+- Only the declared transitions are legal; an illegal one returns the list of legal
+  targets and writes nothing — `internal/path/statemachine.go`
+  (`ValidateTransition`), `internal/path/store.go` (`Transition`).
+- Only `QUEUED` is claimable; a claim sets `lease_owner`/`lease_until` and moves the
+  path to `ANALYZING` atomically, so two workers can never win the same path —
+  `internal/path/service.go` (`Claim`), `internal/path/store.go` (`ClaimPath`).
+- Lease expiry is a string comparison on RFC3339 timestamps, and `ReclaimExpired`
+  returns expired leases to the queue with a recovery event, so a crashed worker
+  needs no cooperation — `internal/path/service.go`, `internal/path/store.go`.
+- The active-lease ceiling is a property of the audit and is enforced there, not per
+  row — `internal/path/service.go` (`activeLeases`, `Claim`).
+- Every state change and its event are one transaction, and events are numbered per
+  audit so appending after a rerun cannot collide —
+  `internal/path/store.go` (`Transition`, `NextEventSeq`),
+  `migrations/0006_audit_paths.sql` (`path_events`).
+- An incomplete generation cannot look complete: the audit is written as
+  `GENERATING` and becomes `READY` only after its paths, features and events are
+  stored — `internal/path/service.go` (`CreateAudit`).
+- Deleting a snapshot deletes its audits, paths, score snapshots and events, so a
+  deleted snapshot cannot keep answering audit queries —
+  `internal/storage/memory.go`, `internal/storage/sql.go` (`DeleteSnapshot`),
+  `internal/path/store.go` (`DeleteAuditsForSnapshot`).

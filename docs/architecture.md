@@ -41,6 +41,15 @@ it reads the SCG and never writes to it — and every node and edge records the 
 facts it came from. The semantic-agent and verification layers that attach
 hypotheses and confirmed results are later phases. See [`asg.md`](asg.md).
 
+The AuditPath engine turns that attack surface into scheduled work: bounded
+candidate enumeration over observed call chains, exact dedup by canonical edge
+sequence, approximate clustering by entry/target/boundary, a versioned
+risk/value/utility score, and a queue with leases, heartbeats, an audit-scoped
+event log and a state machine. Paths are reproducible — ids and scores are derived
+and the score carries its weights and feature snapshot — and each states its
+evidence class instead of asserting exploitability. See
+[`audit-paths.md`](audit-paths.md).
+
 ## Package map
 
 | Package | Responsibility | Must not | Called by |
@@ -49,11 +58,13 @@ hypotheses and confirmed results are later phases. See [`asg.md`](asg.md).
 | `internal/analysis` | P1 repository manifest: a bounded, read-only view of the frozen tree (`Input`), a pluggable `Detector` registry, coverage accounting, confidence classes, unknowns | never execute code, never read outside the snapshot tree, never exceed the per-file read limit, never state a fact without evidence | `internal/app`, `internal/api`, `internal/scg` (reuses `LanguageRules`) |
 | `internal/scg` | P2 Source Code Graph model, content-derived ids, module discovery, the frontend/registry contracts, call resolution and deterministic serialisation | never guess a target: every unresolved construct keeps its call site and its resolution class; `FLOWS_TO`/`CONTROLS` are declared but not produced | `internal/app`, `internal/storage`, `internal/graph`, `internal/api` |
 | `internal/scg/gofrontend` | The only language frontend: Go, parsed with `go/parser` (AST only, no type checking), including the call resolver | never type-check, build or download anything; never invent a symbol outside the snapshot index | `internal/app` (registered by default); through the `scg.Frontend` interface, only `internal/scg` |
-| `internal/graph` | P2 graph service: snapshot-scoped bounded queries (summary, modules, files, symbols, callers/callees, call paths, code slices), budgets, truncation reporting, in-memory result cache | never mix snapshots, never return a partial answer without `truncated`/`truncation_reason`, never treat "depth reached" as truncation | `internal/app`, `internal/api`, `internal/mcp` |
-| `internal/storage` | Persistence: `Store` (projects, snapshots, manifests), `GraphStore` (SCG documents, relationally), `IdempotencyStore` (durable write claims), the migration runner, in-memory and `database/sql` implementations | never choose a driver (the caller passes one), never interpret an artifact beyond comparing identity, never overwrite an immutable record with different content | `internal/app`; through `app.Runtime`, `internal/api`, `internal/mcp` |
+| `internal/graph` | P2 graph service: snapshot-scoped bounded queries (summary, modules, files, symbols, callers/callees, call paths, code slices), budgets, truncation reporting, in-memory result cache; plus the ASG query service and the adapters the ASG and path engines read through | never mix snapshots, never return a partial answer without `truncated`/`truncation_reason`, never treat "depth reached" as truncation | `internal/app`, `internal/api`, `internal/mcp` |
+| `internal/asg` | P3 attack surface: the ASG document model, the rule tables (frameworks, sources, sinks, controls, assets), bounded reachability, the extractor and its builder, and the validation that rejects any claim without SCG evidence | never overwrite an SCG fact, never emit `SUPPORTED_BY`/`VERIFIED_BY`/`Hypothesis` (later phases), never assert that a control is effective | `internal/app`, `internal/graph` (as a store document), `internal/storage` (implements the ASG store in terms of its types) |
+| `internal/path` | P4 AuditPath engine: bounded candidate enumeration, exact dedup by canonical edge sequence, approximate clustering, versioned scoring with a stored feature snapshot, the state machine, the marginal-coverage picker and the audit service | never claim dataflow, never make a path without evidence refs, never write an illegal transition, never let a score lose its version or its reasons | `internal/app`, `internal/storage` (implements `path.Store`), `internal/graph` (provides the readers) |
+| `internal/storage` | Persistence: `Store` (projects, snapshots, manifests), `GraphStore` (SCG documents, relationally), `ASGStore` (attack-surface documents), `AuditStore` (audits, paths, score snapshots, events; an alias of `path.Store`), `IdempotencyStore` (durable write claims), the migration runner, in-memory and `database/sql` implementations | never choose a driver (the caller passes one), never interpret an artifact beyond comparing identity, never overwrite an immutable record with different content | `internal/app`; through `app.Runtime`, `internal/api`, `internal/mcp` |
 | `internal/api` | REST adapter: routing, request decoding and body limits, capability-based authentication, `Idempotency-Key` handling, ETag/If-Match, JSON error mapping | contains no analysis logic and no driver choice; never exposes a route without a capability rule | `cmd/server` |
 | `internal/mcp` | MCP adapter: nine read-only graph tools, argument validation, error classification, provenance block | no writes, no shell, no arbitrary file access, no free-form query language | `cmd/mcp` |
-| `internal/app` | Composition root: the single place where the SQLite driver, the migration set, the frontends, the store and the graph service are chosen and wired | must stay free of HTTP and CLI concerns | `cmd/cli`, `cmd/server`, `cmd/mcp` |
+| `internal/app` | Composition root: the single place where the SQLite driver, the migration set, the frontends, the store, the graph service, the attack-surface service and the path engine are chosen and wired | must stay free of HTTP and CLI concerns | `cmd/cli`, `cmd/server`, `cmd/mcp` |
 | `cmd/cli` | Developer entry point: `manifest`, `snapshot`, `snapshots list\|remove`, all `scg` subcommands; human summaries or `--json` | does not own a database (stateless commands use an in-memory store; `scg` commands open the file store) | operator |
 | `cmd/server` | REST process: flags, authentication construction, HTTP server timeouts, graceful shutdown | does not build tokens from anywhere but flags or `CODEXPLOIT_API_TOKENS` | operator |
 | `cmd/mcp` | stdio MCP process: flags, refuses any transport but stdio, logs to stderr so the protocol stream on stdout stays clean | never opens a listening socket | MCP client |
@@ -76,6 +87,9 @@ lexicographic order by `internal/storage`. One line per table:
 | `0002_scg.sql` | `scg_call_sites` | call expressions, resolved or not: caller, position, callee text, target, resolution, confidence, detail, analyzer provenance |
 | `0002_scg.sql` | `scg_edges` | relationships: from/to ids, kind, resolution, confidence, source location, analyzer, call site id, detail JSON |
 | `0003_idempotency.sql` | `idempotency_keys` | durable write claims: `(scope, key)` primary key, request hash, principal, status (`0` = still running), stored response, creation and expiry |
+| `0004_call_site_arguments.sql` | `scg_call_sites.args_json`, `scg_call_sites.receiver_from` | P3 call-site argument facts: literals, symbol references, expressions, and the receiver's provenance |
+| `0005_attack_surface.sql` | `asg_builds`, `asg_nodes`, `asg_edges` | the attack-surface document, replaced as a whole per snapshot and deleted with it |
+| `0006_audit_paths.sql` | `audits`, `audit_paths`, `path_features`, `path_events` | P4 audits, their paths (steps, signature, cluster, evidence, score, lease), append-only score snapshots and the audit-scoped event log |
 | created by the runner | `schema_migrations` | applied migration versions, so a rerun is a no-op |
 
 The DDL is deliberately dialect-neutral (`TEXT`/`INTEGER`/`BIGINT`, timestamps as
