@@ -50,6 +50,13 @@ and the score carries its weights and feature snapshot — and each states its
 evidence class instead of asserting exploitability. See
 [`audit-paths.md`](audit-paths.md).
 
+The agent runtime (P5) then analyses one scheduled path at a time: a bounded task
+carrying a minimal code slice and the facts already established, a read-only tool
+allowlist enforced in Go, an expansion policy the orchestrator decides, and a
+structured answer that may only claim a candidate hypothesis with cited evidence.
+Runs, their event logs and the resulting hypotheses are stored; nothing about an
+agent's internal reasoning is. See [`agent-runtime.md`](agent-runtime.md).
+
 ## Package map
 
 | Package | Responsibility | Must not | Called by |
@@ -60,6 +67,7 @@ evidence class instead of asserting exploitability. See
 | `internal/scg/gofrontend` | The only language frontend: Go, parsed with `go/parser` (AST only, no type checking), including the call resolver | never type-check, build or download anything; never invent a symbol outside the snapshot index | `internal/app` (registered by default); through the `scg.Frontend` interface, only `internal/scg` |
 | `internal/graph` | P2 graph service: snapshot-scoped bounded queries (summary, modules, files, symbols, callers/callees, call paths, code slices), budgets, truncation reporting, in-memory result cache; plus the ASG query service and the adapters the ASG and path engines read through | never mix snapshots, never return a partial answer without `truncated`/`truncation_reason`, never treat "depth reached" as truncation | `internal/app`, `internal/api`, `internal/mcp` |
 | `internal/asg` | P3 attack surface: the ASG document model, the rule tables (frameworks, sources, sinks, controls, assets), bounded reachability, the extractor and its builder, and the validation that rejects any claim without SCG evidence | never overwrite an SCG fact, never emit `SUPPORTED_BY`/`VERIFIED_BY`/`Hypothesis` (later phases), never assert that a control is effective | `internal/app`, `internal/graph` (as a store document), `internal/storage` (implements the ASG store in terms of its types) |
+| `internal/agent` | P5 agent runtime: the task and answer protocol (strict JSON, length caps, no reasoning transcript), run/event/hypothesis model, deterministic and subprocess adapters, and the orchestrator that owns the lease, the budget, the deadline and the tool gate | never let an adapter widen its own allowlist, budget or deadline; never store a reasoning transcript; never accept `confirmed` from an agent | `internal/graph` (implements the facts/tools/coordinator), `internal/storage` (implements the store), `internal/app`, `internal/api`, `cmd` |
 | `internal/path` | P4 AuditPath engine: bounded candidate enumeration, exact dedup by canonical edge sequence, approximate clustering, versioned scoring with a stored feature snapshot, the state machine, the marginal-coverage picker and the audit service | never claim dataflow, never make a path without evidence refs, never write an illegal transition, never let a score lose its version or its reasons | `internal/app`, `internal/storage` (implements `path.Store`), `internal/graph` (provides the readers) |
 | `internal/storage` | Persistence: `Store` (projects, snapshots, manifests), `GraphStore` (SCG documents, relationally), `ASGStore` (attack-surface documents), `AuditStore` (audits, paths, score snapshots, events; an alias of `path.Store`), `IdempotencyStore` (durable write claims), the migration runner, in-memory and `database/sql` implementations | never choose a driver (the caller passes one), never interpret an artifact beyond comparing identity, never overwrite an immutable record with different content | `internal/app`; through `app.Runtime`, `internal/api`, `internal/mcp` |
 | `internal/api` | REST adapter: routing, request decoding and body limits, capability-based authentication, `Idempotency-Key` handling, ETag/If-Match, JSON error mapping | contains no analysis logic and no driver choice; never exposes a route without a capability rule | `cmd/server` |
@@ -89,6 +97,7 @@ lexicographic order by `internal/storage`. One line per table:
 | `0003_idempotency.sql` | `idempotency_keys` | durable write claims: `(scope, key)` primary key, request hash, principal, status (`0` = still running), stored response, creation and expiry |
 | `0004_call_site_arguments.sql` | `scg_call_sites.args_json`, `scg_call_sites.receiver_from` | P3 call-site argument facts: literals, symbol references, expressions, and the receiver's provenance |
 | `0005_attack_surface.sql` | `asg_builds`, `asg_nodes`, `asg_edges` | the attack-surface document, replaced as a whole per snapshot and deleted with it |
+| `0007_agent_runtime.sql` | `agent_runs`, `agent_events`, `hypotheses` | P5 agent runs (task, policy, consumed budget, lease, stop reason, answer), per-run append-only event log, and claims keyed by `(path_id, digest)` with support/contradiction lists |
 | `0006_audit_paths.sql` | `audits`, `audit_paths`, `path_features`, `path_events` | P4 audits, their paths (steps, signature, cluster, evidence, score, lease), append-only score snapshots and the audit-scoped event log |
 | created by the runner | `schema_migrations` | applied migration versions, so a rerun is a no-op |
 

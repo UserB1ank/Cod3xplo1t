@@ -21,7 +21,8 @@ documentation lives under [`docs/`](docs/) — see the
 | P2 | Source Code Graph (modules, files, symbols, call sites, arguments, call edges), bounded graph queries, REST API and MCP server | **implemented** (Go frontend) |
 | P3 | Attack surface extraction: entry points, inputs, sinks, controls, assets, bounded reachability, ASG candidate, REST + CLI | **implemented** (rule-based; the semantic-agent and verification layers are later phases) |
 | P4 | AuditPath generation (bounded, evidence-linked), exact and approximate dedup, versioned risk/value scoring, scheduling queue with leases, events and state machine, REST + CLI | **implemented** (rule and graph based; the agent runtime and verification are later phases) |
-| P5–P7 | Agent runtime, verification, productisation | not started |
+| P5 | Agent runtime: bounded task building with a minimal code slice, structured hypotheses with cited evidence, tool allowlist enforced in Go, expansion policy, run/event/hypothesis store, REST + CLI | **implemented** (scripted and generic CLI adapters; verification is the next phase) |
+| P6–P7 | Verification, evidence and reports, incremental optimisation, WebUI | not started |
 
 The Go frontend is currently the only language frontend; files in other source
 languages are listed and counted, never silently dropped. See
@@ -241,6 +242,33 @@ not vulnerability probabilities. Generation, dedup, the scoring formula, the sta
 machine and the lease model are documented in
 [`docs/audit-paths.md`](docs/audit-paths.md).
 
+### Agent runs (P5)
+
+An agent analyses one scheduled path under a bounded policy and returns structured
+hypotheses. The orchestrator owns the process, the lease and the budget; the adapter
+receives a task and emits events, and never gets a shell, the network or the tool
+registry.
+
+```bash
+# run the next scheduled path of an audit (scripted = deterministic dry run)
+bin/cli run audit-… --runtime scripted --agent-scripted-answer "$(cat answer.json)"
+
+# inspect runs and what they claimed
+bin/cli runs list  --audit audit-…
+bin/cli runs show  run-…
+bin/cli runs events run-… --type expansion_decided
+bin/cli hypotheses list --audit audit-… --finding-candidates
+bin/cli hypotheses show hyp-…
+```
+
+`--runtime cli` runs any external CLI that speaks the protocol (task JSON on stdin,
+NDJSON events on stdout); the server is configured with `--agent-runtime` and the
+`--agent-*` flags shown by `bin/server -h`. The task, the tool exchanges, the
+expansion decisions and the answer are stored per run; **no chain of thought is
+stored or requested**, an agent may only claim `candidate`/`inconclusive`/`refuted`
+(confirmation belongs to verification), and a `finding_candidate` must cite
+evidence. See [`docs/agent-runtime.md`](docs/agent-runtime.md).
+
 ### Managing snapshots
 
 ```bash
@@ -336,6 +364,7 @@ codes: [`docs/mcp-tools.md`](docs/mcp-tools.md).
 | [`docs/scg.md`](docs/scg.md) | Source Code Graph: nodes, edges, ids, resolution classes, query budgets, coverage, limits |
 | [`docs/asg.md`](docs/asg.md) | Attack Surface Graph: node and edge kinds, rule tables, evidence model, reachability, limits |
 | [`docs/audit-paths.md`](docs/audit-paths.md) | AuditPath generation, dedup and clustering, scoring formulas, state machine, leases, events |
+| [`docs/agent-runtime.md`](docs/agent-runtime.md) | agent runtime: task shape, answer protocol, bounded divergence, stop conditions, adapters, isolation |
 | [`docs/known-issues.md`](docs/known-issues.md) | every gap, deviation and risk in the current tree, with evidence and a next action |
 | [`docs/api.md`](docs/api.md) | REST interface reference |
 | [`docs/mcp-tools.md`](docs/mcp-tools.md) | MCP tool catalogue |

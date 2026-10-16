@@ -30,7 +30,8 @@ been verified in the tree; nothing is listed from memory alone.
 | P3 attack surface | 6 | `DEVIATION` |
 | P4 audit paths | 7 | `RISK` |
 | Platform and deployment | 5 | `RISK` |
-| Not started (P5–P7, WebUI) | 5 | `GAP` |
+| Not started (P6–P7, WebUI) | 4 | `GAP` |
+| Agent runtime (P5) | 3 | `DEVIATION` |
 
 ---
 
@@ -418,7 +419,9 @@ been verified in the tree; nothing is listed from memory alone.
 
 | # | Class | Gap | Why it matters |
 |---|---|---|---|
-| 7.1 | `GAP` | Agent runtime and skill adapter (P5): bounded local exploration, `EXPAND_REQUEST` protocol, structured hypothesis output | the whole point of the ASG/AuditPath chain is to hand bounded, evidence-linked work to an agent; until then, paths are queued and never analysed |
+| 7.1 | `DEVIATION` | **P5 is implemented** but two pieces are deferred by design: expansion requests are decided by policy inside the run rather than approved by an operator, and adapters cannot be network-sandboxed by Go alone (the deployment contract is a restricted container/VM). See `docs/agent-runtime.md` | the design's `EXPAND_REQUEST` approval flow assumed an operator in the loop; recording every decision in the run events keeps it auditable, and isolation remains an operational requirement |
+| 7.1b | `GAP` | MCP exposes no run, hypothesis or attack-path tools; the agent's own tool access is the orchestrator's registry, not MCP | an external agent or UI cannot read runs/hypotheses over MCP; REST covers it for now | `internal/mcp/server.go` |
+| 7.1c | `RISK` | A run's tool results are truncated (20 000 characters) and its slice is bounded (240 lines), so an agent can reason from incomplete evidence | a conclusion drawn from a truncated slice can be wrong; every truncation is recorded in the result and the task carries the upstream limitations | `docs/agent-runtime.md`, `internal/agent/protocol.go` (`MaxToolResultChars`) |
 | 7.2 | `GAP` | Verification worker (P6): isolated execution, resource limits, evidence capture, `CONFIRMED`/`REFUTED`/`INCONCLUSIVE`/`BLOCKED` | no finding can be confirmed or refuted, so `VERIFYING` and `CONCLUDED` are states nothing reaches on its own |
 | 7.3 | `GAP` | Evidence store, findings store and report engines (P6): immutable evidence, candidate/confirmed/refuted findings, SARIF/JSON/Markdown/HTML reports | without them there is no deliverable for a user; the audit ends at a ranked path list |
 | 7.4 | `GAP` | Incremental analysis, dependency-impact caching and benchmark calibration (P7) | full rebuilds per commit and uncalibrated weights are the two costs that grow fastest |

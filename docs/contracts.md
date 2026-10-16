@@ -380,3 +380,36 @@ store, so the guarantee survives a restart, a crash or a load-balancer hop —
   deleted snapshot cannot keep answering audit queries —
   `internal/storage/memory.go`, `internal/storage/sql.go` (`DeleteSnapshot`),
   `internal/path/store.go` (`DeleteAuditsForSnapshot`).
+
+## 18. Agent runs are bounded, evidence-linked and auditable
+
+- A run receives a validated task: identity, a non-empty `security_goal`, both ends
+  of the path, at least one evidence reference and a bounded code slice. A builder
+  that can produce an invalid task fails loudly instead of handing an agent an
+  unanswerable question — `internal/agent/protocol.go` (`ValidateTask`),
+  `internal/graph/agentfacts.go` (`BuildTask`).
+- An answer is strict JSON: unknown fields are rejected, every citation must carry
+  a resolvable reference or a file and line, free text is capped, and `status` may
+  only be `candidate`, `inconclusive` or `refuted`. **`confirmed` belongs to
+  verification** — `internal/agent/protocol.go` (`DecodeAnswer`, `ValidateAnswer`,
+  `ValidHypothesisStatus`).
+- No reasoning transcript is stored or requested: `agent_events` holds the task,
+  tool exchanges, expansion decisions and the structured answer —
+  `migrations/0007_agent_runtime.sql`, `internal/agent/model.go` (`Event`).
+- The agent cannot widen its own limits. Tool calls are validated against the run's
+  allowlist before execution (`ValidateToolRequest`), results are truncated
+  (`TruncateToolResult`), and an expansion only ever adds hops and tool calls:
+  `ApplyExpansion` cannot touch the allowlist — `internal/agent/protocol.go`,
+  `internal/agent/runner.go`.
+- Each stop condition sets its own status and reason, and a clean end with no
+  acceptable answer is `INVALID_OUTPUT`, not an adapter failure —
+  `internal/agent/runner.go` (`finish`, `acceptAnswer`).
+- Worker-driven path changes carry the lease owner
+  (`path.Service.TransitionOwned`), so a run can only settle the path it holds; the
+  operator form (`Transition`) deliberately stays ownerless so a stuck path remains
+  recoverable — `internal/path/service.go`, `internal/graph/agentcoordinator.go`.
+- A finished run releases its lease atomically with the `HYPOTHESIS_FORMED`
+  transition, because that status is not active — `internal/path/model.go`
+  (`Status.Active`), `internal/path/service.go` (`transition`).
+- Deleting a snapshot deletes its runs, events and hypotheses —
+  `internal/storage/memory.go`, `internal/storage/sql.go` (`DeleteSnapshot`).
