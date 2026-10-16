@@ -19,6 +19,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/analysis"
 	"github.com/open-mcp-ai/Codexploit/internal/asg"
 	"github.com/open-mcp-ai/Codexploit/internal/graph"
+	"github.com/open-mcp-ai/Codexploit/internal/lifecycle"
 	"github.com/open-mcp-ai/Codexploit/internal/path"
 	"github.com/open-mcp-ai/Codexploit/internal/repository"
 	"github.com/open-mcp-ai/Codexploit/internal/scg"
@@ -170,6 +171,7 @@ type AgentConfig struct {
 
 // Runtime bundles the wired components.
 type Runtime struct {
+	Snapshots  lifecycle.Snapshots
 	Store      storage.FullStore
 	Manager    *repository.Manager
 	Analyzer   *analysis.Analyzer
@@ -297,6 +299,7 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 // wireGraphServices builds the query layer over the chosen store. Both stores
 // implement the same interfaces, so nothing here depends on which one it is.
 func (r *Runtime) wireGraphServices(store storage.FullStore) {
+	r.Snapshots = lifecycle.Snapshots{Store: store, Manager: r.Manager}
 	r.Graph = graph.NewService(store, r.Manager)
 	// The ASG builder reads the SCG through *graph.Service, which satisfies
 	// asg.SCGReader with its narrow read methods.

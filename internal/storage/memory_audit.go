@@ -79,6 +79,9 @@ func (m *Memory) CreateAudit(audit path.Audit) error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if err := m.snapshotWritableLocked(audit.SnapshotID); err != nil {
+		return err
+	}
 	if _, exists := m.audits[audit.ID]; exists {
 		return fmt.Errorf("%w: audit %s already exists", path.ErrConflict, audit.ID)
 	}
@@ -132,6 +135,9 @@ func (m *Memory) UpdateAudit(audit path.Audit, expectedVersion int64) error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if err := m.snapshotWritableLocked(audit.SnapshotID); err != nil {
+		return err
+	}
 	doc, ok := m.audits[audit.ID]
 	if !ok {
 		return fmt.Errorf("%w: audit %s", path.ErrNotFound, audit.ID)
@@ -273,6 +279,9 @@ func (m *Memory) UpdatePath(p path.Path, expectedVersion int64) error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if err := m.snapshotWritableLocked(p.SnapshotID); err != nil {
+		return err
+	}
 	doc, current, ok := m.findPathDocLocked(p.ID)
 	if !ok {
 		return fmt.Errorf("%w: path %s", path.ErrNotFound, p.ID)
@@ -471,6 +480,9 @@ func (m *Memory) Transition(req path.TransitionRequest) (*path.Path, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: path %s", path.ErrNotFound, req.PathID)
 	}
+	if err := m.snapshotWritableLocked(current.SnapshotID); err != nil {
+		return nil, err
+	}
 	updated, event, err := planPathTransition(current, req, now)
 	if err != nil {
 		return nil, err
@@ -495,9 +507,21 @@ func (m *Memory) ClaimPath(pathID, owner, until string, from []path.Status, acto
 	if !ok {
 		return nil, fmt.Errorf("%w: path %s", path.ErrNotFound, pathID)
 	}
+	if err := m.snapshotWritableLocked(current.SnapshotID); err != nil {
+		return nil, err
+	}
 	updated, event, err := planClaim(current, owner, until, from, actor, now)
 	if err != nil {
 		return nil, err
+	}
+	active := 0
+	for _, p := range doc.paths {
+		if p.Status.Active() {
+			active++
+		}
+	}
+	if active >= doc.audit.Limits.Normalize().MaxActiveLeases {
+		return nil, fmt.Errorf("%w: audit %s has no free active lease", path.ErrBudgetExceeded, current.AuditID)
 	}
 	stored, err := cloneDocument(updated)
 	if err != nil {

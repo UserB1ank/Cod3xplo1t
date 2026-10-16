@@ -21,6 +21,9 @@ func (s *SQL) ReplaceGraph(ctx context.Context, snapshotID string, g *scg.Graph)
 		return mapSQLError(err)
 	}
 	defer tx.Rollback()
+	if err := s.snapshotWritableTx(ctx, tx, snapshotID); err != nil {
+		return err
+	}
 
 	for _, table := range []string{"scg_modules", "scg_files", "scg_symbols", "scg_call_sites", "scg_edges", "graph_builds"} {
 		if _, err := tx.ExecContext(ctx, s.rebind(`DELETE FROM `+table+` WHERE snapshot_id = ?`), snapshotID); err != nil {

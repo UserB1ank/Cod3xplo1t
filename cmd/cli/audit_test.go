@@ -278,7 +278,8 @@ func TestAuditCreateOnCLIBuiltSnapshot(t *testing.T) {
 	workspace, db := scgWorkspace(t)
 	snapID := buildASG(t, source, workspace, db)
 
-	// The precondition the bug depended on: a loadable snapshot with no row.
+	// Emulate a workspace made before CLI builds registered snapshots. Preserve
+	// the graphs while removing only the P1 registry rows.
 	ctx := context.Background()
 	rt, err := app.Build(ctx, app.Config{Workspace: workspace, DBPath: db})
 	if err != nil {
@@ -287,6 +288,13 @@ func TestAuditCreateOnCLIBuiltSnapshot(t *testing.T) {
 	if _, err := rt.Manager.Load(snapID); err != nil {
 		rt.Close()
 		t.Fatalf("the CLI build did not leave a loadable snapshot: %v", err)
+	}
+	sqlStore := rt.Store.(*storage.SQL)
+	for _, table := range []string{"analyses", "snapshots"} {
+		if _, err := sqlStore.DB().ExecContext(ctx, "DELETE FROM "+table+" WHERE snapshot_id = ?", snapID); err != nil {
+			rt.Close()
+			t.Fatal(err)
+		}
 	}
 	if _, err := rt.Store.GetSnapshot(ctx, snapID); !errors.Is(err, storage.ErrNotFound) {
 		rt.Close()

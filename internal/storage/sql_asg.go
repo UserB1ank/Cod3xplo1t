@@ -22,6 +22,9 @@ func (s *SQL) ReplaceASG(ctx context.Context, snapshotID string, doc *asg.Docume
 		return mapSQLError(err)
 	}
 	defer tx.Rollback()
+	if err := s.snapshotWritableTx(ctx, tx, snapshotID); err != nil {
+		return err
+	}
 
 	for _, table := range []string{"asg_nodes", "asg_edges", "asg_builds"} {
 		if _, err := tx.ExecContext(ctx, s.rebind(`DELETE FROM `+table+` WHERE snapshot_id = ?`), snapshotID); err != nil {

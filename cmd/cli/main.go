@@ -104,7 +104,8 @@ Usage:
   codexploit scheduler reclaim [--limit N] [--json]
   codexploit scheduler run [--interval N] [--audits a,b] [--runtime ...] [--json]
   codexploit snapshots list [--workspace <dir>]          list snapshots in a workspace
-  codexploit snapshots remove --id <snapshot-id>         delete a snapshot (unfreezes the tree first)
+  codexploit snapshots register --id <id> --source <source> [--db FILE]
+  codexploit snapshots remove --id <snapshot-id> [--db FILE]   delete the tree and stored data
   codexploit version
 
 A frozen snapshot tree is read-only, so deleting a workspace with rm -rf fails.
@@ -222,12 +223,14 @@ func runManifest(ctx context.Context, args []string) error {
 // rm -rf on any supported platform.
 func runSnapshots(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: codexploit snapshots <list|remove> [flags]")
+		return errors.New("usage: codexploit snapshots <list|register|remove> [flags]")
 	}
 	sub := args[0]
 	fs := flag.NewFlagSet("snapshots "+sub, flag.ContinueOnError)
 	workspace := fs.String("workspace", ".codexploit", "workspace directory")
-	id := fs.String("id", "", "snapshot id (remove)")
+	db := fs.String("db", "", "SQLite database file (default <workspace>/codexploit.db)")
+	source := fs.String("source", "", "original repository source (register)")
+	id := fs.String("id", "", "snapshot id (register/remove)")
 	jsonOut := fs.Bool("json", false, "print JSON")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
@@ -236,7 +239,14 @@ func runSnapshots(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	rt, err := app.Build(ctx, app.Config{Workspace: absWorkspace, DBPath: "memory"})
+	dbPath := *db
+	if dbPath == "" {
+		dbPath = filepath.Join(absWorkspace, "codexploit.db")
+		if sub == "list" {
+			dbPath = "memory"
+		}
+	}
+	rt, err := app.Build(ctx, app.Config{Workspace: absWorkspace, DBPath: dbPath})
 	if err != nil {
 		return err
 	}
@@ -267,10 +277,44 @@ func runSnapshots(ctx context.Context, args []string) error {
 		if strings.TrimSpace(*id) == "" {
 			return errors.New("--id is required")
 		}
-		if err := rt.Manager.Remove(*id); err != nil {
+		if err := rt.Snapshots.Remove(ctx, *id); err != nil {
 			return err
 		}
 		fmt.Printf("removed %s\n", *id)
+	case "register", "import":
+		if strings.TrimSpace(*id) == "" {
+			return errors.New("--id is required")
+		}
+		snap, err := rt.Manager.Load(*id)
+		if err != nil {
+			return err
+		}
+		var manifest *analysis.Manifest
+		if doc, err := snap.ReadManifest(); err == nil {
+			var mf analysis.Manifest
+			if err := json.Unmarshal(doc, &mf); err != nil {
+				return err
+			}
+			if mf.SnapshotID != snap.SnapshotID {
+				return errors.New("manifest belongs to a different snapshot")
+			}
+			manifest = &mf
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		projectID, err := rt.Snapshots.Register(ctx, snap, *source)
+		if err != nil {
+			return err
+		}
+		if manifest != nil {
+			if _, err := rt.Snapshots.PutManifest(ctx, snap, manifest); err != nil {
+				return err
+			}
+		}
+		if *jsonOut {
+			return printJSON(map[string]string{"snapshot_id": snap.SnapshotID, "project_id": projectID})
+		}
+		fmt.Printf("registered %s in project %s\n", snap.SnapshotID, projectID)
 	default:
 		return fmt.Errorf("unknown snapshots subcommand %q", sub)
 	}

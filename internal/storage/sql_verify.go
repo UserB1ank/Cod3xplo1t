@@ -330,10 +330,10 @@ func (s *SQL) CreateVerificationRun(run verify.Run) error {
 	if err != nil {
 		return err
 	}
-	if _, err := s.db.ExecContext(context.Background(), s.rebind(verificationRunInsertSQL), values...); err != nil {
+	return s.snapshotWrite(context.Background(), run.SnapshotID, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(context.Background(), s.rebind(verificationRunInsertSQL), values...)
 		return mapVerifySQLError(err)
-	}
-	return nil
+	})
 }
 
 // GetVerificationRun implements verify.Store.
@@ -462,6 +462,9 @@ func (s *SQL) AppendEvidence(evidence []verify.Evidence) error {
 	// race the second write would win.
 	seen := map[string]verify.Evidence{}
 	for _, object := range evidence {
+		if err := s.snapshotWritableTx(ctx, tx, object.SnapshotID); err != nil {
+			return err
+		}
 		if strings.TrimSpace(object.ID) == "" {
 			return fmt.Errorf("%w: evidence needs an id", verify.ErrInvalidArgument)
 		}
@@ -551,6 +554,9 @@ func (s *SQL) UpsertFinding(finding verify.Finding) error {
 		return mapVerifySQLError(err)
 	}
 	defer tx.Rollback()
+	if err := s.snapshotWritableTx(ctx, tx, prepared.SnapshotID); err != nil {
+		return err
+	}
 
 	var storedID, storedCreatedAt string
 	var storedVersion int64

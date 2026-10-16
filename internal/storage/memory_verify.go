@@ -31,6 +31,9 @@ func (m *Memory) CreateVerificationRun(run verify.Run) error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if err := m.snapshotWritableLocked(run.SnapshotID); err != nil {
+		return err
+	}
 	if _, exists := m.verificationRuns[prepared.ID]; exists {
 		return fmt.Errorf("%w: verification run %s already exists", verify.ErrConflict, prepared.ID)
 	}
@@ -164,6 +167,9 @@ func (m *Memory) AppendEvidence(evidence []verify.Evidence) error {
 	pending := make([]verify.Evidence, 0, len(stored))
 	seen := map[string]verify.Evidence{}
 	for _, object := range stored {
+		if err := m.snapshotWritableLocked(object.SnapshotID); err != nil {
+			return err
+		}
 		if first, duplicate := seen[object.ID]; duplicate {
 			if !sameEvidenceObject(first, object) {
 				return fmt.Errorf("%w: evidence %s appears twice in the batch with different content", verify.ErrConflict, object.ID)
@@ -236,6 +242,9 @@ func (m *Memory) UpsertFinding(finding verify.Finding) error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if err := m.snapshotWritableLocked(prepared.SnapshotID); err != nil {
+		return err
+	}
 	row := prepared
 	current, exists := m.findFindingByHypothesisLocked(prepared.HypothesisID)
 	if exists {

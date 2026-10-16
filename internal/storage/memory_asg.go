@@ -51,6 +51,9 @@ func (m *Memory) ReplaceASG(_ context.Context, snapshotID string, doc *asg.Docum
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if err := m.snapshotWritableLocked(snapshotID); err != nil {
+		return err
+	}
 	m.asgDocuments[snapshotID] = &copyDoc
 	return nil
 }

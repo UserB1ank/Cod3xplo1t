@@ -116,6 +116,10 @@ List or read projects. `GET` by id returns an `ETag` for use with `PATCH`.
 Renames a project. Requires `If-Match` with the current `ETag` (capability
 `admin`); the response carries the new `ETag`.
 
+The project has a monotonically increasing `version`. Comparing that version and
+renaming are one storage operation, so concurrent requests with the same ETag
+cannot both succeed: one returns `412 precondition_failed`.
+
 ### `POST /api/projects/{id}/snapshots`
 
 ```json
@@ -140,7 +144,14 @@ List snapshot records or read one metadata summary.
 
 ### `DELETE /api/snapshots/{id}`
 
-Removes the records, the graph and the frozen tree (unfreezing it first).
+Returns `204` after removing the frozen tree and all stored derived data. Active
+paths or unfinished agent/verification runs cause `409`; settle or reclaim them
+first. Deletion first persists a pending marker, then unfreezes and removes the
+tree, then atomically cleans up the store and completes the marker. If either
+cleanup fails, repeat DELETE; the pending operation survives a SQLite restart.
+Snapshot registration, builds and new claims are refused while deletion is pending.
+Completed tombstones reject late writes until a materialized snapshot is explicitly
+registered again. A completely unknown snapshot returns `404`.
 
 ### `GET /api/snapshots/{id}/manifest`
 

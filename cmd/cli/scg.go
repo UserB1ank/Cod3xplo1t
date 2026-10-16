@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -169,11 +168,15 @@ func buildSCGChain(ctx context.Context, rt *app.Runtime, source, ref string) (*s
 	if err != nil {
 		return nil, err
 	}
+	if _, err := rt.Snapshots.Register(ctx, snap, source); err != nil {
+		return nil, err
+	}
 	manifest, err := rt.Analyzer.Analyze(ctx, snap)
 	if err != nil {
 		return nil, err
 	}
-	if err := manifest.WriteTo(snap); err != nil && !manifestStored(snap, manifest) {
+	manifest, err = rt.Snapshots.PutManifest(ctx, snap, manifest)
+	if err != nil {
 		return nil, err
 	}
 	g, err := rt.Builder.Build(ctx, snap)
@@ -199,20 +202,6 @@ func buildSCGChain(ctx context.Context, rt *app.Runtime, source, ref string) (*s
 		return nil, err
 	}
 	return &scgChain{snapshot: snap, manifest: manifest, summary: summary, artifact: name}, nil
-}
-
-// manifestStored reports whether the manifest already on disk describes the same
-// analysis. Timestamps differ between runs, so the analysis id decides.
-func manifestStored(snap *repository.Snapshot, m *analysis.Manifest) bool {
-	got, err := snap.ReadManifest()
-	if err != nil {
-		return false
-	}
-	var prev analysis.Manifest
-	if err := json.Unmarshal(got, &prev); err != nil {
-		return false
-	}
-	return prev.AnalysisID != "" && prev.AnalysisID == m.AnalysisID
 }
 
 func printGraphSummary(s *scg.Summary) {

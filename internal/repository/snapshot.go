@@ -255,9 +255,8 @@ func (s *Snapshot) WriteManifest(data []byte) error {
 	if s.Dir == "" {
 		return errors.New("repository: snapshot has no directory")
 	}
-	if err := os.MkdirAll(s.Dir, 0o755); err != nil {
-		return err
-	}
+	// The manager owns directory creation. A late analysis must not recreate a
+	// snapshot directory that a concurrent deletion already removed.
 	f, err := os.OpenFile(s.ManifestPath(), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if err != nil {
 		return fmt.Errorf("repository: refusing to overwrite %s: %w", s.ManifestPath(), err)

@@ -50,6 +50,7 @@ type Store interface {
 	// ClaimPath leases a claimable path to an owner until the given time and moves
 	// it to ANALYZING. It must be atomic: two workers may never win the same path,
 	// and a lease may never be taken on a path whose status is not in `from`.
+	// The audit's active-lease ceiling is checked in the same atomic operation.
 	ClaimPath(pathID, owner, until string, from []Status, actor string) (*Path, error)
 	// RenewLease extends a lease the owner still holds. It fails with
 	// ErrLeaseExpired when the lease is gone and ErrLeaseHeld when someone else

@@ -22,17 +22,17 @@ been verified in the tree; nothing is listed from memory alone.
 
 ## Summary
 
-| Area | Entries | Worst class |
+| Area | Open entries | Classes |
 |---|---|---|
 | Repository and release tooling | 4 | `DEBT` |
-| P1 snapshot chain | 2 | `GAP` |
-| P2 source code graph | 5 | `GAP` |
-| P3 attack surface | 6 | `DEVIATION` |
-| P4 audit paths | 7 | `RISK` |
-| Platform and deployment | 5 | `RISK` |
-| Not started (P7, WebUI) | 3 | `GAP` |
-| Verification (P6) | 3 | `DEVIATION` |
-| Agent runtime (P5) | 3 | `DEVIATION` |
+| P1 snapshot chain | 0 | closed; see §9 |
+| P2 source code graph | 5 | `GAP`, `DEVIATION`, `DEBT` |
+| P3 attack surface | 6 | `GAP`, `DEVIATION`, `RISK` |
+| P4 audit paths | 6 | `DEVIATION`, `RISK` |
+| Platform and deployment | 5 | `RISK`, `DEVIATION` |
+| Runtime limits and future interfaces | 7 | `GAP`, `DEVIATION`, `RISK` |
+
+There are 33 active entries. Closed entries below retain their old identifiers.
 
 ---
 
@@ -63,15 +63,17 @@ been verified in the tree; nothing is listed from memory alone.
 - **Action**: either write those documents and the target, or trim `AGENTS.md` to
   what exists. Do not leave the references dangling.
 
-### 1.3 `DEBT` — the format gate runs on one operating system only
+### 1.3 `DEBT` — the formatting command scans ignored workspace caches
 
-- **Symptom**: CI runs the test matrix on ubuntu, macos and windows, but the
-  `gofmt` check is guarded by `if: matrix.os == 'ubuntu-latest'`.
-- **Impact**: formatting drift committed from another platform is not caught, and
-  the next contributor's diff mixes formatting with logic.
-- **Evidence**: `.github/workflows/test.yml`.
-- **Action**: run `gofmt -l` in a single dedicated job rather than inside one leg
-  of the matrix.
+- **Symptom**: CI uses `gofmt -l .`, which recursively enters a local
+  `.cache/gomod` directory and encounters intentionally invalid dependency
+  fixtures. A clean CI checkout does not contain that cache.
+- **Impact**: the same command fails in a documented local workspace even when
+  every tracked project source file is formatted. Running one Ubuntu formatting
+  gate is sufficient to check source changes submitted from all platforms.
+- **Evidence**: `.github/workflows/test.yml`, `docs/testing.md`; compare
+  `gofmt -l .` with formatting the Go files returned by `git ls-files`.
+- **Action**: restrict the gate to tracked Go files and propagate formatter errors.
 
 ### 1.4 `DEBT` — no lint job and no release workflow
 
@@ -87,39 +89,9 @@ been verified in the tree; nothing is listed from memory alone.
 
 ## 2. P1 snapshot chain
 
-### 2.1 `GAP` — snapshots created by the CLI are invisible to the API
-
-- **Symptom**: `codexploit snapshot`/`scg build`/`asg build`/`audit build` freeze a
-  tree and write graph rows, but never a `snapshots` row: the CLI has no project
-  concept and `snapshots.project_id` is `NOT NULL REFERENCES projects(id)`. The
-  API lists and looks up snapshots through the store (`GET /api/snapshots`,
-  `GET /api/snapshots/{id}`), so it does not see them; the CLI lists them through
-  the repository manager, so it does.
-- **Impact**: the two halves of the product disagree about which snapshots exist.
-  Anything that resolves a snapshot through the store fails on a CLI-created
-  snapshot. This was hit for real by the P4 audit commands and worked around there
-  (they resolve through the manager); the API still has no workaround.
-- **Evidence**: `migrations/0001_init.sql` (`snapshots.project_id`);
-  `internal/api/server.go` (`handleListSnapshots`, `handleGetSnapshot`);
-  `cmd/cli/scg.go` and `cmd/cli/audit.go` (manager-based resolution).
-- **Action**: decide the model. Either the CLI creates an implicit project (for
-  example `local`), or `snapshots.project_id` becomes nullable, or the API lists
-  snapshots through the manager and joins the store for metadata. The first option
-  is the smallest change that removes the disagreement.
-
-### 2.2 `GAP` — the store has no file-system fallback for snapshot lookup
-
-- **Symptom**: `Store.GetSnapshot` returns `storage.ErrNotFound` for a tree that
-  exists on disk (see 2.1). Nothing reconciles the frozen tree directory with the
-  store.
-- **Impact**: a workspace that was populated by the CLI reports "no snapshots" to
-  API clients and to `GET /api/snapshots/{id}`.
-- **Evidence**: `internal/storage/memory.go` and `internal/storage/sql.go`
-  (`GetSnapshot`).
-- **Action**: implement a reconciliation command
-  (`codexploit snapshots import`/`register`) or fix 2.1 at the model level; do not
-  add a silent fallback inside `GetSnapshot`, because a store that invents rows is
-  worse than a store that says "not registered".
+The registration gaps 2.1 and 2.2 are closed; see §9. Stateless snapshot and
+manifest commands deliberately remain usable without a database and can be
+registered explicitly with `snapshots register`.
 
 ---
 
@@ -179,9 +151,9 @@ been verified in the tree; nothing is listed from memory alone.
 
 ### 3.5 `DEBT` — `internal/graph` reports low coverage because its tests live elsewhere
 
-- **Symptom**: `internal/graph` measures around 53% statement coverage while the
-  ASG query service and the path adapters it also contains are exercised from
-  `internal/asg` and `internal/path` tests.
+- **Symptom**: a package-local `-cover` result omits executions from other packages.
+  The graph layer now has direct tests, while some query/adapter integration
+  coverage also comes from `internal/asg` and `internal/path` tests.
 - **Impact**: the number invites the wrong conclusion ("the query layer is
   under-tested") and hides real gaps in the coverage report used for review.
 - **Evidence**: `go test ./internal/graph/ -cover` versus
@@ -331,19 +303,6 @@ been verified in the tree; nothing is listed from memory alone.
   exploration reserve (15%–25%) is the current mitigation, not a substitute for
   measurement.
 
-### 5.6 `GAP` — no worker loop, no retry policy, no backoff
-
-- **Symptom**: paths carry `attempts`/`max_attempts` and the state machine has all
-  the recovery states, but nothing consumes the queue automatically: there is no
-  worker runtime, no bounded retry with backoff, and no heartbeat monitor beyond
-  an explicit `reclaim`.
-- **Impact**: scheduling is operator-driven; a crashed worker is recovered only
-  when someone (or a later scheduler) calls reclaim.
-- **Evidence**: `grep -rn 'backoff\|Backoff' internal/ cmd/` → nothing;
-  `internal/path/service.go` (`Claim`, `ReclaimExpired`).
-- **Action**: P5/P7 work. The state machine, leases and events are the substrate it
-  needs; do not add a retry loop inside the engine before the runtime exists.
-
 ### 5.7 `RISK` — the in-memory store is unbounded
 
 - **Symptom**: `storage.Memory` keeps snapshots, graphs, ASGs and audits in maps
@@ -416,7 +375,7 @@ been verified in the tree; nothing is listed from memory alone.
 
 ---
 
-## 7. Not started (P5–P7 and the interfaces they need)
+## 7. Runtime limits and future interfaces
 
 | # | Class | Gap | Why it matters |
 |---|---|---|---|
@@ -424,7 +383,7 @@ been verified in the tree; nothing is listed from memory alone.
 | 7.1b | `GAP` | MCP exposes no run, hypothesis or attack-path tools; the agent's own tool access is the orchestrator's registry, not MCP | an external agent or UI cannot read runs/hypotheses over MCP; REST covers it for now | `internal/mcp/server.go` |
 | 7.1c | `RISK` | A run's tool results are truncated (20 000 characters) and its slice is bounded (240 lines), so an agent can reason from incomplete evidence | a conclusion drawn from a truncated slice can be wrong; every truncation is recorded in the result and the task carries the upstream limitations | `docs/agent-runtime.md`, `internal/agent/protocol.go` (`MaxToolResultChars`) |
 | 7.2 | `DEVIATION` | **P6 is implemented**, with four recorded limits: no exploit synthesis (a plan is built from path evidence; a real PoC is supplied as an explicit plan), Go cannot network-sandbox a subprocess (the deployment contract is a restricted container/VM), severity stays the hypothesis's hint rather than a verified model, and verification has no worker queue (it is requested per hypothesis) | a `confirmed` finding is reproduced, `refuted` needs contradicting evidence, and `inconclusive`/`blocked` are not refutations — those distinctions are enforced in code; the limits are operational |
-| 7.3 | `GAP` | Evidence store, findings store and report engines (P6): immutable evidence, candidate/confirmed/refuted findings, SARIF/JSON/Markdown/HTML reports | without them there is no deliverable for a user; the audit ends at a ranked path list |
+| 7.3 | `GAP` | HTML report rendering is not implemented; P6 evidence, findings and Markdown/JSON/SARIF reports are implemented | add HTML only when an export consumer needs it; see `internal/verify/report.go` |
 | 7.4 | `GAP` | Incremental analysis, dependency-impact caching and benchmark calibration (P7) | full rebuilds per commit and uncalibrated weights are the two costs that grow fastest |
 | 7.5 | `GAP` | WebUI (design §12): SCG/ASG views, path workbench, agent monitoring, finding centre, reports | all read-only APIs it needs exist; the ASG route table and the path queue are already shaped for it |
 
@@ -446,7 +405,7 @@ been verified in the tree; nothing is listed from memory alone.
 Two entries above were closed by the P7 work; they are listed here rather than
 silently deleted, so a reader of an older report knows where they went:
 
-- **5.3 (path-scoped claim)** — closed. `PathCoordinator.ClaimSpecificPath` and
+- **5.3 (path-scoped claim)** — closed. `AgentCoordinator.ClaimSpecificPath` and
   `agent.Runner.RunPath` claim and execute a *named* path, which is what a scheduler
   needs; the audit-scoped route remains the canonical HTTP spelling for a queue pick,
   and the path route is still documented as an alias.
@@ -457,3 +416,26 @@ silently deleted, so a reader of an older report knows where they went:
 Still open from that list, and now recorded as such: no distributed coordination
 beyond lease safety, no incremental analysis or change-impact cache, no score
 calibration, and no MCP surface for paths, runs or findings.
+
+
+## 9. Closed by the snapshot lifecycle and concurrency fixes
+
+- **2.1 / 2.2 — CLI/API snapshot registration**: persistent CLI builds and API
+  snapshot creation use the same repository-derived project registration.
+  `snapshots register` (alias `import`) registers historical/stateless snapshots
+  and manifests explicitly. Existing project names are preserved.
+- **LR-01 — audit active-lease ceiling**: `Store.ClaimPath` checks the audit's
+  active count atomically with the claim/event in Memory and SQLite, including
+  independent SQLite connections. Lease renewal does not spend another slot.
+- **LR-03 / LR-04 — deletion consistency and recovery**: CLI and API share
+  `lifecycle.Snapshots.Remove`. A durable pending marker survives cleanup errors
+  and restarts. Unfinished work is refused, completed tombstones reject late
+  writes, and explicit materialized re-registration permits rebuilding.
+- **LR-05 — concurrent project updates**: versioned storage CAS makes a stale
+  concurrent PATCH return 412 and returns the exact updated project/ETag.
+
+Evidence: `internal/lifecycle/snapshots_test.go`, `internal/api/lifecycle_test.go`,
+`internal/graph/claim_budget_test.go`, `internal/storage/lifecycle_test.go`,
+`cmd/cli/lifecycle_test.go`, and migration `0010_snapshot_lifecycle.sql`.
+The original observations and proposed scope are retained in
+[the dated review](legacy-review-2026-10-16.md).

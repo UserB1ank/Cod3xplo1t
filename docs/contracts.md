@@ -68,11 +68,19 @@ or collide on ids (`internal/storage/graph.go`).
   before deleting, because a read-only directory cannot be removed on any
   supported platform — `internal/repository/snapshot.go` (`Unfreeze`),
   `internal/repository/manager.go` (`Remove`, `CleanTemp`).
-- `DELETE /api/snapshots/{id}` deletes the records first and then removes the
-  tree through the manager; a tree that is already gone is not an error —
-  `internal/api/server.go` (`handleDeleteSnapshot`).
-- The CLI states the same rule in its own help text and only exposes deletion as
-  `snapshots remove` — `cmd/cli/main.go`.
+- CLI builds and the API register snapshots through `internal/lifecycle` under
+  the same repository-derived project identity. `snapshots register` imports a
+  stateless or historical snapshot explicitly; store reads never invent rows.
+- API DELETE and CLI `snapshots remove` share a recoverable deletion service.
+  Unfinished runs and active paths are refused before marking deletion pending.
+  The marker blocks new work; the manager removes the tree; the store then removes
+  derived records and completes the marker atomically. An already absent tree is
+  acceptable on retry. A failure leaves the operation retryable across a SQLite
+  restart — `internal/lifecycle/snapshots.go`, `internal/storage/lifecycle.go`.
+- A completed tombstone rejects late snapshot writes. Explicit registration of a
+  matching materialized snapshot may clear it; the filesystem check and store
+  change occur under the same storage lock/transaction —
+  `internal/storage/lifecycle.go`, `migrations/0010_snapshot_lifecycle.sql`.
 
 ## 4. Explicit coverage: counted skips, bounded samples, stated unknowns
 
@@ -285,7 +293,7 @@ store, so the guarantee survives a restart, a crash or a load-balancer hop —
 ## 13. Writes are optimistic
 
 - `GET /api/projects/{id}` (and project creation) returns a strong `ETag` over
-  id, name, source, identity and update time —
+  id, name, source, identity, update time and version —
   `internal/api/server.go` (`projectETag`).
 - `PATCH /api/projects/{id}` requires `If-Match`: missing → `428
   precondition_required`, stale → `412 precondition_failed`; `*` and weak
@@ -294,6 +302,10 @@ store, so the guarantee survives a restart, a crash or a load-balancer hop —
 - The response carries the new `ETag`. Snapshot and graph endpoints are
   append-only/idempotent by identity, so they use idempotency keys rather than
   ETags.
+- Project renames compare and advance `version` in the same storage operation.
+  Two requests using the same version cannot both commit; the returned project
+  and ETag describe that exact update — `internal/storage/{memory.go,sql.go}`
+  (`RenameProject`), `migrations/0010_snapshot_lifecycle.sql`.
 
 ## 14. Requests are bounded and strict
 
@@ -367,8 +379,12 @@ store, so the guarantee survives a restart, a crash or a load-balancer hop —
 - Lease expiry is a string comparison on RFC3339 timestamps, and `ReclaimExpired`
   returns expired leases to the queue with a recovery event, so a crashed worker
   needs no cooperation — `internal/path/service.go`, `internal/path/store.go`.
-- The active-lease ceiling is a property of the audit and is enforced there, not per
-  row — `internal/path/service.go` (`activeLeases`, `Claim`).
+- The active-lease ceiling is checked in the same store lock/transaction as the
+  claim and its event. SQLite acquires the audit write lock before counting,
+  including across independent database connections; queue picks, named claims
+  and scheduler dispatches all pass through this guard. Renewing a held lease
+  consumes no extra slot — `internal/storage/{memory_audit.go,sql_audit.go}`
+  (`ClaimPath`).
 - Every state change and its event are one transaction, and events are numbered per
   audit so appending after a rerun cannot collide —
   `internal/path/store.go` (`Transition`, `NextEventSeq`),

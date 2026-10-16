@@ -57,6 +57,9 @@ func (m *Memory) CreateRun(run agent.Run) error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if err := m.snapshotWritableLocked(run.SnapshotID); err != nil {
+		return err
+	}
 	if _, exists := m.agentRuns[run.ID]; exists {
 		return fmt.Errorf("%w: run %s already exists", agent.ErrConflict, run.ID)
 	}
@@ -239,6 +242,9 @@ func (m *Memory) SaveHypotheses(hypotheses []agent.Hypothesis) error {
 	nextSeq := map[string]int64{}
 
 	for _, incoming := range hypotheses {
+		if err := m.snapshotWritableLocked(incoming.SnapshotID); err != nil {
+			return err
+		}
 		h := prepareHypothesis(incoming, now)
 		key := hypothesisKey(h.PathID, h.Digest)
 

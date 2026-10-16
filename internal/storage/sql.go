@@ -42,6 +42,12 @@ func OpenSQL(ctx context.Context, driver, dsn string) (*SQL, error) {
 		db.Close()
 		return nil, fmt.Errorf("storage: connect %s: %w", driver, err)
 	}
+	if !isPostgresDriver(driver) {
+		if _, err := db.ExecContext(ctx, "PRAGMA busy_timeout = 5000"); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("storage: configure SQLite: %w", err)
+		}
+	}
 	return &SQL{db: db, postgres: isPostgresDriver(driver)}, nil
 }
 
@@ -92,7 +98,8 @@ ON CONFLICT (id) DO UPDATE SET
     source = excluded.source,
     identity_kind = excluded.identity_kind,
     identity = excluded.identity,
-    updated_at = excluded.updated_at`),
+    updated_at = excluded.updated_at,
+    version = projects.version + 1`),
 		p.ID, p.Name, p.Source, p.IdentityKind, p.Identity, formatTime(p.CreatedAt), formatTime(p.UpdatedAt))
 	if err != nil {
 		return mapSQLError(err)
@@ -103,10 +110,10 @@ ON CONFLICT (id) DO UPDATE SET
 // GetProject implements Store.
 func (s *SQL) GetProject(ctx context.Context, id string) (Project, error) {
 	row := s.db.QueryRowContext(ctx, s.rebind(`
-SELECT id, name, source, identity_kind, identity, created_at, updated_at FROM projects WHERE id = ?`), id)
+SELECT id, name, source, identity_kind, identity, created_at, updated_at, version FROM projects WHERE id = ?`), id)
 	var p Project
 	var created, updated string
-	if err := row.Scan(&p.ID, &p.Name, &p.Source, &p.IdentityKind, &p.Identity, &created, &updated); err != nil {
+	if err := row.Scan(&p.ID, &p.Name, &p.Source, &p.IdentityKind, &p.Identity, &created, &updated, &p.Version); err != nil {
 		return Project{}, mapSQLError(err)
 	}
 	p.CreatedAt = parseStoredTime(created)
@@ -117,7 +124,7 @@ SELECT id, name, source, identity_kind, identity, created_at, updated_at FROM pr
 // ListProjects implements Store.
 func (s *SQL) ListProjects(ctx context.Context) ([]Project, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT id, name, source, identity_kind, identity, created_at, updated_at FROM projects ORDER BY id`)
+SELECT id, name, source, identity_kind, identity, created_at, updated_at, version FROM projects ORDER BY id`)
 	if err != nil {
 		return nil, mapSQLError(err)
 	}
@@ -126,7 +133,7 @@ SELECT id, name, source, identity_kind, identity, created_at, updated_at FROM pr
 	for rows.Next() {
 		var p Project
 		var created, updated string
-		if err := rows.Scan(&p.ID, &p.Name, &p.Source, &p.IdentityKind, &p.Identity, &created, &updated); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Source, &p.IdentityKind, &p.Identity, &created, &updated, &p.Version); err != nil {
 			return nil, err
 		}
 		p.CreatedAt = parseStoredTime(created)
@@ -134,6 +141,27 @@ SELECT id, name, source, identity_kind, identity, created_at, updated_at FROM pr
 		out = append(out, p)
 	}
 	return out, rows.Err()
+}
+
+// RenameProject returns exactly the row committed by this conditional update.
+func (s *SQL) RenameProject(ctx context.Context, id, name string, expectedVersion int64) (Project, error) {
+	var p Project
+	var created, updated string
+	err := s.db.QueryRowContext(ctx, s.rebind(`UPDATE projects SET name = ?, updated_at = ?, version = version + 1
+WHERE id = ? AND version = ? RETURNING id, name, source, identity_kind, identity, created_at, updated_at, version`),
+		name, formatTime(time.Now().UTC()), id, expectedVersion).Scan(
+		&p.ID, &p.Name, &p.Source, &p.IdentityKind, &p.Identity, &created, &updated, &p.Version)
+	if errors.Is(err, sql.ErrNoRows) {
+		if _, lookupErr := s.GetProject(ctx, id); lookupErr != nil {
+			return Project{}, lookupErr
+		}
+		return Project{}, fmt.Errorf("%w: project %s was changed by another writer", ErrConflict, id)
+	}
+	if err != nil {
+		return Project{}, mapSQLError(err)
+	}
+	p.CreatedAt, p.UpdatedAt = parseStoredTime(created), parseStoredTime(updated)
+	return p, nil
 }
 
 // PutSnapshot implements Store.
@@ -154,6 +182,9 @@ func (s *SQL) PutSnapshot(ctx context.Context, projectID string, snap *repositor
 		return mapSQLError(err)
 	}
 	defer tx.Rollback()
+	if err := s.snapshotRegistrationTx(ctx, tx, snap); err != nil {
+		return err
+	}
 
 	var existing string
 	err = tx.QueryRowContext(ctx, s.rebind(`SELECT metadata_json FROM snapshots WHERE snapshot_id = ?`), snap.SnapshotID).Scan(&existing)
@@ -282,7 +313,16 @@ func (s *SQL) DeleteSnapshot(ctx context.Context, id string) error {
 		return mapSQLError(err)
 	}
 	if affected == 0 {
-		return fmt.Errorf("%w: snapshot %s", ErrNotFound, id)
+		var pending int
+		if err := tx.QueryRowContext(ctx, s.rebind("SELECT COUNT(*) FROM snapshot_deletions WHERE snapshot_id = ?"), id).Scan(&pending); err != nil {
+			return mapSQLError(err)
+		}
+		if pending == 0 {
+			return fmt.Errorf("%w: snapshot %s", ErrNotFound, id)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, s.rebind("UPDATE snapshot_deletions SET completed = 1 WHERE snapshot_id = ?"), id); err != nil {
+		return mapSQLError(err)
 	}
 	return tx.Commit()
 }
@@ -301,6 +341,9 @@ func (s *SQL) PutManifest(ctx context.Context, snapshotID string, mf *analysis.M
 		return mapSQLError(err)
 	}
 	defer tx.Rollback()
+	if err := s.snapshotWritableTx(ctx, tx, snapshotID); err != nil {
+		return err
+	}
 
 	var existing sql.NullString
 	err = tx.QueryRowContext(ctx, s.rebind(`SELECT manifest_json FROM snapshots WHERE snapshot_id = ?`), snapshotID).Scan(&existing)

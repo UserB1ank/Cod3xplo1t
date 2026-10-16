@@ -19,6 +19,8 @@ import (
 // SQL implementation by storing serialised documents, which also makes it a
 // faithful target for API tests and for `--db memory` runs.
 type Memory struct {
+	// Presence blocks writes; true means pending cleanup, false means completed.
+	deleting  map[string]bool
 	mu        sync.RWMutex
 	projects  map[string]Project
 	snapshots map[string]memorySnapshot
@@ -63,6 +65,7 @@ type memorySnapshot struct {
 // NewMemory returns an empty in-memory store.
 func NewMemory() *Memory {
 	return &Memory{
+		deleting:         map[string]bool{},
 		projects:         map[string]Project{},
 		snapshots:        map[string]memorySnapshot{},
 		manifests:        map[string][]byte{},
@@ -88,6 +91,9 @@ func (m *Memory) PutProject(_ context.Context, p Project) error {
 	defer m.mu.Unlock()
 	if existing, ok := m.projects[p.ID]; ok && !existing.CreatedAt.IsZero() {
 		p.CreatedAt = existing.CreatedAt
+		p.Version = existing.Version + 1
+	} else {
+		p.Version = 1
 	}
 	if p.CreatedAt.IsZero() {
 		p.CreatedAt = time.Now().UTC()
@@ -95,6 +101,24 @@ func (m *Memory) PutProject(_ context.Context, p Project) error {
 	p.UpdatedAt = time.Now().UTC()
 	m.projects[p.ID] = p
 	return nil
+}
+
+// RenameProject checks the version and writes under the same lock.
+func (m *Memory) RenameProject(_ context.Context, id, name string, expectedVersion int64) (Project, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	p, ok := m.projects[id]
+	if !ok {
+		return Project{}, fmt.Errorf("%w: project %s", ErrNotFound, id)
+	}
+	if expectedVersion <= 0 || p.Version != expectedVersion {
+		return Project{}, fmt.Errorf("%w: project %s was changed by another writer", ErrConflict, id)
+	}
+	p.Name = name
+	p.Version++
+	p.UpdatedAt = time.Now().UTC()
+	m.projects[id] = p
+	return p, nil
 }
 
 // GetProject implements Store.
@@ -135,6 +159,14 @@ func (m *Memory) PutSnapshot(_ context.Context, projectID string, snap *reposito
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if pending, deleted := m.deleting[snap.SnapshotID]; deleted {
+		if pending {
+			return fmt.Errorf("%w: snapshot %s is being deleted; retry deletion", ErrConflict, snap.SnapshotID)
+		}
+		if err := validateSnapshotRevival(snap); err != nil {
+			return err
+		}
+	}
 	if _, ok := m.projects[projectID]; !ok {
 		return fmt.Errorf("%w: project %s", ErrNotFound, projectID)
 	}
@@ -145,6 +177,7 @@ func (m *Memory) PutSnapshot(_ context.Context, projectID string, snap *reposito
 		return nil
 	}
 	m.snapshots[snap.SnapshotID] = memorySnapshot{projectID: projectID, doc: doc, createdAt: created}
+	delete(m.deleting, snap.SnapshotID)
 	return nil
 }
 
@@ -208,7 +241,8 @@ func (m *Memory) ListSnapshots(_ context.Context, projectID string) ([]SnapshotR
 func (m *Memory) DeleteSnapshot(_ context.Context, id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, ok := m.snapshots[id]; !ok {
+	_, marked := m.deleting[id]
+	if _, ok := m.snapshots[id]; !ok && !marked {
 		return fmt.Errorf("%w: snapshot %s", ErrNotFound, id)
 	}
 	delete(m.snapshots, id)
@@ -225,6 +259,9 @@ func (m *Memory) DeleteSnapshot(_ context.Context, id string) error {
 	// The verification runs of the snapshot go with it, together with their
 	// immutable evidence and the findings they produced.
 	m.deleteVerificationForSnapshotLocked(id)
+	if marked {
+		m.deleting[id] = false
+	}
 	return nil
 }
 
@@ -240,6 +277,9 @@ func (m *Memory) PutManifest(_ context.Context, snapshotID string, mf *analysis.
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if err := m.snapshotWritableLocked(snapshotID); err != nil {
+		return err
+	}
 	if _, ok := m.snapshots[snapshotID]; !ok {
 		return fmt.Errorf("%w: snapshot %s", ErrNotFound, snapshotID)
 	}

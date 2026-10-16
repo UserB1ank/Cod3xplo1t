@@ -31,6 +31,7 @@ type Project struct {
 	Identity     string    `json:"identity"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
+	Version      int64     `json:"version"`
 }
 
 // SnapshotRecord is the indexed view of a stored snapshot. The full snapshot
@@ -52,6 +53,10 @@ type SnapshotRecord struct {
 // no-op, writing a different document under the same id is ErrConflict.
 type Store interface {
 	PutProject(ctx context.Context, p Project) error
+	// EnsureProject creates missing metadata without changing an existing project.
+	EnsureProject(ctx context.Context, p Project) error
+	// RenameProject compares and advances the version atomically.
+	RenameProject(ctx context.Context, id, name string, expectedVersion int64) (Project, error)
 	GetProject(ctx context.Context, id string) (Project, error)
 	ListProjects(ctx context.Context) ([]Project, error)
 
@@ -59,6 +64,11 @@ type Store interface {
 	GetSnapshot(ctx context.Context, id string) (*repository.Snapshot, error)
 	ListSnapshots(ctx context.Context, projectID string) ([]SnapshotRecord, error)
 	DeleteSnapshot(ctx context.Context, id string) error
+	// BeginSnapshotDeletion refuses unfinished work and blocks new writes until
+	// deletion completes. DeleteSnapshot retains a completed tombstone against
+	// late writes; PutSnapshot can revive a materialized, matching snapshot.
+	BeginSnapshotDeletion(ctx context.Context, id string) error
+	SnapshotDeletionPending(ctx context.Context, id string) (bool, error)
 
 	PutManifest(ctx context.Context, snapshotID string, m *analysis.Manifest) error
 	GetManifest(ctx context.Context, snapshotID string) (*analysis.Manifest, error)

@@ -116,6 +116,10 @@ writes the graph document next to the frozen tree. The other subcommands are
 read-only queries against the stored graph and need the database
 (`--db`, default `<workspace>/codexploit.db`).
 
+Build commands also register the snapshot and manifest under a stable project for
+the repository, so the REST API sees the same data when it uses the same database.
+The stateless `snapshot` and `manifest` commands can be registered later.
+
 ```bash
 # build everything for one revision
 bin/cli scg build --source /path/to/repo --workspace .codexploit
@@ -315,12 +319,23 @@ are documented in [`docs/scheduling.md`](docs/scheduling.md).
 
 ```bash
 bin/cli snapshots list --workspace .codexploit
+bin/cli snapshots register --id snap-0123456789abcdef0123456789abcdef --source /path/to/repo --workspace .codexploit
 bin/cli snapshots remove --id snap-0123456789abcdef0123456789abcdef --workspace .codexploit
 ```
 
 `snapshots list` prints one line per snapshot (id, VCS, short revision, file
-count); `--json` prints the ids as a document. `remove` unfreezes the tree and
-then deletes the snapshot directory.
+count); `--json` prints the ids as a document. `register` (alias `import`) imports a
+stateless or older snapshot and its manifest into the database. Its first use for
+a repository needs `--source`; repeated registration preserves the project's name.
+`remove` deletes the frozen tree and all stored derived data through the same
+service as the API. Both commands accept `--db`, defaulting to
+`<workspace>/codexploit.db`; select the server's database when it uses another file.
+
+Deletion refuses unfinished agent/verification runs and active paths. Settle or
+reclaim that work first. A failed cleanup remains pending in SQLite: repeat
+`snapshots remove` or the DELETE request, including after restarting the server.
+Completed deletion keeps a small tombstone to reject late writes; rebuilding and
+registering the materialized snapshot permits writing it again.
 
 ## Server
 

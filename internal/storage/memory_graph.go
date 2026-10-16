@@ -31,6 +31,9 @@ func (m *Memory) ReplaceGraph(_ context.Context, snapshotID string, g *scg.Graph
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if err := m.snapshotWritableLocked(snapshotID); err != nil {
+		return err
+	}
 	m.graphs[snapshotID] = &memoryGraph{graph: &copyGraph}
 	return nil
 }

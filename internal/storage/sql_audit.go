@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -380,10 +381,10 @@ func (s *SQL) CreateAudit(audit path.Audit) error {
 		return err
 	}
 	query := "INSERT INTO audits (" + strings.Join(auditColumnNames, ", ") + ") VALUES (" + placeholders(len(values)) + ")"
-	if _, err := s.db.ExecContext(context.Background(), s.rebind(query), values...); err != nil {
+	return s.snapshotWrite(context.Background(), audit.SnapshotID, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(context.Background(), s.rebind(query), values...)
 		return mapAuditSQLError(err)
-	}
-	return nil
+	})
 }
 
 // GetAudit implements path.Store.
@@ -442,6 +443,9 @@ func (s *SQL) UpdateAudit(audit path.Audit, expectedVersion int64) error {
 		return mapAuditSQLError(err)
 	}
 	defer tx.Rollback()
+	if err := s.snapshotWritableTx(ctx, tx, audit.SnapshotID); err != nil {
+		return err
+	}
 
 	var current int64
 	row := tx.QueryRowContext(ctx, s.rebind("SELECT version FROM audits WHERE audit_id = ?"+s.forUpdate()), audit.ID)
@@ -715,6 +719,9 @@ func (s *SQL) UpdatePath(p path.Path, expectedVersion int64) error {
 // updatePathTx rewrites a path row and fails with ErrConflict when the row moved
 // under the writer. It is the single write statement of every path mutation.
 func (s *SQL) updatePathTx(ctx context.Context, tx *sql.Tx, p path.Path, oldVersion int64, setClauses []string) error {
+	if err := s.snapshotWritableTx(ctx, tx, p.SnapshotID); err != nil {
+		return err
+	}
 	values, err := pathWriteValues(p)
 	if err != nil {
 		return err
@@ -997,14 +1004,39 @@ func (s *SQL) ClaimPath(pathID, owner, until string, from []path.Status, actor s
 		return nil, mapAuditSQLError(err)
 	}
 	defer tx.Rollback()
+	// Serialize allocation at the audit, including independent SQLite handles.
+	// Taking the write lock before reading also avoids a read-to-write upgrade.
+	if _, err := tx.ExecContext(ctx, s.rebind(`UPDATE audits SET version = version
+WHERE audit_id = (SELECT audit_id FROM audit_paths WHERE path_id = ?)`), pathID); err != nil {
+		return nil, mapAuditSQLError(err)
+	}
 
 	current, err := s.loadPathTx(ctx, tx, pathID)
 	if err != nil {
 		return nil, err
 	}
+	if err := s.snapshotWritableTx(ctx, tx, current.SnapshotID); err != nil {
+		return nil, err
+	}
 	updated, event, err := planClaim(current, owner, until, from, actor, auditNow())
 	if err != nil {
 		return nil, err
+	}
+	var limitsJSON string
+	if err := tx.QueryRowContext(ctx, s.rebind("SELECT limits_json FROM audits WHERE audit_id = ?"), current.AuditID).Scan(&limitsJSON); err != nil {
+		return nil, mapAuditSQLError(err)
+	}
+	var limits path.Limits
+	if err := json.Unmarshal([]byte(limitsJSON), &limits); err != nil {
+		return nil, err
+	}
+	var active int
+	if err := tx.QueryRowContext(ctx, s.rebind(`SELECT COUNT(*) FROM audit_paths WHERE audit_id = ? AND status IN (?, ?, ?)`),
+		current.AuditID, path.StatusAnalyzing, path.StatusLocalExploring, path.StatusVerifying).Scan(&active); err != nil {
+		return nil, mapAuditSQLError(err)
+	}
+	if active >= limits.Normalize().MaxActiveLeases {
+		return nil, fmt.Errorf("%w: audit %s has no free active lease", path.ErrBudgetExceeded, current.AuditID)
 	}
 	if err := s.persistPathChangeTx(ctx, tx, updated, current.Version, event); err != nil {
 		return nil, err

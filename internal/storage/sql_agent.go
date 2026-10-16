@@ -285,10 +285,10 @@ func (s *SQL) CreateRun(run agent.Run) error {
 	}
 	query := "INSERT INTO agent_runs (" + strings.Join(agentRunColumnNames, ", ") +
 		") VALUES (" + placeholders(len(values)) + ")"
-	if _, err := s.db.ExecContext(context.Background(), s.rebind(query), values...); err != nil {
+	return s.snapshotWrite(context.Background(), run.SnapshotID, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(context.Background(), s.rebind(query), values...)
 		return mapAgentSQLError(err)
-	}
-	return nil
+	})
 }
 
 // GetRun implements agent.Store.
@@ -506,6 +506,9 @@ func (s *SQL) SaveHypotheses(hypotheses []agent.Hypothesis) error {
 // saveHypothesisTx upserts one claim and its derived event inside a transaction.
 func (s *SQL) saveHypothesisTx(ctx context.Context, tx *sql.Tx, incoming agent.Hypothesis, now string) error {
 	h := prepareHypothesis(incoming, now)
+	if err := s.snapshotWritableTx(ctx, tx, h.SnapshotID); err != nil {
+		return err
+	}
 
 	var storedID, storedCreatedAt string
 	row := tx.QueryRowContext(ctx,

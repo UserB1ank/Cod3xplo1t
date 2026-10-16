@@ -37,6 +37,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/analysis"
 	"github.com/open-mcp-ai/Codexploit/internal/asg"
 	"github.com/open-mcp-ai/Codexploit/internal/graph"
+	"github.com/open-mcp-ai/Codexploit/internal/lifecycle"
 	"github.com/open-mcp-ai/Codexploit/internal/path"
 	"github.com/open-mcp-ai/Codexploit/internal/repository"
 	"github.com/open-mcp-ai/Codexploit/internal/scg"
@@ -56,11 +57,12 @@ const maxIdempotencyEntries = 1024
 
 // Server serves the REST API.
 type Server struct {
-	Store    storage.FullStore
-	Manager  *repository.Manager
-	Analyzer *analysis.Analyzer
-	Graph    *graph.Service
-	Builder  *scg.Builder
+	snapshots lifecycle.Snapshots
+	Store     storage.FullStore
+	Manager   *repository.Manager
+	Analyzer  *analysis.Analyzer
+	Graph     *graph.Service
+	Builder   *scg.Builder
 	// ASG and ASGBuilder are the attack-surface read and build paths. They are
 	// separate from Graph/Builder so a deployment can serve the SCG without the
 	// P3 layer, in which case every ASG route answers 501 instead of guessing.
@@ -148,6 +150,7 @@ func NewServer(store storage.FullStore, mgr *repository.Manager, analyzer *analy
 	if s.Manager != nil {
 		s.AllowNetwork = s.Manager.AllowNetwork
 	}
+	s.snapshots = lifecycle.Snapshots{Store: s.Store, Manager: s.Manager}
 	s.handler = s.routes()
 	return s
 }
@@ -324,12 +327,11 @@ func (s *Server) handlePatchProject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request", errors.New("name must not be empty"))
 		return
 	}
-	project.Name = name
-	if err := s.Store.PutProject(r.Context(), project); err != nil {
-		writeStorageError(w, err)
+	updated, err := s.Store.RenameProject(r.Context(), id, name, project.Version)
+	if errors.Is(err, storage.ErrConflict) {
+		writeError(w, http.StatusPreconditionFailed, "precondition_failed", err)
 		return
 	}
-	updated, err := s.Store.GetProject(r.Context(), id)
 	if err != nil {
 		writeStorageError(w, err)
 		return
@@ -344,8 +346,8 @@ type patchProjectRequest struct {
 
 // projectETag is a strong validator over every mutable field of a project.
 func projectETag(p storage.Project) string {
-	sum := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%s\x00%s\x00%s\x00%d",
-		p.ID, p.Name, p.Source, p.IdentityKind, p.Identity, p.UpdatedAt.UnixNano())))
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%s\x00%s\x00%s\x00%d\x00%d",
+		p.ID, p.Name, p.Source, p.IdentityKind, p.Identity, p.UpdatedAt.UnixNano(), p.Version)))
 	return `"` + hex.EncodeToString(sum[:8]) + `"`
 }
 
@@ -466,7 +468,7 @@ func (s *Server) handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 		writeStorageError(w, err)
 		return
 	}
-	if err := s.Store.PutSnapshot(r.Context(), projectIDValue, snap); err != nil {
+	if _, err := s.snapshots.Register(r.Context(), snap, project.Source); err != nil {
 		writeStorageError(w, err)
 		return
 	}
@@ -546,24 +548,12 @@ func (s *Server) persistGraphArtifact(snap *repository.Snapshot, g *scg.Graph) e
 // tree. The on-disk artifact is authoritative, so a pre-existing identical file
 // is fine while a different one is a conflict.
 func (s *Server) persistManifest(ctx context.Context, snap *repository.Snapshot, mf *analysis.Manifest) error {
-	want, err := mf.JSON()
+	stored, err := s.snapshots.PutManifest(ctx, snap, mf)
 	if err != nil {
 		return err
 	}
-	if err := snap.WriteManifest(want); err != nil {
-		got, rerr := snap.ReadManifest()
-		if rerr != nil {
-			return fmt.Errorf("%w: %s already holds a manifest: %v", storage.ErrConflict, snap.ManifestPath(), err)
-		}
-		var prev analysis.Manifest
-		if json.Unmarshal(got, &prev) != nil || prev.AnalysisID != mf.AnalysisID {
-			return fmt.Errorf("%w: %s already holds a different analysis: %v", storage.ErrConflict, snap.ManifestPath(), err)
-		}
-		// Re-analysis of the same identity: the stored document wins and the
-		// store keeps the same facts.
-		mf = &prev
-	}
-	return s.Store.PutManifest(ctx, snap.SnapshotID, mf)
+	*mf = *stored
+	return nil
 }
 
 func (s *Server) handleListSnapshots(w http.ResponseWriter, r *http.Request) {
@@ -598,11 +588,7 @@ func (s *Server) handleGetSnapshot(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDeleteSnapshot(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if err := s.Store.DeleteSnapshot(r.Context(), id); err != nil {
-		writeStorageError(w, err)
-		return
-	}
-	if err := s.Manager.Remove(id); err != nil && !errors.Is(err, repository.ErrSnapshotNotFound) {
+	if err := s.snapshots.Remove(r.Context(), id); err != nil {
 		writeStorageError(w, err)
 		return
 	}
@@ -660,23 +646,8 @@ func manifestSummaryOf(mf *analysis.Manifest) *manifestSummary {
 	return out
 }
 
-func projectID(identity repository.Identity) string {
-	sum := sha256.Sum256([]byte(identity.Kind + "\x00" + identity.Name))
-	return "proj-" + hex.EncodeToString(sum[:8])
-}
-
-func projectName(identity repository.Identity) string {
-	name := identity.Name
-	name = strings.TrimSuffix(name, "/")
-	if i := strings.LastIndexAny(name, "/\\"); i >= 0 && i+1 < len(name) {
-		name = name[i+1:]
-	}
-	name = strings.TrimSuffix(name, ".git")
-	if name == "" {
-		name = identity.Name
-	}
-	return name
-}
+func projectID(identity repository.Identity) string   { return lifecycle.ProjectID(identity) }
+func projectName(identity repository.Identity) string { return lifecycle.ProjectName(identity) }
 
 // decode reads a JSON body, rejecting unknown fields and oversized payloads.
 func (s *Server) decode(w http.ResponseWriter, r *http.Request, dst any) bool {
