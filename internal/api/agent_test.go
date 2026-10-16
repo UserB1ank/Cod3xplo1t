@@ -200,6 +200,9 @@ func serveTestEnv(t *testing.T, rt *app.Runtime, allowNetwork bool) *testEnv {
 		WithAgent(rt.Agent),
 		WithVerifier(rt.Verifier),
 		WithVerifyPlanner(rt.VerifyPlanner),
+		// A runtime without a scheduler leaves this nil, which is what keeps the
+		// scheduler routes at 501 for the tests that do not wire one.
+		WithScheduler(rt.Scheduler),
 		WithAuth(testAuthenticator(t)),
 		WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil))),
 	)

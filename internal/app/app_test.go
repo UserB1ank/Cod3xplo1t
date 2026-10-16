@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/open-mcp-ai/Codexploit/internal/analysis"
+	"github.com/open-mcp-ai/Codexploit/internal/path"
 	"github.com/open-mcp-ai/Codexploit/internal/repository"
 	"github.com/open-mcp-ai/Codexploit/internal/storage"
 	"github.com/open-mcp-ai/Codexploit/internal/verify"
@@ -377,5 +378,101 @@ func TestBuildResolvesScriptedSteps(t *testing.T) {
 	defer empty.Close()
 	if !strings.Contains(logged.String(), "BLOCKED") {
 		t.Errorf("Build did not warn about an empty script:\n%s", logged.String())
+	}
+}
+
+// schedulerTestAgentConfig is a valid scripted agent. The scheduler only needs an
+// adapter to exist at construction time; nothing here runs a pass.
+func schedulerTestAgentConfig() AgentConfig {
+	return AgentConfig{
+		Enabled: true, Runtime: AgentRuntimeScripted,
+		ScriptedAnswerJSON: `{"schema_version":1,"security_goal":"g","hypothesis":{"statement":"s","status":"candidate","confidence":"low"},
+			"supporting_evidence":[{"kind":"source","ref":"ev-1"}],"finding_candidate":false}`,
+	}
+}
+
+// TestBuildRejectsMisconfiguredScheduler pins the contract that a scheduler which
+// cannot run what it claims fails at construction: an enabled scheduler without an
+// adapter would claim leases it can never execute, and a negative bound would make
+// the loop misbehave rather than refuse.
+func TestBuildRejectsMisconfiguredScheduler(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name       string
+		cfg        SchedulerConfig
+		withoutAge bool
+	}{
+		{name: "enabled without an agent", cfg: SchedulerConfig{Enabled: true}, withoutAge: true},
+		{name: "blank audit id", cfg: SchedulerConfig{Enabled: true, Audits: []string{" "}}},
+		{name: "negative interval", cfg: SchedulerConfig{Enabled: true, Interval: -time.Second}},
+		{name: "negative concurrency", cfg: SchedulerConfig{Enabled: true, MaxConcurrent: -1}},
+		{name: "negative lease ttl", cfg: SchedulerConfig{Enabled: true, LeaseTTL: -time.Second}},
+		{name: "negative backoff", cfg: SchedulerConfig{Enabled: true, Backoff: path.Backoff{Base: -time.Second}}},
+		{name: "negative jitter", cfg: SchedulerConfig{Enabled: true, Backoff: path.Backoff{Jitter: -0.5}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := Config{
+				Workspace: filepath.Join(t.TempDir(), "work"), DBPath: "memory",
+				Scheduler: tc.cfg,
+			}
+			if !tc.withoutAge {
+				cfg.Agent = schedulerTestAgentConfig()
+			}
+			rt, err := Build(context.Background(), cfg)
+			if err == nil {
+				rt.Close()
+				t.Fatalf("Build accepted %+v", tc.cfg)
+			}
+			if !strings.Contains(err.Error(), "scheduler") {
+				t.Errorf("error %q does not name the scheduler", err)
+			}
+		})
+	}
+}
+
+// TestBuildWiresSchedulerOnlyWhenEnabled pins the 501 contract and the effective
+// configuration: a disabled scheduler leaves the fields nil, and an enabled one
+// normalises the audit set it was given.
+func TestBuildWiresSchedulerOnlyWhenEnabled(t *testing.T) {
+	t.Parallel()
+	disabled, err := Build(context.Background(), Config{
+		Workspace: filepath.Join(t.TempDir(), "work"), DBPath: "memory",
+	})
+	if err != nil {
+		t.Fatalf("Build (disabled): %v", err)
+	}
+	defer disabled.Close()
+	if disabled.Scheduler != nil || disabled.Metrics != nil {
+		t.Fatalf("a disabled scheduler was wired: %v", disabled.Scheduler)
+	}
+
+	enabled, err := Build(context.Background(), Config{
+		Workspace: filepath.Join(t.TempDir(), "work"), DBPath: "memory",
+		Agent: schedulerTestAgentConfig(),
+		Scheduler: SchedulerConfig{
+			Enabled: true, Audits: []string{" audit-1 ", "audit-1", "audit-2"},
+			Interval: time.Minute, MaxConcurrent: 2, LeaseTTL: time.Minute, Owner: "worker-scheduler",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Build (enabled): %v", err)
+	}
+	defer enabled.Close()
+	if enabled.Scheduler == nil || enabled.Metrics == nil {
+		t.Fatal("the enabled scheduler was not wired")
+	}
+	if enabled.Scheduler.IsRunning() {
+		t.Error("a freshly built scheduler reports itself running before Run is called")
+	}
+	effective := enabled.Scheduler.Config()
+	if effective.Owner != "worker-scheduler" || effective.MaxConcurrent != 2 {
+		t.Errorf("scheduler config = %+v, want the configured owner and concurrency", effective)
+	}
+	if len(effective.Audits) != 2 || effective.Audits[0] != "audit-1" || effective.Audits[1] != "audit-2" {
+		t.Errorf("audits = %v, want the trimmed, de-duplicated set", effective.Audits)
+	}
+	if effective.IntervalSeconds != 60 {
+		t.Errorf("interval = %vs, want 60", effective.IntervalSeconds)
 	}
 }

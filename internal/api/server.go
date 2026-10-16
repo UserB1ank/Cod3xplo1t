@@ -40,6 +40,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/path"
 	"github.com/open-mcp-ai/Codexploit/internal/repository"
 	"github.com/open-mcp-ai/Codexploit/internal/scg"
+	"github.com/open-mcp-ai/Codexploit/internal/schedule"
 	"github.com/open-mcp-ai/Codexploit/internal/storage"
 	"github.com/open-mcp-ai/Codexploit/internal/verify"
 )
@@ -80,8 +81,12 @@ type Server struct {
 	// every verification route answers 501.
 	Verifier      *verify.Verifier
 	VerifyPlanner *graph.VerifyPlanner
-	AllowNetwork  bool
-	Logger        *slog.Logger
+	// Scheduler is the P7 resident scheduler. It is separate from the path engine
+	// so a deployment can serve the audit surface without a resident loop, in which
+	// case every scheduler route answers 501 instead of reporting an idle queue.
+	Scheduler    *schedule.Scheduler
+	AllowNetwork bool
+	Logger       *slog.Logger
 	// Auth decides who may do what. When it is nil the server refuses every API
 	// call, because an unprotected audit API is worse than an unavailable one.
 	Auth *Authenticator
@@ -216,6 +221,9 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/findings/{id}", s.handleGetFinding)
 	mux.HandleFunc("GET /api/evidence/{id}", s.handleGetEvidence)
 	mux.HandleFunc("GET /api/audits/{id}/report", s.handleAuditReport)
+	mux.HandleFunc("GET /api/scheduler", s.handleSchedulerStatus)
+	mux.HandleFunc("POST /api/scheduler/tick", s.withIdempotency(s.handleSchedulerTick))
+	mux.HandleFunc("POST /api/scheduler/reclaim", s.withIdempotency(s.handleSchedulerReclaim))
 	return mux
 }
 

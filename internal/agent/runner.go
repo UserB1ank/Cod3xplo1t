@@ -73,6 +73,14 @@ type PathCoordinator interface {
 	// ClaimPathForRun leases the next claimable path of an audit and moves it to
 	// an active status. It returns path.ErrNotFound when the queue is empty.
 	ClaimPathForRun(ctx context.Context, auditID, owner string, ttl time.Duration) (*path.Path, error)
+	// ClaimSpecificPath leases exactly the named path, never a neighbour, so a
+	// scheduler that has already chosen what to run can hand that choice to the
+	// orchestrator. It refuses with path.ErrNotClaimable when the path is not in a
+	// claimable status and path.ErrLeaseHeld when another owner holds it; a claim
+	// by the owner that already holds the lease renews it instead of failing,
+	// because the scheduler claims a path before dispatching it and RunPath then
+	// claims it for the run.
+	ClaimSpecificPath(ctx context.Context, pathID, owner string, ttl time.Duration) (*path.Path, error)
 	// HeartbeatPath renews a lease the owner still holds.
 	HeartbeatPath(ctx context.Context, pathID, owner string, ttl time.Duration) error
 	// CompletePath records the path's success: it is advanced to
@@ -143,13 +151,7 @@ func (r *Runner) RunOnce(ctx context.Context, auditID string) (*Run, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	caps := r.Runtime.Capabilities()
-	runtimeName := caps.Name
-	if strings.TrimSpace(runtimeName) == "" {
-		runtimeName = "runtime"
-	}
 	owner := r.owner()
-
 	p, err := r.Paths.ClaimPathForRun(ctx, auditID, owner, r.leaseTTL())
 	if err != nil {
 		// An empty queue is not a failure; every other error is.
@@ -161,11 +163,61 @@ func (r *Runner) RunOnce(ctx context.Context, auditID string) (*Run, error) {
 	if p == nil {
 		return nil, ErrNotFound
 	}
+	return r.execute(ctx, auditID, p, owner, r.Policy)
+}
+
+// RunPath claims a named path for one run and executes it. It is the entry point
+// a scheduler uses; RunOnce remains the convenience form that picks the next path.
+//
+// The claim is path-scoped, so the run happens on the path the caller chose rather
+// than on whatever the queue would hand out next. A path this worker may not have —
+// path.ErrNotClaimable for a status the state machine does not lease, or
+// path.ErrLeaseHeld for another worker's live lease — is refused with that
+// sentinel and no run is invented. The policy argument is the run's policy; an
+// empty one falls back to the runner's configured policy, and it is never widened
+// past what the caller passed.
+func (r *Runner) RunPath(ctx context.Context, pathID, owner string, ttl time.Duration, policy ExplorationPolicy) (*Run, error) {
+	if err := r.configured(); err != nil {
+		return nil, err
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	pathID = strings.TrimSpace(pathID)
+	if pathID == "" {
+		return nil, fmt.Errorf("%w: a path id is required", path.ErrInvalidArgument)
+	}
+	owner = r.claimOwner(owner)
+	if ttl <= 0 {
+		ttl = r.leaseTTL()
+	}
+	p, err := r.Paths.ClaimSpecificPath(ctx, pathID, owner, ttl)
+	if err != nil {
+		return nil, err
+	}
+	if p == nil {
+		return nil, ErrNotFound
+	}
+	if runnerPolicyEmpty(policy) {
+		policy = r.Policy
+	}
+	return r.execute(ctx, "", p, owner, policy)
+}
+
+// execute runs one path the orchestrator already holds the lease on. RunOnce and
+// RunPath differ only in how the path was chosen, so everything from the task
+// build to the settlement lives here, once.
+func (r *Runner) execute(ctx context.Context, auditID string, p *path.Path, owner string, policy ExplorationPolicy) (*Run, error) {
+	caps := r.Runtime.Capabilities()
+	runtimeName := caps.Name
+	if strings.TrimSpace(runtimeName) == "" {
+		runtimeName = "runtime"
+	}
 
 	// The task carries the policy the adapter is allowed to explore under. A task
 	// that cannot be built or validated is an orchestrator bug, so the lease goes
 	// straight back to the queue and no run is invented.
-	policy := r.Policy.Normalize()
+	policy = policy.Normalize()
 	task, err := r.Tasks.BuildTask(ctx, *p, policy)
 	if err != nil {
 		r.releaseQuietly(ctx, p.ID, owner, "task could not be built: "+err.Error())
@@ -1003,6 +1055,16 @@ func (r *Runner) owner() string {
 		return r.Owner
 	}
 	return runnerActorOrchestrator
+}
+
+// claimOwner resolves the lease owner of an explicit claim. A caller that names
+// one gets it; otherwise the runner's configured owner is used, so a scheduler
+// and the runner it dispatches to agree on whose lease it is.
+func (r *Runner) claimOwner(owner string) string {
+	if trimmed := strings.TrimSpace(owner); trimmed != "" {
+		return trimmed
+	}
+	return r.owner()
 }
 
 func (r *Runner) heartbeatEvery() time.Duration {

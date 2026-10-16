@@ -156,12 +156,52 @@ func (f *fakeStore) ListPaths(q PathQuery) ([]Path, int, error) {
 		if q.MinPriority > 0 && p.Score.Priority < q.MinPriority {
 			continue
 		}
+		if q.DueBefore != "" && !pathDue(p, q.DueBefore) {
+			continue
+		}
 		out = append(out, p)
 	}
 	sortPaths(out, q.Sort)
 	total := len(out)
 	out = pagePaths(out, q.Limit, q.Offset)
 	return out, total, nil
+}
+
+// ListDuePaths implements Store on the reference store: the queued paths of one
+// audit whose backoff has elapsed, oldest due time first.
+func (f *fakeStore) ListDuePaths(auditID, now string, limit int) ([]Path, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []Path
+	for _, p := range f.paths {
+		if p.AuditID != auditID || p.Status != StatusQueued {
+			continue
+		}
+		if !pathDue(p, now) {
+			continue
+		}
+		out = append(out, p)
+	}
+	// Oldest due time first, path id breaking ties: the queue order a scheduler
+	// must follow so a path that keeps losing the race is not starved. An empty
+	// NextAttemptAt is due immediately and sorts before every timestamp.
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].NextAttemptAt != out[j].NextAttemptAt {
+			return out[i].NextAttemptAt < out[j].NextAttemptAt
+		}
+		return out[i].ID < out[j].ID
+	})
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+// pathDue reports whether a path's retry time has elapsed at `now`. Both values
+// are RFC3339 strings, so a string comparison is a time comparison; an empty
+// NextAttemptAt means the path was never deferred, which counts as due.
+func pathDue(p Path, now string) bool {
+	return p.NextAttemptAt == "" || p.NextAttemptAt <= now
 }
 
 func (f *fakeStore) UpdatePath(p Path, expectedVersion int64) error {
@@ -303,6 +343,9 @@ func (f *fakeStore) Transition(req TransitionRequest) (*Path, error) {
 	if req.LastError != "" {
 		updated.LastError = req.LastError
 	}
+	// The retry schedule travels with the transition: a non-empty value defers the
+	// path, and an empty one clears the deferral (a settlement, a resume, a claim).
+	updated.NextAttemptAt = req.NextAttemptAt
 	updated.Version = current.Version + 1
 	updated.UpdatedAt = NowString(time.Now().UTC())
 	f.paths[req.PathID] = updated

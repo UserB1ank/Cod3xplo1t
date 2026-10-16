@@ -170,4 +170,67 @@ func TestCoordinatorWithoutAPathServiceIsAWiringBug(t *testing.T) {
 	if err := coordinator.AdvancePath(context.Background(), "path-1", "worker-1", path.StatusFailed, "spent"); err == nil {
 		t.Fatal("a coordinator without a path service advanced a path")
 	}
+	if _, err := coordinator.ClaimSpecificPath(context.Background(), "path-1", "worker-1", time.Minute); err == nil {
+		t.Fatal("a coordinator without a path service claimed a specific path")
+	}
+}
+
+// TestCoordinatorClaimSpecificPath pins the path-scoped claim a scheduler uses: it
+// leases exactly the named path, refuses another owner's lease with the engine's
+// sentinel, and treats a repeated claim by the holder as a renewal.
+func TestCoordinatorClaimSpecificPath(t *testing.T) {
+	t.Parallel()
+	fixture := newAgentFixture(t)
+	coordinator := graph.NewAgentCoordinator(fixture.audit, "worker-1")
+	ctx := context.Background()
+
+	next, err := fixture.audit.Next(fixture.auditID)
+	if err != nil {
+		t.Fatalf("Next: %v", err)
+	}
+	claimed, err := coordinator.ClaimSpecificPath(ctx, next.ID, "worker-1", time.Minute)
+	if err != nil {
+		t.Fatalf("ClaimSpecificPath: %v", err)
+	}
+	if claimed.ID != next.ID {
+		t.Fatalf("claimed %s, want the named path %s", claimed.ID, next.ID)
+	}
+	if claimed.Status != path.StatusAnalyzing || claimed.LeaseOwner != "worker-1" {
+		t.Errorf("claimed = %s/%s, want ANALYZING leased to worker-1", claimed.Status, claimed.LeaseOwner)
+	}
+
+	// Another owner is refused with the engine's own sentinel.
+	if _, err := coordinator.ClaimSpecificPath(ctx, next.ID, "worker-2", time.Minute); !errors.Is(err, path.ErrLeaseHeld) {
+		t.Errorf("claim by another owner = %v, want path.ErrLeaseHeld", err)
+	}
+	// The holder claiming again renews: the scheduler claims before dispatching and
+	// RunPath then claims for the run.
+	again, err := coordinator.ClaimSpecificPath(ctx, next.ID, "worker-1", time.Minute)
+	if err != nil {
+		t.Fatalf("repeated claim by the holder: %v", err)
+	}
+	if again.ID != next.ID || again.LeaseOwner != "worker-1" {
+		t.Errorf("renewed claim = %+v, want the same path and owner", again)
+	}
+
+	// A path that left the queue is not claimable.
+	if err := coordinator.CompletePath(ctx, next.ID, "worker-1", "hypothesis formed"); err != nil {
+		t.Fatalf("CompletePath: %v", err)
+	}
+	if _, err := coordinator.ClaimSpecificPath(ctx, next.ID, "worker-3", time.Minute); !errors.Is(err, path.ErrNotClaimable) {
+		t.Errorf("claiming a settled path = %v, want path.ErrNotClaimable", err)
+	}
+
+	// Wiring and argument errors.
+	if _, err := coordinator.ClaimSpecificPath(ctx, "path-does-not-exist", "worker-1", time.Minute); !errors.Is(err, path.ErrNotFound) {
+		t.Errorf("claiming an unknown path = %v, want path.ErrNotFound", err)
+	}
+	if _, err := coordinator.ClaimSpecificPath(ctx, "  ", "worker-1", time.Minute); !errors.Is(err, path.ErrInvalidArgument) {
+		t.Errorf("claiming a blank path id = %v, want path.ErrInvalidArgument", err)
+	}
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	if _, err := coordinator.ClaimSpecificPath(cancelled, next.ID, "worker-1", time.Minute); !errors.Is(err, context.Canceled) {
+		t.Errorf("claiming with a cancelled context = %v, want context.Canceled", err)
+	}
 }

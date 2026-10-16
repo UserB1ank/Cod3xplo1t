@@ -410,7 +410,36 @@ func (p *runnerTestPaths) ClaimPathForRun(_ context.Context, _, owner string, tt
 	}
 	id := p.order[0]
 	p.order = p.order[1:]
-	doc := p.docs[id]
+	return p.claimLocked(id, owner, ttl)
+}
+
+// ClaimSpecificPath leases exactly the named document, so RunPath is exercised
+// through the same fake as RunOnce. It applies the real coordinator's rules: a
+// foreign live lease is ErrLeaseHeld and a non-queued status is ErrNotClaimable.
+func (p *runnerTestPaths) ClaimSpecificPath(_ context.Context, pathID, owner string, ttl time.Duration) (*path.Path, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.claimErr != nil {
+		return nil, p.claimErr
+	}
+	if _, ok := p.docs[pathID]; !ok {
+		return nil, path.ErrNotFound
+	}
+	return p.claimLocked(pathID, owner, ttl)
+}
+
+// claimLocked is the shared body of both claim forms; the caller holds the lock.
+func (p *runnerTestPaths) claimLocked(id, owner string, ttl time.Duration) (*path.Path, error) {
+	doc, ok := p.docs[id]
+	if !ok {
+		return nil, path.ErrNotFound
+	}
+	if doc.LeaseOwner != "" && doc.LeaseOwner != owner {
+		return nil, path.ErrLeaseHeld
+	}
+	if doc.Status != path.StatusQueued {
+		return nil, path.ErrNotClaimable
+	}
 	doc.Status = path.StatusAnalyzing
 	doc.LeaseOwner = owner
 	doc.LeaseUntil = path.NowString(time.Now().Add(ttl))
@@ -1513,5 +1542,88 @@ func TestRunnerTokenBudgetStopsRun(t *testing.T) {
 	}
 	if store.hypothesisCount() != 0 {
 		t.Errorf("hypotheses = %d, want 0", store.hypothesisCount())
+	}
+}
+
+// TestRunnerRunPathRunsTheNamedPath pins the scheduler's entry point: the path the
+// caller named is the one that runs, even when another path is queued first, and
+// the run settles it exactly as RunOnce does.
+func TestRunnerRunPathRunsTheNamedPath(t *testing.T) {
+	store := newRunnerTestStore()
+	// path-2 is first in the queue; RunPath must ignore it and run path-1.
+	paths := newRunnerTestPaths(runnerTestPath("audit-1", "path-2"), runnerTestPath("audit-1", "path-1"))
+	tasks := &runnerTestTasks{}
+	runtime := NewScriptedRuntime("scripted", "1.0", []ScriptStep{ScriptAnswer(runnerTestAnswer())})
+	r := runnerTestRunner(store, paths, tasks, runtime, NewRegistry(), runnerTestPolicy())
+
+	policy := runnerTestPolicy()
+	policy.MaxToolCalls = 7
+	run, err := r.RunPath(context.Background(), "path-1", "worker-1", time.Minute, policy)
+	if err != nil {
+		t.Fatalf("RunPath: %v", err)
+	}
+	if run.Status != RunSucceeded || run.StopReason != StopCompleted {
+		t.Fatalf("run = %s/%s (%s), want success", run.Status, run.StopReason, run.Error)
+	}
+	if run.PathID != "path-1" {
+		t.Errorf("run path = %q, want path-1", run.PathID)
+	}
+	if got := paths.claimIDs(); len(got) != 1 || got[0] != "path-1" {
+		t.Errorf("claimed = %v, want exactly [path-1]", got)
+	}
+	if got := paths.completedIDs(); len(got) != 1 || got[0] != "path-1" {
+		t.Errorf("completed = %v, want [path-1]", got)
+	}
+	if run.Owner != "worker-1" {
+		t.Errorf("run owner = %q, want the claim owner", run.Owner)
+	}
+	// The policy argument is the run's policy: the task builder sees it, un-widened.
+	if policies := tasks.policies(); len(policies) != 1 || policies[0].MaxToolCalls != 7 {
+		t.Errorf("task builder policies = %+v, want the passed policy", policies)
+	}
+}
+
+// TestRunnerRunPathRefusesAnotherOwnersLease is the scheduler's other half: a path
+// somebody else holds is refused with the engine's sentinel and no run is invented
+// for it.
+func TestRunnerRunPathRefusesAnotherOwnersLease(t *testing.T) {
+	store := newRunnerTestStore()
+	held := runnerTestPath("audit-1", "path-1")
+	held.Status = path.StatusAnalyzing
+	held.LeaseOwner = "worker-2"
+	held.LeaseUntil = path.NowString(runnerTestClock.Add(time.Hour))
+	paths := newRunnerTestPaths(held)
+	r := runnerTestRunner(store, paths, &runnerTestTasks{},
+		NewScriptedRuntime("scripted", "1.0", []ScriptStep{ScriptAnswer(runnerTestAnswer())}),
+		NewRegistry(), runnerTestPolicy())
+
+	run, err := r.RunPath(context.Background(), "path-1", "worker-1", time.Minute, runnerTestPolicy())
+	if !errors.Is(err, path.ErrLeaseHeld) {
+		t.Fatalf("RunPath error = %v, want %v", err, path.ErrLeaseHeld)
+	}
+	if run != nil {
+		t.Errorf("run = %+v, want none for a path another owner holds", run)
+	}
+	if store.runCount() != 0 {
+		t.Errorf("runs = %d, want 0", store.runCount())
+	}
+}
+
+// TestRunnerRunPathRefusesUnclaimableStatus covers the second sentinel: a path a
+// human cancelled (or a verdict concluded) is not runnable by a scheduler.
+func TestRunnerRunPathRefusesUnclaimableStatus(t *testing.T) {
+	store := newRunnerTestStore()
+	cancelled := runnerTestPath("audit-1", "path-1")
+	cancelled.Status = path.StatusCancelled
+	paths := newRunnerTestPaths(cancelled)
+	r := runnerTestRunner(store, paths, &runnerTestTasks{},
+		NewScriptedRuntime("scripted", "1.0", []ScriptStep{ScriptAnswer(runnerTestAnswer())}),
+		NewRegistry(), runnerTestPolicy())
+
+	if _, err := r.RunPath(context.Background(), "path-1", "worker-1", time.Minute, runnerTestPolicy()); !errors.Is(err, path.ErrNotClaimable) {
+		t.Fatalf("RunPath error = %v, want %v", err, path.ErrNotClaimable)
+	}
+	if store.runCount() != 0 {
+		t.Errorf("runs = %d, want 0", store.runCount())
 	}
 }

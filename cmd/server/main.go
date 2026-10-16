@@ -20,6 +20,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/api"
 	"github.com/open-mcp-ai/Codexploit/internal/app"
 	"github.com/open-mcp-ai/Codexploit/internal/graph"
+	pathpkg "github.com/open-mcp-ai/Codexploit/internal/path"
 )
 
 func main() {
@@ -72,7 +73,19 @@ func run() error {
 		verifyWorkDir   = flag.String("verify-working-dir", "", "scratch working directory of a cli verification step (must exist)")
 		verifyMaxOutput = flag.Int64("verify-max-output", 0, "maximum bytes one cli verification step may return (0 uses the executor default)")
 		verifyAllowNet  = flag.Bool("verify-allow-network", false, "declare that --verify-command runs inside a network-capable restricted container (still needs a per-request approval)")
+
+		scheduler           = flag.Bool("scheduler", false, "run the resident P7 scheduler (needs --agent-runtime)")
+		schedulerInterval   = flag.Int("scheduler-interval", 30, "seconds between scheduler passes")
+		schedulerConcurrent = flag.Int("scheduler-concurrency", 0, "maximum paths the scheduler runs at once (0 uses the engine ceiling)")
+		schedulerLeaseTTL   = flag.Int("scheduler-lease-ttl", 0, "lease duration in seconds asked for on a claim (0 uses the audit's own)")
+		schedulerOwner      = flag.String("scheduler-owner", "", "lease owner recorded by the scheduler (default scheduler)")
+		schedulerBackoffB   = flag.Int("scheduler-backoff-base", 1, "seconds to wait after the first failed attempt")
+		schedulerBackoffF   = flag.Float64("scheduler-backoff-factor", 2, "multiplier applied per failed attempt")
+		schedulerBackoffM   = flag.Int("scheduler-backoff-max", 300, "maximum seconds a path may be deferred")
+		schedulerBackoffJ   = flag.Float64("scheduler-backoff-jitter", 0.2, "deterministic jitter fraction in [0,1) applied to the delay")
 	)
+	var schedulerAudits repeatedFlag
+	flag.Var(&schedulerAudits, "scheduler-audit", "audit id the scheduler serves, repeatable; empty serves every audit with due work")
 	flag.Var(&apiTokens, "api-token", "token as name:role:secret, repeatable; role is reader, writer or admin")
 	flag.Var(&agentCommand, "agent-command", "agent command argv, repeatable; the binary plus its arguments")
 	flag.Var(&agentEnv, "agent-env", "environment entry for the agent process as KEY=VALUE, repeatable")
@@ -131,6 +144,20 @@ func run() error {
 			AllowNetwork:      *verifyAllowNet,
 			ScriptedStepsJSON: *verifySteps,
 		},
+		Scheduler: app.SchedulerConfig{
+			Enabled:       *scheduler,
+			Audits:        schedulerAudits,
+			Interval:      time.Duration(*schedulerInterval) * time.Second,
+			MaxConcurrent: *schedulerConcurrent,
+			LeaseTTL:      time.Duration(*schedulerLeaseTTL) * time.Second,
+			Owner:         *schedulerOwner,
+			Backoff: pathpkg.Backoff{
+				Base:   time.Duration(*schedulerBackoffB) * time.Second,
+				Factor: *schedulerBackoffF,
+				Max:    time.Duration(*schedulerBackoffM) * time.Second,
+				Jitter: *schedulerBackoffJ,
+			},
+		},
 	})
 	if err != nil {
 		return err
@@ -145,6 +172,17 @@ func run() error {
 		logger.Info("verification disabled; verification, finding and report routes answer 501",
 			"hint", "pass --verify-executor scripted, --verify-executor cli --verify-command <binary>, or --verify-executor unsupported")
 	}
+	if rt.Scheduler == nil {
+		logger.Info("scheduler disabled; the queue only advances on an explicit run, tick or claim",
+			"hint", "pass --scheduler (with --agent-runtime) to serve the due queue in this process")
+	} else {
+		effective := rt.Scheduler.Config()
+		logger.Info("scheduler enabled",
+			"owner", effective.Owner,
+			"interval_seconds", effective.IntervalSeconds,
+			"max_concurrent", effective.MaxConcurrent,
+			"audits", strings.Join(effective.Audits, ","))
+	}
 
 	srv := api.NewServer(rt.Store, rt.Manager, rt.Analyzer,
 		api.WithAllowNetwork(*allowNetwork),
@@ -156,6 +194,7 @@ func run() error {
 		api.WithAgent(rt.Agent),
 		api.WithVerifier(rt.Verifier),
 		api.WithVerifyPlanner(rt.VerifyPlanner),
+		api.WithScheduler(rt.Scheduler),
 		api.WithAuth(auth),
 		api.WithIdempotencyTTL(*idemTTL),
 		api.WithLogger(logger),
@@ -177,14 +216,42 @@ func run() error {
 		}
 	}()
 
+	// The scheduler runs in this process and must be waited for: it releases the
+	// leases it still holds, and returning before it does would close the store
+	// under a live claim. Its own context lets a failed listener stop it too.
+	schedulerCtx, stopSchedulerLoop := context.WithCancel(ctx)
+	defer stopSchedulerLoop()
+	schedulerErr := make(chan error, 1)
+	if rt.Scheduler != nil {
+		go func() { schedulerErr <- rt.Scheduler.Run(schedulerCtx) }()
+	}
+	stopScheduler := func() {
+		stopSchedulerLoop()
+		select {
+		case err := <-schedulerErr:
+			if err != nil {
+				logger.Error("scheduler stopped with an error", "error", err)
+			}
+		case <-time.After(30 * time.Second):
+			logger.Warn("the scheduler did not stop in time; its leases will expire on their own")
+		}
+	}
+
 	select {
 	case err := <-errCh:
+		if rt.Scheduler != nil {
+			stopScheduler()
+		}
 		return err
 	case <-ctx.Done():
 		logger.Info("shutting down")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
-		return httpServer.Shutdown(shutdownCtx)
+		err := httpServer.Shutdown(shutdownCtx)
+		if rt.Scheduler != nil {
+			stopScheduler()
+		}
+		return err
 	}
 }
 

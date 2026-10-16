@@ -232,6 +232,39 @@ func (m *Memory) ListPaths(q path.PathQuery) ([]path.Path, int, error) {
 	return page(out, max(q.Offset, 0), normaliseLimit(q.Limit, 500, 0)), total, nil
 }
 
+// ListDuePaths implements path.Store: the queued paths of one audit whose backoff
+// has elapsed, oldest due time first so the queue cannot starve a path.
+func (m *Memory) ListDuePaths(auditID, now string, limit int) ([]path.Path, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var out []path.Path
+	for _, doc := range m.audits {
+		for _, p := range doc.paths {
+			if p.AuditID != auditID || p.Status != path.StatusQueued {
+				continue
+			}
+			if !retryDue(p.NextAttemptAt, now) {
+				continue
+			}
+			stored, err := cloneDocument(p)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, stored)
+		}
+	}
+	// Timestamps are RFC3339, so this is a time order; the path id breaks ties so
+	// paging and retries are stable. An empty NextAttemptAt is due immediately and
+	// therefore sorts first.
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].NextAttemptAt != out[j].NextAttemptAt {
+			return out[i].NextAttemptAt < out[j].NextAttemptAt
+		}
+		return out[i].ID < out[j].ID
+	})
+	return page(out, 0, normaliseLimit(limit, 100, 1000)), nil
+}
+
 // UpdatePath implements path.Store.
 func (m *Memory) UpdatePath(p path.Path, expectedVersion int64) error {
 	stored, err := cloneDocument(p)

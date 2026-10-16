@@ -56,6 +56,8 @@ func main() {
 		err = runAgent(ctx, args)
 	case "verify", "verifications", "findings", "report":
 		err = runVerify(ctx, args)
+	case "scheduler", "schedule":
+		err = runScheduler(ctx, args[1:])
 	case "version", "--version", "-v":
 		fmt.Printf("codexploit %s (snapshot schema %d, manifest schema %d)\n", version, repository.SchemaVersion, analysis.SchemaVersion)
 	case "help", "--help", "-h":
@@ -97,6 +99,10 @@ Usage:
   codexploit verifications list|show|evidence [--hypothesis --finding --path --audit --snapshot --status --outcome]
   codexploit findings list|show [--audit --snapshot --path --status --conclusive --candidates]
   codexploit report <audit-id> [--format md|json|sarif] [--include-candidates] [--out FILE]
+  codexploit scheduler status [--audits a,b] [--runtime ...] [--json]
+  codexploit scheduler tick [--audits a,b] [--concurrency N] [--runtime ...] [--json]
+  codexploit scheduler reclaim [--limit N] [--json]
+  codexploit scheduler run [--interval N] [--audits a,b] [--runtime ...] [--json]
   codexploit snapshots list [--workspace <dir>]          list snapshots in a workspace
   codexploit snapshots remove --id <snapshot-id>         delete a snapshot (unfreezes the tree first)
   codexploit version

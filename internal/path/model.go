@@ -343,6 +343,11 @@ type Path struct {
 	Attempts    int    `json:"attempts"`
 	MaxAttempts int    `json:"max_attempts"`
 	LastError   string `json:"last_error,omitempty"`
+	// NextAttemptAt is when a path already back in the queue may run again. It is
+	// part of the document, not a timer in a process: a scheduler that restarts
+	// still knows which paths are in backoff, and a path with an empty value is due
+	// immediately. RFC3339, so comparing two of them as strings compares times.
+	NextAttemptAt string `json:"next_attempt_at,omitempty"`
 
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`

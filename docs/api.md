@@ -755,6 +755,129 @@ recorded as `BLOCKED` (`unsupported_step`) and the finding is `blocked`, which i
 logs an explicit warning when it is wired that way, and the CLI refuses the run
 and names `--scripted-steps` instead of printing a bare `BLOCKED` result.
 
+## Scheduler (P7)
+
+P7 is the resident loop that serves the path queue: it claims due `QUEUED` paths,
+hands each to the agent runtime, settles the result, recovers leases whose owner
+stopped renewing them, and keeps a durable retry schedule per path. It is wired
+with `--scheduler` and is off by default; when it is off the server logs
+`scheduler disabled` and the queue only advances through an explicit run, claim or
+tick.
+
+The three routes below are the operator surface. `GET` needs `reader`; both `POST`
+routes claim leases or change path state, so they need `writer`. A server started
+without `--scheduler` answers all three with `501 scheduler_unavailable` — never
+with zeros that read like a healthy idle scheduler.
+
+### `GET /api/scheduler`
+
+Reports whether the resident loop is running, how it is configured, and the
+metrics snapshot.
+
+```json
+{
+  "running": false,
+  "configured": true,
+  "config": {
+    "owner": "scheduler",
+    "interval_seconds": 30,
+    "max_concurrent": 4,
+    "lease_ttl_seconds": 0,
+    "audits": [],
+    "backoff": {"Base": 1000000000, "Factor": 2, "Max": 300000000000, "Jitter": 0.2}
+  },
+  "metrics": {
+    "ticks": 12,
+    "dispatched_total": 9,
+    "succeeded_total": 7,
+    "failed_total": 2,
+    "retried_total": 2,
+    "reclaimed_total": 1,
+    "active_leases": 2,
+    "queue_depth": 41,
+    "oldest_queued_seconds": 183.5,
+    "last_tick_at": "2024-05-01T12:00:30Z",
+    "last_tick_ms": 128
+  }
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `ticks` | completed scheduler passes |
+| `dispatched_total` | paths claimed and handed to the runtime |
+| `succeeded_total` / `failed_total` | dispatches that settled as completed / returned an error |
+| `retried_total` | failed attempts requeued with a durable next-attempt time |
+| `reclaimed_total` | expired leases recovered from workers that stopped renewing |
+| `active_leases` | leases active in the audits the last pass looked at |
+| `queue_depth` | queued paths in those audits |
+| `oldest_queued_seconds` | how long the oldest queued path has waited |
+| `last_tick_at` / `last_tick_ms` | when the last pass finished and how long it took |
+
+`running` is `true` only while the server's own loop is inside `Run`; a
+one-shot CLI invocation always reports `false`. `configured` is `false` for a
+server that was started without the scheduler.
+
+### `POST /api/scheduler/tick`
+
+Runs one pass synchronously and answers with the pass's own summary. The body is
+optional and overrides only this pass: `{"audits": ["audit-..."], "concurrency": 2}`.
+Like every write it accepts `Idempotency-Key`, so a retried tick does not dispatch
+a second time.
+
+```json
+{"held": 0, "dispatched": 2, "reclaimed": 1, "skipped": 3, "failed": 0, "due": 5}
+```
+
+`due` is how many due queued paths the pass saw, `dispatched` how many it claimed
+within the concurrency budget, `failed` how many dispatches returned an error, and
+`skipped` how many due paths it did not take (already in flight, at their attempt
+ceiling, or lost to another scheduler's claim).
+
+### `POST /api/scheduler/reclaim`
+
+Runs one recovery sweep of expired leases and returns the paths it recovered. The
+body is optional: `{"limit": 10}`. This is the route to call after killing a
+worker, and it is what makes a crashed process recoverable instead of permanent.
+
+```json
+{"recovered": [{"path_id": "path-...", "status": "QUEUED", "...": "..."}], "count": 1}
+```
+
+### Configuring the scheduler
+
+| Flag | Meaning |
+|---|---|
+| `--scheduler` | run the resident loop in this server (needs `--agent-runtime`) |
+| `--scheduler-audit` | audit id to serve, repeatable; empty serves every audit with due work |
+| `--scheduler-interval` | seconds between passes (default 30) |
+| `--scheduler-concurrency` | maximum paths run at once (default: the active-lease ceiling) |
+| `--scheduler-lease-ttl` | lease duration in seconds asked for on a claim (default: the audit's own) |
+| `--scheduler-owner` | lease owner the scheduler records (default `scheduler`) |
+| `--scheduler-backoff-base` / `-factor` / `-max` / `-jitter` | retry policy: first delay, multiplier, cap and deterministic jitter |
+
+An enabled scheduler without an agent runtime fails startup, and so does a
+negative interval, concurrency, lease TTL or backoff value: a misconfigured
+scheduler must not run because it would claim leases it cannot execute.
+
+The CLI mirrors the routes: `codexploit scheduler status [--json]`,
+`codexploit scheduler tick [--audits a,b] [--concurrency N] [--json]`,
+`codexploit scheduler reclaim [--limit N] [--json]` and
+`codexploit scheduler run [--interval N] [--json]`. `run` is the foreground loop;
+Ctrl-C stops it and releases every lease the process still holds. `tick` and `run`
+need the agent adapter flags (`--runtime scripted|cli` and its options) exactly
+like `codexploit run`.
+
+Retries are bounded: a failed dispatch is requeued with `NextAttemptAt` computed by
+an exponential backoff (`base × factor^attempt`, capped, with deterministic
+per-path jitter), so two schedulers that restart agree on the due time and a
+restart does not forget it, and the path stops being retried once it reaches its
+own `max_attempts` ceiling. **A cancelled path is never retried** —
+`path.Retryable` refuses it, because an operator cancelled it on purpose. Leases
+are what make concurrent schedulers safe: a path can only be claimed once, so the
+scheduler that holds the lease is the only one that dispatches it, and a lease that
+is no longer renewed is recovered by the next sweep rather than held forever.
+
 ## Provenance
 
 Every graph answer carries a `meta` block:

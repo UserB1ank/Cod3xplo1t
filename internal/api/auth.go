@@ -386,6 +386,15 @@ func requiredCapability(method, path string) (Capability, bool) {
 		return CapRead, true
 	case strings.HasPrefix(rest, "evidence/") && method == http.MethodGet:
 		return CapRead, true
+
+	// /api/scheduler is the P7 operator surface. Reading the metrics is a read; a
+	// manual tick claims leases and spends an audit's budget, and a reclaim sweep
+	// changes path state, so both are writes. A reader must never be able to move
+	// work on its behalf.
+	case rest == "scheduler" && method == http.MethodGet:
+		return CapRead, true
+	case strings.HasPrefix(rest, "scheduler/") && method == http.MethodPost:
+		return CapWrite, true
 	}
 	return CapNone, false
 }

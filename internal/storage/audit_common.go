@@ -91,6 +91,10 @@ func planPathTransition(current path.Path, req path.TransitionRequest, now strin
 	if req.LastError != "" {
 		updated.LastError = req.LastError
 	}
+	// The retry schedule is durable state, so it is written with the status change
+	// that produced it: a non-empty value defers the path, an empty one clears the
+	// deferral (a settlement, an operator resume, or a claim that consumes it).
+	updated.NextAttemptAt = req.NextAttemptAt
 	updated.Version = current.Version + 1
 	updated.UpdatedAt = now
 
@@ -236,7 +240,20 @@ func matchesPathQuery(p path.Path, q path.PathQuery) bool {
 	if q.MinPriority > 0 && p.Score.Priority < q.MinPriority {
 		return false
 	}
+	// DueBefore is a retry-time filter, not a status filter: a path that was never
+	// deferred (an empty NextAttemptAt) is always due, and a deferred one is due
+	// once `now` reaches its value.
+	if q.DueBefore != "" && !retryDue(p.NextAttemptAt, q.DueBefore) {
+		return false
+	}
 	return true
+}
+
+// retryDue reports whether a deferred path may run at `now`. An empty
+// NextAttemptAt means the path was never deferred, which counts as due. Both
+// values are RFC3339 strings, so the comparison is a string comparison.
+func retryDue(nextAttemptAt, now string) bool {
+	return nextAttemptAt == "" || nextAttemptAt <= now
 }
 
 // sortPathDocuments applies the documented listing order: priority (the queue

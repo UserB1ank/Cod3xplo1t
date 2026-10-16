@@ -21,6 +21,9 @@ type Store interface {
 	ReplacePaths(auditID string, paths []Path) error
 	GetPath(pathID string) (*Path, error)
 	ListPaths(q PathQuery) ([]Path, int, error)
+	// ListDuePaths returns queued paths whose backoff has elapsed, oldest due time
+	// first, so a scheduler cannot starve a path that keeps losing the race.
+	ListDuePaths(auditID, now string, limit int) ([]Path, error)
 	// UpdatePath writes one path with optimistic concurrency; expectedVersion 0
 	// skips the check.
 	UpdatePath(p Path, expectedVersion int64) error
@@ -88,6 +91,9 @@ type TransitionRequest struct {
 	// IncrementAttempts and LastError record a failed attempt.
 	IncrementAttempts bool
 	LastError         string
+	// NextAttemptAt is when a failed path may run again. Empty clears it, which is
+	// what a successful settlement and an operator resume do.
+	NextAttemptAt string
 }
 
 // AuditQuery filters audit listings.
@@ -109,6 +115,9 @@ type PathQuery struct {
 	TargetNodeID string
 	// MinPriority filters out paths the caller considers uninteresting.
 	MinPriority float64
+	// DueBefore restricts the answer to paths whose retry time has elapsed (empty
+	// NextAttemptAt counts as due). It is how the scheduler asks "what may run now".
+	DueBefore string
 	// Sort is "priority" (default), "created" or "path_id".
 	Sort   string
 	Limit  int

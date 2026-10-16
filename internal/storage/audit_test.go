@@ -936,3 +936,275 @@ func TestDeleteSnapshotRemovesAudits(t *testing.T) {
 		})
 	}
 }
+
+// Fixed retry times. They are RFC3339 strings, so a string comparison is a time
+// comparison, and the expectations below do not depend on the wall clock.
+const (
+	retryEarly = "2024-05-01T12:00:00Z"
+	retryMid   = "2024-05-01T12:05:00Z"
+	retryLate  = "2024-05-01T12:10:00Z"
+)
+
+// seedRetrySchedule stores five paths of one audit with distinct retry times:
+// path-0001 was never deferred (an empty NextAttemptAt, which counts as due),
+// path-0002 is deferred to the latest time, path-0003 and path-0004 share the
+// middle time (so the path id has to break the tie) and path-0005 is paused, so
+// it is deferred but not queued.
+func seedRetrySchedule(t *testing.T, store FullStore, auditID, snapshotID string) {
+	t.Helper()
+	neverDeferred := newPathFixture("path-0001", auditID, snapshotID, "asgn-entry-1", "asgn-sink-sql", 0.9)
+	deferredLate := newPathFixture("path-0002", auditID, snapshotID, "asgn-entry-1", "asgn-sink-exec", 0.5)
+	deferredLate.NextAttemptAt = retryLate
+	deferredMid := newPathFixture("path-0003", auditID, snapshotID, "asgn-entry-2", "asgn-sink-sql", 0.7)
+	deferredMid.NextAttemptAt = retryMid
+	deferredTie := newPathFixture("path-0004", auditID, snapshotID, "asgn-entry-2", "asgn-sink-exec", 0.6)
+	deferredTie.NextAttemptAt = retryMid
+	paused := newPathFixture("path-0005", auditID, snapshotID, "asgn-entry-3", "asgn-sink-sql", 0.3)
+	paused.Status = path.StatusPaused
+	paused.NextAttemptAt = retryMid
+	seedAudit(t, store, newAuditFixture(auditID, snapshotID, 1),
+		neverDeferred, deferredLate, deferredMid, deferredTie, paused)
+}
+
+func TestListDuePathsHonoursTheRetrySchedule(t *testing.T) {
+	for _, tc := range fullStores(t) {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			store := tc.store
+			seedRetrySchedule(t, store, auditMainID, auditSnapID)
+			// A second audit proves the query is audit-scoped. Path ids are the
+			// primary key, so it needs ids of its own.
+			otherDue := newPathFixture("path-0009", auditSecondID, auditOtherSnapID, "asgn-entry-9", "asgn-sink-sql", 0.4)
+			seedAudit(t, store, newAuditFixture(auditSecondID, auditOtherSnapID, 1), otherDue)
+
+			cases := []struct {
+				name  string
+				now   string
+				limit int
+				want  []string
+			}{
+				{"before the first deferral elapses", retryEarly, 0, []string{"path-0001"}},
+				{"exactly at a deferred time", retryMid, 0, []string{"path-0001", "path-0003", "path-0004"}},
+				{"after every deferral", retryLate, 0, []string{"path-0001", "path-0003", "path-0004", "path-0002"}},
+				{"past every deferral", "2030-01-01T00:00:00Z", 0, []string{"path-0001", "path-0003", "path-0004", "path-0002"}},
+				{"limit", retryLate, 2, []string{"path-0001", "path-0003"}},
+				{"limit of one", retryLate, 1, []string{"path-0001"}},
+			}
+			for _, c := range cases {
+				due, err := store.ListDuePaths(auditMainID, c.now, c.limit)
+				if err != nil {
+					t.Fatalf("%s: ListDuePaths: %v", c.name, err)
+				}
+				if ids := pathIDs(due); !reflect.DeepEqual(ids, c.want) {
+					t.Errorf("%s: due = %v, want %v", c.name, ids, c.want)
+				}
+			}
+
+			// The due time survives the round trip, which is what makes the order a
+			// durable schedule and not an accident of the fixture's insertion order.
+			due, err := store.ListDuePaths(auditMainID, retryLate, 0)
+			if err != nil {
+				t.Fatalf("ListDuePaths: %v", err)
+			}
+			if due[0].NextAttemptAt != "" || due[1].NextAttemptAt != retryMid || due[3].NextAttemptAt != retryLate {
+				t.Errorf("the due times were lost: %q, %q, %q", due[0].NextAttemptAt, due[1].NextAttemptAt, due[3].NextAttemptAt)
+			}
+
+			// A paused path is deferred out of the queue: it is never due, whatever
+			// `now` says, and its own audit does not borrow the main one's paths.
+			for _, now := range []string{retryEarly, retryMid, retryLate} {
+				due, err := store.ListDuePaths(auditMainID, now, 0)
+				if err != nil {
+					t.Fatalf("ListDuePaths(%s): %v", now, err)
+				}
+				for _, p := range due {
+					if p.ID == "path-0005" {
+						t.Errorf("a paused path was due at %s", now)
+					}
+					if p.Status != path.StatusQueued {
+						t.Errorf("ListDuePaths returned a %s path: %+v", p.Status, p)
+					}
+				}
+			}
+			due, err = store.ListDuePaths(auditSecondID, retryEarly, 0)
+			if err != nil {
+				t.Fatalf("ListDuePaths for the second audit: %v", err)
+			}
+			if ids := pathIDs(due); !reflect.DeepEqual(ids, []string{"path-0009"}) {
+				t.Errorf("the second audit's due paths = %v, want [path-0009]", ids)
+			}
+			// A listing for an audit that does not exist is empty, not an error: the
+			// scheduler asks for every audit it knows about.
+			if due, err := store.ListDuePaths(auditAbsentID, retryLate, 0); err != nil || len(due) != 0 {
+				t.Errorf("ListDuePaths(absent) = %v, %v, want no paths and no error", pathIDs(due), err)
+			}
+		})
+	}
+}
+
+func TestTransitionPersistsAndClearsTheRetryTime(t *testing.T) {
+	for _, tc := range fullStores(t) {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			store := tc.store
+			p := newPathFixture("path-0001", auditMainID, auditSnapID, "asgn-entry-1", "asgn-sink-sql", 0.9)
+			seedAudit(t, store, newAuditFixture(auditMainID, auditSnapID, 1), p)
+
+			// A failed attempt happens to a running path, so the run is claimed first;
+			// the failure then records when the retry may run, together with the
+			// attempt and the error that produced it.
+			claimed, err := store.ClaimPath(p.ID, "worker-1", clockNearFuture(), []path.Status{path.StatusQueued}, "worker-1")
+			if err != nil {
+				t.Fatalf("ClaimPath: %v", err)
+			}
+			failed, err := store.Transition(path.TransitionRequest{
+				PathID: p.ID, To: path.StatusFailed, ExpectedVersion: claimed.Version, Owner: "worker-1",
+				ClearLease: true, Actor: "worker-1", Reason: "the adapter timed out",
+				IncrementAttempts: true, LastError: "timeout", NextAttemptAt: retryLate,
+			})
+			if err != nil {
+				t.Fatalf("Transition to FAILED: %v", err)
+			}
+			if failed.NextAttemptAt != retryLate || failed.Attempts != 1 || failed.LastError != "timeout" {
+				t.Fatalf("the failure was stored as %+v", failed)
+			}
+			if stored := mustGetPath(t, store, p.ID); stored.NextAttemptAt != retryLate {
+				t.Errorf("the retry time did not survive the write: %q", stored.NextAttemptAt)
+			}
+			// A failed path is not queued, so it is not due however long the backoff
+			// has been: only an explicit requeue makes it runnable again.
+			if due, err := store.ListDuePaths(auditMainID, "2030-01-01T00:00:00Z", 0); err != nil || len(due) != 0 {
+				t.Errorf("a failed path was due = %v, %v", pathIDs(due), err)
+			}
+
+			// The requeue is the other half of the policy: the path returns to QUEUED
+			// carrying the deferral, so the scheduler skips it until the backoff
+			// elapses.
+			queued, err := store.Transition(path.TransitionRequest{
+				PathID: p.ID, To: path.StatusQueued, ExpectedVersion: failed.Version, Actor: "scheduler",
+				Reason: "retry scheduled", NextAttemptAt: retryLate,
+			})
+			if err != nil {
+				t.Fatalf("Transition to QUEUED: %v", err)
+			}
+			if queued.NextAttemptAt != retryLate {
+				t.Fatalf("the requeue stored %q, want %q", queued.NextAttemptAt, retryLate)
+			}
+			if due, err := store.ListDuePaths(auditMainID, retryMid, 0); err != nil || len(due) != 0 {
+				t.Errorf("a deferred path was due early = %v, %v", pathIDs(due), err)
+			}
+			due, err := store.ListDuePaths(auditMainID, retryLate, 0)
+			if err != nil {
+				t.Fatalf("ListDuePaths: %v", err)
+			}
+			if ids := pathIDs(due); !reflect.DeepEqual(ids, []string{p.ID}) {
+				t.Errorf("once the backoff elapsed, due = %v, want [%s]", ids, p.ID)
+			}
+
+			// A claim consumes the deferral: the worker is running the path now.
+			claimed, err = store.ClaimPath(p.ID, "worker-1", clockNearFuture(), []path.Status{path.StatusQueued}, "worker-1")
+			if err != nil {
+				t.Fatalf("ClaimPath: %v", err)
+			}
+			if claimed.NextAttemptAt != "" || mustGetPath(t, store, p.ID).NextAttemptAt != "" {
+				t.Errorf("a claimed path kept its deferral: %q", claimed.NextAttemptAt)
+			}
+
+			// A settlement clears it too, even when it was written outside a
+			// transition (a recovered row, an operator edit): an explicit empty value
+			// is the instruction to run the path now.
+			active := mustGetPath(t, store, p.ID)
+			active.NextAttemptAt = retryLate
+			if err := store.UpdatePath(active, active.Version); err != nil {
+				t.Fatalf("UpdatePath: %v", err)
+			}
+			if stored := mustGetPath(t, store, p.ID); stored.NextAttemptAt != retryLate {
+				t.Fatalf("UpdatePath stored %q, want %q", stored.NextAttemptAt, retryLate)
+			}
+			beforeSettlement := mustGetPath(t, store, p.ID)
+			settled, err := store.Transition(path.TransitionRequest{
+				PathID: p.ID, To: path.StatusConcluded, ExpectedVersion: beforeSettlement.Version,
+				Owner: "worker-1", ClearLease: true, Actor: "worker-1", Reason: "the verdict was recorded",
+			})
+			if err != nil {
+				t.Fatalf("Transition to CONCLUDED: %v", err)
+			}
+			if settled.NextAttemptAt != "" {
+				t.Errorf("the settlement kept a retry time: %q", settled.NextAttemptAt)
+			}
+			if stored := mustGetPath(t, store, p.ID); stored.NextAttemptAt != "" {
+				t.Errorf("the stored settlement kept a retry time: %q", stored.NextAttemptAt)
+			}
+		})
+	}
+}
+
+func TestListPathsDueBeforeIsTheSameQuestionAsListDuePaths(t *testing.T) {
+	for _, tc := range fullStores(t) {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			store := tc.store
+			seedRetrySchedule(t, store, auditMainID, auditSnapID)
+
+			cases := []struct {
+				name      string
+				dueBefore string
+				status    []path.Status
+				want      []string
+			}{
+				{"before the first deferral", retryEarly, nil, []string{"path-0001"}},
+				{"at a deferred time", retryMid, nil, []string{"path-0001", "path-0003", "path-0004", "path-0005"}},
+				{"after every deferral", retryLate, nil, []string{"path-0001", "path-0002", "path-0003", "path-0004", "path-0005"}},
+				{"queued only", retryMid, []path.Status{path.StatusQueued}, []string{"path-0001", "path-0003", "path-0004"}},
+				{"paused only", retryMid, []path.Status{path.StatusPaused}, []string{"path-0005"}},
+			}
+			for _, c := range cases {
+				got, total, err := store.ListPaths(path.PathQuery{
+					AuditID: auditMainID, DueBefore: c.dueBefore, Status: c.status, Sort: "path_id",
+				})
+				if err != nil {
+					t.Fatalf("%s: ListPaths: %v", c.name, err)
+				}
+				if total != len(c.want) {
+					t.Errorf("%s: total = %d, want %d", c.name, total, len(c.want))
+				}
+				if ids := pathIDs(got); !reflect.DeepEqual(ids, c.want) {
+					t.Errorf("%s: ids = %v, want %v", c.name, ids, c.want)
+				}
+			}
+
+			// No DueBefore is no filter: the retry time does not hide a path from the
+			// ordinary listing.
+			if _, total, err := store.ListPaths(path.PathQuery{AuditID: auditMainID, Sort: "path_id"}); err != nil || total != 5 {
+				t.Errorf("an unfiltered listing = %d paths, %v, want 5", total, err)
+			}
+
+			// The dedicated query and the filtered listing are two spellings of the
+			// same question, so they must agree at every point in time.
+			for _, now := range []string{retryEarly, retryMid, retryLate} {
+				due, err := store.ListDuePaths(auditMainID, now, 0)
+				if err != nil {
+					t.Fatalf("ListDuePaths(%s): %v", now, err)
+				}
+				listed, _, err := store.ListPaths(path.PathQuery{
+					AuditID: auditMainID, Status: []path.Status{path.StatusQueued}, DueBefore: now, Sort: "path_id",
+				})
+				if err != nil {
+					t.Fatalf("ListPaths(due before %s): %v", now, err)
+				}
+				if len(due) != len(listed) {
+					t.Fatalf("at %s: ListDuePaths = %v, ListPaths = %v", now, pathIDs(due), pathIDs(listed))
+				}
+				dueIDs := make(map[string]bool, len(due))
+				for _, p := range due {
+					dueIDs[p.ID] = true
+				}
+				for _, p := range listed {
+					if !dueIDs[p.ID] {
+						t.Errorf("at %s: %s is due by the listing but not by ListDuePaths", now, p.ID)
+					}
+				}
+			}
+		})
+	}
+}

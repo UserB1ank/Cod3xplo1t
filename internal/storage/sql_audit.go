@@ -25,7 +25,8 @@ var pathColumnNames = []string{
 	"asg_refs_json", "objectives_json", "boundaries_json", "controls_json", "inputs_json", "assets_json",
 	"open_questions_json", "limitations_json", "depth", "branch_count", "budget_json", "features_json",
 	"risk", "support", "utility", "priority", "score_version", "weights_json", "score_seq", "lease_owner",
-	"lease_until", "heartbeat_at", "attempts", "max_attempts", "last_error", "created_at", "updated_at", "version",
+	"lease_until", "heartbeat_at", "attempts", "max_attempts", "last_error", "next_attempt_at",
+	"created_at", "updated_at", "version",
 }
 
 var featureColumnNames = []string{
@@ -241,7 +242,7 @@ func pathWriteValues(p path.Path) ([]any, error) {
 		boundaries, controls, inputs, assets, openQuestions, limitations, p.Depth, p.BranchCount, budget,
 		features, p.Score.Risk, p.Score.Support, p.Score.Utility, p.Score.Priority, p.Score.ScoreVersion,
 		weights, p.ScoreSeq, p.LeaseOwner, p.LeaseUntil, p.HeartbeatAt, p.Attempts, p.MaxAttempts, p.LastError,
-		p.CreatedAt, p.UpdatedAt, p.Version,
+		p.NextAttemptAt, p.CreatedAt, p.UpdatedAt, p.Version,
 	}, nil
 }
 
@@ -258,7 +259,8 @@ func scanPathRow(scan func(...any) error) (path.Path, error) {
 		&asgRefs, &objectives, &boundaries, &controls, &inputs, &assets, &openQuestions, &limitations,
 		&p.Depth, &p.BranchCount, &budget, &features, &p.Score.Risk, &p.Score.Support, &p.Score.Utility,
 		&p.Score.Priority, &p.Score.ScoreVersion, &weights, &p.ScoreSeq, &p.LeaseOwner, &p.LeaseUntil,
-		&p.HeartbeatAt, &p.Attempts, &p.MaxAttempts, &p.LastError, &p.CreatedAt, &p.UpdatedAt, &p.Version); err != nil {
+		&p.HeartbeatAt, &p.Attempts, &p.MaxAttempts, &p.LastError, &p.NextAttemptAt, &p.CreatedAt, &p.UpdatedAt,
+		&p.Version); err != nil {
 		return path.Path{}, err
 	}
 	p.PathStatus = path.PathStatus(pathStatus)
@@ -610,6 +612,33 @@ func (s *SQL) ListPaths(q path.PathQuery) ([]path.Path, int, error) {
 	return out, total, rows.Err()
 }
 
+// ListDuePaths implements path.Store: the queued paths of one audit whose backoff
+// has elapsed, oldest due time first.
+//
+// `now` and next_attempt_at are both RFC3339, so comparing them as strings
+// compares times and the query stays dialect-neutral. An empty next_attempt_at
+// means the path was never deferred, which counts as due and sorts first.
+func (s *SQL) ListDuePaths(auditID, now string, limit int) ([]path.Path, error) {
+	ctx := context.Background()
+	query := "SELECT " + pathSelectColumns + " FROM audit_paths WHERE audit_id = ? AND status = ?" +
+		" AND (next_attempt_at = '' OR next_attempt_at <= ?) ORDER BY next_attempt_at, path_id LIMIT ?"
+	rows, err := s.db.QueryContext(ctx, s.rebind(query), auditID, string(path.StatusQueued), now,
+		normaliseLimit(limit, 100, 1000))
+	if err != nil {
+		return nil, mapAuditSQLError(err)
+	}
+	defer rows.Close()
+	var out []path.Path
+	for rows.Next() {
+		p, err := scanPathRow(rows.Scan)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
 // pathQueryFilter renders the shared WHERE clause of a path listing.
 func pathQueryFilter(q path.PathQuery) (string, []any) {
 	clauses := []string{}
@@ -646,6 +675,13 @@ func pathQueryFilter(q path.PathQuery) (string, []any) {
 	if q.MinPriority > 0 {
 		clauses = append(clauses, "priority >= ?")
 		args = append(args, q.MinPriority)
+	}
+	// DueBefore is a retry-time filter, not a status filter: an empty
+	// next_attempt_at was never deferred and always counts as due. The values are
+	// RFC3339, so the comparison is a string comparison by design.
+	if q.DueBefore != "" {
+		clauses = append(clauses, "(next_attempt_at = '' OR next_attempt_at <= ?)")
+		args = append(args, q.DueBefore)
 	}
 	return whereClause(clauses), args
 }

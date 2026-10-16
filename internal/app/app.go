@@ -23,6 +23,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/repository"
 	"github.com/open-mcp-ai/Codexploit/internal/scg"
 	"github.com/open-mcp-ai/Codexploit/internal/scg/gofrontend"
+	"github.com/open-mcp-ai/Codexploit/internal/schedule"
 	"github.com/open-mcp-ai/Codexploit/internal/storage"
 	"github.com/open-mcp-ai/Codexploit/internal/verify"
 	"github.com/open-mcp-ai/Codexploit/migrations"
@@ -64,6 +65,29 @@ type Config struct {
 	// disabled verifier, which is the safe default: a deployment with no executor
 	// must answer "not configured" instead of pretending a verification is missing.
 	Verification VerificationConfig
+	// Scheduler configures the P7 resident scheduler. The zero value is a disabled
+	// scheduler, which is the safe default: a server that is not asked to run work
+	// must not start spending an audit's budget on its own.
+	Scheduler SchedulerConfig
+}
+
+// SchedulerConfig describes the resident scheduler of a deployment.
+type SchedulerConfig struct {
+	Enabled bool
+	// Audits restricts the scheduler to a set of audit ids. An empty list serves
+	// every audit with due queued work.
+	Audits []string
+	// Interval is the pause between passes. Zero means the documented default.
+	Interval time.Duration
+	// MaxConcurrent bounds how many paths run at once. Zero means the engine's
+	// active-lease ceiling.
+	MaxConcurrent int
+	// LeaseTTL is the lease asked for on a claim. Zero means the audit's own TTL.
+	LeaseTTL time.Duration
+	// Owner names the lease holder. Empty means "scheduler".
+	Owner string
+	// Backoff is the durable retry policy of a failed dispatch.
+	Backoff path.Backoff
 }
 
 // VerificationConfig describes the verification layer of a deployment.
@@ -175,8 +199,17 @@ type Runtime struct {
 	VerifyPlanner *graph.VerifyPlanner
 	// VerificationConfig is the configuration verification was wired from.
 	VerificationConfig VerificationConfig
-	Workspace          string
-	closers            []func() error
+	// Scheduler is the P7 resident scheduler. It is nil when the scheduler is
+	// disabled, which is what makes the operator surfaces say "not configured"
+	// instead of pretending a scheduler is idle.
+	Scheduler *schedule.Scheduler
+	// Metrics is the scheduling metrics the runtime's scheduler (and any operator
+	// surface) reads. It is non-nil whenever a scheduler is wired.
+	Metrics *schedule.Metrics
+	// SchedulerConfig is the configuration the scheduler was wired from.
+	SchedulerConfig SchedulerConfig
+	Workspace       string
+	closers         []func() error
 }
 
 // Build constructs a runtime, applying migrations when a SQL database is used.
@@ -210,6 +243,7 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 		Builder:            builder,
 		AgentConfig:        cfg.Agent,
 		VerificationConfig: cfg.Verification,
+		SchedulerConfig:    cfg.Scheduler,
 		Workspace:          mgr.Root,
 	}
 
@@ -222,6 +256,9 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 			return nil, err
 		}
 		if err := rt.wireVerification(rt.VerificationConfig); err != nil {
+			return nil, err
+		}
+		if err := rt.wireScheduler(rt.SchedulerConfig); err != nil {
 			return nil, err
 		}
 		return rt, nil
@@ -246,6 +283,10 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 		return nil, err
 	}
 	if err := rt.wireVerification(rt.VerificationConfig); err != nil {
+		sqlStore.Close()
+		return nil, err
+	}
+	if err := rt.wireScheduler(rt.SchedulerConfig); err != nil {
 		sqlStore.Close()
 		return nil, err
 	}
@@ -522,6 +563,122 @@ func (r *Runtime) buildVerifyExecutor(mode string, cfg VerificationConfig) (veri
 		return nil, fmt.Errorf("app: verification: unknown executor %q (want %s, %s or %s)",
 			mode, VerifyExecutorScripted, VerifyExecutorCLI, VerifyExecutorUnsupported)
 	}
+}
+
+// wireScheduler builds the P7 resident scheduler over the already-wired path
+// engine and agent runner.
+//
+// A misconfigured scheduler fails here rather than yielding a server that claims
+// to schedule work it can never run; a disabled scheduler leaves both fields nil,
+// which is what makes the operator surfaces say "not configured" and what makes
+// the server log an explicit disabled line.
+func (r *Runtime) wireScheduler(cfg SchedulerConfig) error {
+	if !cfg.Enabled {
+		return nil
+	}
+	if r.Audit == nil || r.Store == nil {
+		return errors.New("app: scheduler: the path engine is not wired")
+	}
+	if r.Agent == nil {
+		return errors.New("app: scheduler: the scheduler needs an agent runtime; " +
+			"pass --agent-runtime scripted or cli (and its adapter flags) or leave the scheduler off")
+	}
+	if cfg.Interval < 0 {
+		return fmt.Errorf("app: scheduler: Interval must not be negative (got %s)", cfg.Interval)
+	}
+	if cfg.MaxConcurrent < 0 {
+		return fmt.Errorf("app: scheduler: MaxConcurrent must not be negative (got %d)", cfg.MaxConcurrent)
+	}
+	if cfg.LeaseTTL < 0 {
+		return fmt.Errorf("app: scheduler: LeaseTTL must not be negative (got %s)", cfg.LeaseTTL)
+	}
+	audits, err := normaliseAuditIDs(cfg.Audits)
+	if err != nil {
+		return err
+	}
+	if cfg.Backoff.Base < 0 || cfg.Backoff.Max < 0 || cfg.Backoff.Factor < 0 || cfg.Backoff.Jitter < 0 {
+		return fmt.Errorf("app: scheduler: the backoff policy must not have negative values (got %+v)", cfg.Backoff)
+	}
+	owner := strings.TrimSpace(cfg.Owner)
+	if owner == "" {
+		owner = "scheduler"
+	}
+	metrics := schedule.NewMetrics()
+	dispatcher := &agentPathDispatcher{
+		Runner: r.Agent,
+		Owner:  owner,
+		TTL:    cfg.LeaseTTL,
+		Policy: r.Agent.Policy,
+	}
+	r.Scheduler = schedule.New(r.Audit, dispatcher,
+		schedule.WithOwner(owner),
+		schedule.WithAudits(audits),
+		schedule.WithInterval(cfg.Interval),
+		schedule.WithMaxConcurrent(cfg.MaxConcurrent),
+		schedule.WithLeaseTTL(cfg.LeaseTTL),
+		schedule.WithBackoff(cfg.Backoff),
+		schedule.WithLogger(slog.Default()),
+	)
+	r.Scheduler.Metrics = metrics
+	r.Metrics = metrics
+	return nil
+}
+
+// agentPathDispatcher is the bridge from the scheduler to the P5 orchestrator. It
+// exists so the scheduler never imports the agent package, and so the lease owner
+// the scheduler claims with is exactly the owner the runner renews and settles
+// with: a mismatch would make every re-claim look like another worker's lease.
+type agentPathDispatcher struct {
+	Runner *agent.Runner
+	Owner  string
+	TTL    time.Duration
+	Policy agent.ExplorationPolicy
+}
+
+// DispatchPath runs one path the scheduler already chose and leased.
+//
+// A run that finished without success — the adapter failed, timed out, produced
+// invalid output or hit its budget — is returned as an error even though the
+// orchestrator recorded it as a run. The run's status is not an error to the
+// runner, but it is a failed dispatch to the scheduler: only the scheduler owns
+// the durable retry schedule, and a nil error would make it treat a failed run as
+// a completed one and re-dispatch the path immediately, with no backoff.
+func (d *agentPathDispatcher) DispatchPath(ctx context.Context, pathID string) error {
+	if d == nil || d.Runner == nil {
+		return errors.New("app: scheduler: no agent runner is wired")
+	}
+	run, err := d.Runner.RunPath(ctx, pathID, d.Owner, d.TTL, d.Policy)
+	if err != nil {
+		return err
+	}
+	if run == nil {
+		return fmt.Errorf("app: scheduler: path %s produced no run record", pathID)
+	}
+	if run.Status != agent.RunSucceeded {
+		return fmt.Errorf("app: scheduler: run %s of path %s ended %s (%s)",
+			run.ID, pathID, run.Status, run.StopReason)
+	}
+	return nil
+}
+
+// normaliseAuditIDs trims the configured audit set and refuses a blank entry: a
+// typo in an audit id must be an error, not a scheduler that silently serves
+// nothing.
+func normaliseAuditIDs(ids []string) ([]string, error) {
+	out := make([]string, 0, len(ids))
+	seen := map[string]bool{}
+	for _, id := range ids {
+		trimmed := strings.TrimSpace(id)
+		if trimmed == "" {
+			return nil, errors.New("app: scheduler: an audit id must not be empty")
+		}
+		if seen[trimmed] {
+			continue
+		}
+		seen[trimmed] = true
+		out = append(out, trimmed)
+	}
+	return out, nil
 }
 
 // normaliseToolNames trims, drops empties and sorts a tool list, so the value
