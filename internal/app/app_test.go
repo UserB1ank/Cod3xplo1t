@@ -1,16 +1,21 @@
 package app
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/open-mcp-ai/Codexploit/internal/analysis"
 	"github.com/open-mcp-ai/Codexploit/internal/repository"
 	"github.com/open-mcp-ai/Codexploit/internal/storage"
+	"github.com/open-mcp-ai/Codexploit/internal/verify"
 )
 
 func TestBuildRejectsEmptyWorkspace(t *testing.T) {
@@ -205,5 +210,172 @@ func TestBuildWiresAgentOnlyWhenEnabled(t *testing.T) {
 		if _, ok := enabled.AgentRegistry.Lookup(name); !ok {
 			t.Errorf("policy allows %q, which the registry cannot execute", name)
 		}
+	}
+}
+
+// TestBuildRejectsMisconfiguredVerification pins the same contract for P6: a
+// deployment that cannot verify anything fails at construction, because a server
+// that started anyway would accept a verification request and fail every attempt.
+func TestBuildRejectsMisconfiguredVerification(t *testing.T) {
+	t.Parallel()
+	scratch := t.TempDir()
+	cases := []struct {
+		name string
+		cfg  VerificationConfig
+	}{
+		{"unknown executor", VerificationConfig{Enabled: true, Executor: "gpt"}},
+		{"disabled but enabled", VerificationConfig{Enabled: true, Executor: VerifyExecutorDisabled}},
+		{"empty executor", VerificationConfig{Enabled: true}},
+		{"cli without a command", VerificationConfig{Enabled: true, Executor: VerifyExecutorCLI, WorkingDir: scratch}},
+		{"cli without a working directory", VerificationConfig{Enabled: true, Executor: VerifyExecutorCLI, Command: []string{"true"}}},
+		{"cli with a missing working directory", VerificationConfig{
+			Enabled: true, Executor: VerifyExecutorCLI, Command: []string{"true"},
+			WorkingDir: filepath.Join(scratch, "absent"),
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rt, err := Build(context.Background(), Config{
+				Workspace: filepath.Join(t.TempDir(), "work"), DBPath: "memory", Verification: tc.cfg,
+			})
+			if err == nil {
+				rt.Close()
+				t.Fatalf("Build accepted %+v", tc.cfg)
+			}
+		})
+	}
+}
+
+// TestBuildWiresVerificationOnlyWhenEnabled pins the 501 contract: a disabled
+// verifier leaves both fields nil, which is what makes the verification routes
+// answer verification_unavailable instead of pretending a record is missing.
+func TestBuildWiresVerificationOnlyWhenEnabled(t *testing.T) {
+	t.Parallel()
+	disabled, err := Build(context.Background(), Config{
+		Workspace: filepath.Join(t.TempDir(), "work"), DBPath: "memory",
+	})
+	if err != nil {
+		t.Fatalf("Build (disabled): %v", err)
+	}
+	defer disabled.Close()
+	if disabled.Verifier != nil || disabled.VerifyPlanner != nil {
+		t.Errorf("a disabled verifier was wired: %+v", disabled.Verifier)
+	}
+
+	// A script with no steps is a valid configuration: the executor reports every
+	// step as unsupported rather than pretending it ran.
+	enabled, err := Build(context.Background(), Config{
+		Workspace: filepath.Join(t.TempDir(), "work"), DBPath: "memory",
+		Verification: VerificationConfig{Enabled: true, Executor: VerifyExecutorScripted},
+	})
+	if err != nil {
+		t.Fatalf("Build (enabled): %v", err)
+	}
+	defer enabled.Close()
+	if enabled.Verifier == nil || enabled.VerifyPlanner == nil {
+		t.Fatal("the enabled verification layer was not wired")
+	}
+	if enabled.Verifier.Store == nil || enabled.Verifier.Executor == nil {
+		t.Errorf("the verifier is incomplete: %+v", enabled.Verifier)
+	}
+	if enabled.VerifyPlanner.Store == nil {
+		t.Errorf("the planner lost its store: %+v", enabled.VerifyPlanner)
+	}
+	if caps := enabled.Verifier.Executor.Capabilities(); caps.Name != VerifyExecutorScripted {
+		t.Errorf("executor name = %q, want %q", caps.Name, VerifyExecutorScripted)
+	}
+}
+
+// TestBuildResolvesScriptedSteps pins the dry-run entry point: a scripted executor
+// can be given a script as JSON (or @file), malformed JSON fails construction, and
+// an empty script is accepted but warned about, because a silent BLOCKED run is the
+// one outcome an operator may read as a finding.
+//
+// It is not parallel: it installs a logger to capture the warning, and the Go test
+// runner only resumes parallel tests after the sequential ones have finished.
+func TestBuildResolvesScriptedSteps(t *testing.T) {
+	script, err := json.Marshal([]verify.StepOutcome{
+		{Kind: verify.EvidenceTest, Content: "ok the claim reproduced", Command: "verify test claim"},
+		{Kind: verify.EvidenceRuntimeLog, Content: "runtime log: the claim reproduced"},
+	})
+	if err != nil {
+		t.Fatalf("marshal a script: %v", err)
+	}
+	build := func(cfg VerificationConfig) (*Runtime, error) {
+		return Build(context.Background(), Config{
+			Workspace: filepath.Join(t.TempDir(), "work"), DBPath: "memory", Verification: cfg,
+		})
+	}
+
+	// The raw JSON form, and the same document through @file.
+	raw, err := build(VerificationConfig{
+		Enabled: true, Executor: VerifyExecutorScripted, ScriptedStepsJSON: string(script),
+	})
+	if err != nil {
+		t.Fatalf("Build with a JSON script: %v", err)
+	}
+	defer raw.Close()
+	if len(raw.VerificationConfig.ScriptedSteps) != 2 {
+		t.Fatalf("the JSON script resolved to %d step(s), want 2", len(raw.VerificationConfig.ScriptedSteps))
+	}
+	if got := raw.VerificationConfig.ScriptedSteps[0].Kind; got != verify.EvidenceTest {
+		t.Errorf("step 0 kind = %q, want %q", got, verify.EvidenceTest)
+	}
+
+	path := filepath.Join(t.TempDir(), "steps.json")
+	if err := os.WriteFile(path, script, 0o600); err != nil {
+		t.Fatalf("write the script file: %v", err)
+	}
+	fromFile, err := build(VerificationConfig{
+		Enabled: true, Executor: VerifyExecutorScripted, ScriptedStepsJSON: "@" + path,
+	})
+	if err != nil {
+		t.Fatalf("Build with @file: %v", err)
+	}
+	defer fromFile.Close()
+	if len(fromFile.VerificationConfig.ScriptedSteps) != 2 {
+		t.Errorf("@file resolved to %d step(s), want 2", len(fromFile.VerificationConfig.ScriptedSteps))
+	}
+
+	// A malformed script, an unknown field, a missing file and two forms at once are
+	// all wiring errors: each would otherwise surface as a run that fails later.
+	bad := []struct {
+		name string
+		cfg  VerificationConfig
+	}{
+		{"malformed json", VerificationConfig{Enabled: true, Executor: VerifyExecutorScripted, ScriptedStepsJSON: "{not json"}},
+		{"unknown field", VerificationConfig{Enabled: true, Executor: VerifyExecutorScripted, ScriptedStepsJSON: `[{"kind":"test","nope":1}]`}},
+		{"missing file", VerificationConfig{Enabled: true, Executor: VerifyExecutorScripted, ScriptedStepsJSON: "@" + filepath.Join(t.TempDir(), "absent.json")}},
+		{"@ without a path", VerificationConfig{Enabled: true, Executor: VerifyExecutorScripted, ScriptedStepsJSON: "@"}},
+		{"both forms", VerificationConfig{
+			Enabled: true, Executor: VerifyExecutorScripted, ScriptedStepsJSON: string(script),
+			ScriptedSteps: []verify.StepOutcome{{Kind: verify.EvidenceTest}},
+		}},
+	}
+	for _, tc := range bad {
+		t.Run(tc.name, func(t *testing.T) {
+			rt, err := build(tc.cfg)
+			if err == nil {
+				rt.Close()
+				t.Fatalf("Build accepted %+v", tc.cfg)
+			}
+			if !strings.Contains(err.Error(), "verification") {
+				t.Errorf("error %q does not name the verification layer", err)
+			}
+		})
+	}
+
+	// An empty script is legal, and Build says out loud what it will do.
+	var logged bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, nil)))
+	defer slog.SetDefault(previous)
+	empty, err := build(VerificationConfig{Enabled: true, Executor: VerifyExecutorScripted})
+	if err != nil {
+		t.Fatalf("Build with an empty script: %v", err)
+	}
+	defer empty.Close()
+	if !strings.Contains(logged.String(), "BLOCKED") {
+		t.Errorf("Build did not warn about an empty script:\n%s", logged.String())
 	}
 }

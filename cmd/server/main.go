@@ -42,6 +42,7 @@ func (r *repeatedFlag) Set(value string) error {
 func run() error {
 	var apiTokens repeatedFlag
 	var agentCommand, agentEnv repeatedFlag
+	var verifyCommand, verifyEnv repeatedFlag
 	var (
 		addr         = flag.String("addr", ":8080", "listen address")
 		workspace    = flag.String("workspace", ".codexploit", "workspace directory for snapshots")
@@ -65,10 +66,18 @@ func run() error {
 		agentOwner     = flag.String("agent-owner", "", "lease owner recorded on agent runs (default orchestrator)")
 		agentHeartbeat = flag.Int("agent-heartbeat", 0, "lease heartbeat interval in seconds (0 uses the default)")
 		agentAnswer    = flag.String("agent-scripted-answer", "", "raw JSON answer for the scripted runtime (dry run)")
+
+		verifyExecutor  = flag.String("verify-executor", app.VerifyExecutorDisabled, "verification executor: disabled, scripted, cli or unsupported")
+		verifySteps     = flag.String("verify-scripted-steps", "", "scripted executor steps as a raw JSON array, or @file to read one; an empty script blocks every step")
+		verifyWorkDir   = flag.String("verify-working-dir", "", "scratch working directory of a cli verification step (must exist)")
+		verifyMaxOutput = flag.Int64("verify-max-output", 0, "maximum bytes one cli verification step may return (0 uses the executor default)")
+		verifyAllowNet  = flag.Bool("verify-allow-network", false, "declare that --verify-command runs inside a network-capable restricted container (still needs a per-request approval)")
 	)
 	flag.Var(&apiTokens, "api-token", "token as name:role:secret, repeatable; role is reader, writer or admin")
 	flag.Var(&agentCommand, "agent-command", "agent command argv, repeatable; the binary plus its arguments")
 	flag.Var(&agentEnv, "agent-env", "environment entry for the agent process as KEY=VALUE, repeatable")
+	flag.Var(&verifyCommand, "verify-command", "verification command argv, repeatable; the binary plus its arguments")
+	flag.Var(&verifyEnv, "verify-env", "environment entry for a verification step as KEY=VALUE, repeatable")
 	flag.Parse()
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: parseLevel(*logLevel)}))
@@ -112,6 +121,16 @@ func run() error {
 			HeartbeatSeconds:   *agentHeartbeat,
 			ScriptedAnswerJSON: *agentAnswer,
 		},
+		Verification: app.VerificationConfig{
+			Enabled:           !strings.EqualFold(strings.TrimSpace(*verifyExecutor), app.VerifyExecutorDisabled),
+			Executor:          *verifyExecutor,
+			Command:           verifyCommand,
+			Env:               verifyEnv,
+			WorkingDir:        *verifyWorkDir,
+			MaxOutputBytes:    *verifyMaxOutput,
+			AllowNetwork:      *verifyAllowNet,
+			ScriptedStepsJSON: *verifySteps,
+		},
 	})
 	if err != nil {
 		return err
@@ -122,6 +141,10 @@ func run() error {
 		logger.Info("agent disabled; run and hypothesis routes answer 501",
 			"hint", "pass --agent-runtime scripted (with --agent-scripted-answer) or --agent-runtime cli --agent-command <binary>")
 	}
+	if rt.Verifier == nil {
+		logger.Info("verification disabled; verification, finding and report routes answer 501",
+			"hint", "pass --verify-executor scripted, --verify-executor cli --verify-command <binary>, or --verify-executor unsupported")
+	}
 
 	srv := api.NewServer(rt.Store, rt.Manager, rt.Analyzer,
 		api.WithAllowNetwork(*allowNetwork),
@@ -131,6 +154,8 @@ func run() error {
 		api.WithASGBuilder(rt.ASGBuilder),
 		api.WithAudit(rt.Audit),
 		api.WithAgent(rt.Agent),
+		api.WithVerifier(rt.Verifier),
+		api.WithVerifyPlanner(rt.VerifyPlanner),
 		api.WithAuth(auth),
 		api.WithIdempotencyTTL(*idemTTL),
 		api.WithLogger(logger),

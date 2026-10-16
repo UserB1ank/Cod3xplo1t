@@ -362,7 +362,29 @@ func requiredCapability(method, path string) (Capability, bool) {
 		return CapRead, true
 	case rest == "hypotheses" && method == http.MethodGet:
 		return CapRead, true
-	case strings.HasPrefix(rest, "hypotheses/") && method == http.MethodGet:
+	case strings.HasPrefix(rest, "hypotheses/"):
+		switch method {
+		case http.MethodGet:
+			return CapRead, true
+		// POST /api/hypotheses/{id}/finding and .../verifications are writes: one
+		// stores a finding, the other spends a verification budget and records an
+		// approval. A reader must never be able to start a verification.
+		case http.MethodPost:
+			return CapWrite, true
+		}
+
+	// /api/verifications, /api/findings and /api/evidence are the P6 read surface;
+	// the report is a read under /api/audits/ and is covered by the audits rule
+	// above. Every one of them needs only read.
+	case rest == "verifications" && method == http.MethodGet:
+		return CapRead, true
+	case strings.HasPrefix(rest, "verifications/") && method == http.MethodGet:
+		return CapRead, true
+	case rest == "findings" && method == http.MethodGet:
+		return CapRead, true
+	case strings.HasPrefix(rest, "findings/") && method == http.MethodGet:
+		return CapRead, true
+	case strings.HasPrefix(rest, "evidence/") && method == http.MethodGet:
 		return CapRead, true
 	}
 	return CapNone, false

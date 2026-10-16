@@ -122,6 +122,11 @@ type FullStore interface {
 	// methods are run-scoped (AppendRunEvents and friends) so the two logs stay
 	// distinguishable in Go, which has no overloading.
 	AgentStore
+	// VerificationStore is the verification layer's persistence contract (P6):
+	// isolated runs, immutable evidence and one finding per hypothesis. Its run
+	// methods are verification-scoped (CreateVerificationRun and friends) for the
+	// same reason the agent log's are run-scoped.
+	VerificationStore
 }
 
 // sameAnalysis reports whether two serialised manifests describe the same

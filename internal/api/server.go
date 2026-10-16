@@ -41,6 +41,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/repository"
 	"github.com/open-mcp-ai/Codexploit/internal/scg"
 	"github.com/open-mcp-ai/Codexploit/internal/storage"
+	"github.com/open-mcp-ai/Codexploit/internal/verify"
 )
 
 // maxBodyBytes bounds request bodies; the API has no large payloads in P1.
@@ -72,9 +73,15 @@ type Server struct {
 	// services so a deployment can serve the P4 surface without the P5 layer, in
 	// which case every run route answers 501 instead of pretending a run is
 	// missing.
-	Agent        *agent.Runner
-	AllowNetwork bool
-	Logger       *slog.Logger
+	Agent *agent.Runner
+	// Verifier is the P6 verification engine and VerifyPlanner the graph-side
+	// builder of findings and plans. They are separate from the agent so a
+	// deployment can serve the P5 surface without the P6 layer, in which case
+	// every verification route answers 501.
+	Verifier      *verify.Verifier
+	VerifyPlanner *graph.VerifyPlanner
+	AllowNetwork  bool
+	Logger        *slog.Logger
 	// Auth decides who may do what. When it is nil the server refuses every API
 	// call, because an unprotected audit API is worse than an unavailable one.
 	Auth *Authenticator
@@ -200,6 +207,15 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/hypotheses", s.handleListHypotheses)
 	mux.HandleFunc("GET /api/hypotheses/{id}", s.handleGetHypothesis)
 	mux.HandleFunc("GET /api/paths/{id}/hypotheses", s.handlePathHypotheses)
+	mux.HandleFunc("POST /api/hypotheses/{id}/finding", s.withIdempotency(s.handleEnsureFinding))
+	mux.HandleFunc("POST /api/hypotheses/{id}/verifications", s.withIdempotency(s.handleCreateVerification))
+	mux.HandleFunc("GET /api/verifications", s.handleListVerifications)
+	mux.HandleFunc("GET /api/verifications/{id}", s.handleGetVerification)
+	mux.HandleFunc("GET /api/verifications/{id}/evidence", s.handleVerificationEvidence)
+	mux.HandleFunc("GET /api/findings", s.handleListFindings)
+	mux.HandleFunc("GET /api/findings/{id}", s.handleGetFinding)
+	mux.HandleFunc("GET /api/evidence/{id}", s.handleGetEvidence)
+	mux.HandleFunc("GET /api/audits/{id}/report", s.handleAuditReport)
 	return mux
 }
 

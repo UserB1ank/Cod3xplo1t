@@ -198,6 +198,8 @@ func serveTestEnv(t *testing.T, rt *app.Runtime, allowNetwork bool) *testEnv {
 		WithASGBuilder(rt.ASGBuilder),
 		WithAudit(rt.Audit),
 		WithAgent(rt.Agent),
+		WithVerifier(rt.Verifier),
+		WithVerifyPlanner(rt.VerifyPlanner),
 		WithAuth(testAuthenticator(t)),
 		WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil))),
 	)

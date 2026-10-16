@@ -54,6 +54,8 @@ func main() {
 			args[0] = "hypotheses"
 		}
 		err = runAgent(ctx, args)
+	case "verify", "verifications", "findings", "report":
+		err = runVerify(ctx, args)
 	case "version", "--version", "-v":
 		fmt.Printf("codexploit %s (snapshot schema %d, manifest schema %d)\n", version, repository.SchemaVersion, analysis.SchemaVersion)
 	case "help", "--help", "-h":
@@ -89,6 +91,12 @@ Usage:
   codexploit run <audit-id|path-id> [--runtime scripted|cli] [--max-runs N] [--json]
   codexploit runs list|show|events [--path --audit --snapshot --status --type --after --limit --json]
   codexploit hypotheses list|show [--audit --path --status --finding-candidates --limit --offset --json]
+  codexploit verify <hypothesis-id> [--executor scripted|cli|unsupported] [--approved --approved-by NAME]
+                     [--allow-network --repository R --targets a,b --profile P --timeout N --max-steps N]
+                     [--scripted-steps '<json array>'|@file] [--json]
+  codexploit verifications list|show|evidence [--hypothesis --finding --path --audit --snapshot --status --outcome]
+  codexploit findings list|show [--audit --snapshot --path --status --conclusive --candidates]
+  codexploit report <audit-id> [--format md|json|sarif] [--include-candidates] [--out FILE]
   codexploit snapshots list [--workspace <dir>]          list snapshots in a workspace
   codexploit snapshots remove --id <snapshot-id>         delete a snapshot (unfreezes the tree first)
   codexploit version

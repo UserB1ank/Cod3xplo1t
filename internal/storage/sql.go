@@ -268,6 +268,11 @@ func (s *SQL) DeleteSnapshot(ctx context.Context, id string) error {
 	if _, err := s.deleteAgentRowsForSnapshot(ctx, tx, id); err != nil {
 		return err
 	}
+	// The verification runs of the snapshot go with it, together with their
+	// immutable evidence and the findings they produced.
+	if _, err := s.deleteVerificationRowsForSnapshot(ctx, tx, id); err != nil {
+		return err
+	}
 	res, err := tx.ExecContext(ctx, s.rebind(`DELETE FROM snapshots WHERE snapshot_id = ?`), id)
 	if err != nil {
 		return mapSQLError(err)

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -23,6 +24,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/scg"
 	"github.com/open-mcp-ai/Codexploit/internal/scg/gofrontend"
 	"github.com/open-mcp-ai/Codexploit/internal/storage"
+	"github.com/open-mcp-ai/Codexploit/internal/verify"
 	"github.com/open-mcp-ai/Codexploit/migrations"
 
 	_ "modernc.org/sqlite"
@@ -58,6 +60,50 @@ type Config struct {
 	// which is the safe default: a server that cannot run anything must say so
 	// instead of advertising runs it will never start.
 	Agent AgentConfig
+	// Verification configures the P6 verification layer. The zero value is a
+	// disabled verifier, which is the safe default: a deployment with no executor
+	// must answer "not configured" instead of pretending a verification is missing.
+	Verification VerificationConfig
+}
+
+// VerificationConfig describes the verification layer of a deployment.
+type VerificationConfig struct {
+	Enabled bool
+	// Executor is "scripted", "cli" or "unsupported". It is spelled out rather than
+	// inferred, so a typo is an error instead of a silently dead verifier.
+	Executor string
+	// Command is the argv of the cli executor. It is executed directly, never
+	// through a shell.
+	Command []string
+	// Env is the complete allowlist of extra environment entries in "KEY=VALUE"
+	// form for the cli executor.
+	Env        []string
+	WorkingDir string
+	// MaxOutputBytes bounds the output one cli step may return before it is
+	// truncated. Zero means the executor's own default.
+	MaxOutputBytes int64
+	// AllowNetwork declares that the configured cli command is deployed inside a
+	// network-capable restricted container or VM. It does not create a sandbox and
+	// it is not an approval: a plan that needs network access is still refused
+	// unless the request also carries an approval.
+	AllowNetwork bool
+	// MaxSteps bounds a plan the planner generates. Zero means the planner's
+	// default, which is well under verify.MaxSteps.
+	MaxSteps int
+	// MaxSliceLines bounds the optional source slice a generated plan may name.
+	// Zero means the graph service's own default.
+	MaxSliceLines int
+	// ScriptedSteps is the deterministic script of the scripted executor: one entry
+	// per plan step, in order. An empty script is valid; a step with no entry is
+	// reported as BLOCKED, which is what "the script has nothing to say" should
+	// look like.
+	ScriptedSteps []verify.StepOutcome
+	// ScriptedStepsJSON is the same script as a JSON document, for a flag or a
+	// configuration file: either the raw array or "@file" to read one. Its
+	// vocabulary is verify.StepOutcome's own JSON (case-insensitive field names:
+	// kind, content, command, contradicts, err, file, line, exitCode). Malformed
+	// JSON fails Build rather than surfacing as a run that fails later.
+	ScriptedStepsJSON string
 }
 
 // AgentConfig describes the agent runtime of a deployment.
@@ -120,8 +166,17 @@ type Runtime struct {
 	// AgentConfig is the configuration the agent was wired from. It is kept so a
 	// caller (and a test) can reproduce the policy a run was bounded by.
 	AgentConfig AgentConfig
-	Workspace   string
-	closers     []func() error
+	// Verifier is the P6 verification engine. It is nil when verification is
+	// disabled, which is what makes every verification route answer 501 instead of
+	// pretending a verification is missing.
+	Verifier *verify.Verifier
+	// VerifyPlanner turns a hypothesis into a finding and a plan. It is nil when
+	// verification is disabled.
+	VerifyPlanner *graph.VerifyPlanner
+	// VerificationConfig is the configuration verification was wired from.
+	VerificationConfig VerificationConfig
+	Workspace          string
+	closers            []func() error
 }
 
 // Build constructs a runtime, applying migrations when a SQL database is used.
@@ -150,11 +205,12 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 	builder.Limits = cfg.BuildLimits
 
 	rt := &Runtime{
-		Manager:     mgr,
-		Analyzer:    analysis.NewAnalyzer(nil, cfg.Analysis),
-		Builder:     builder,
-		AgentConfig: cfg.Agent,
-		Workspace:   mgr.Root,
+		Manager:            mgr,
+		Analyzer:           analysis.NewAnalyzer(nil, cfg.Analysis),
+		Builder:            builder,
+		AgentConfig:        cfg.Agent,
+		VerificationConfig: cfg.Verification,
+		Workspace:          mgr.Root,
 	}
 
 	path := strings.TrimSpace(cfg.DBPath)
@@ -163,6 +219,9 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 		rt.Store = memory
 		rt.wireGraphServices(memory)
 		if err := rt.wireAgent(rt.AgentConfig); err != nil {
+			return nil, err
+		}
+		if err := rt.wireVerification(rt.VerificationConfig); err != nil {
 			return nil, err
 		}
 		return rt, nil
@@ -183,6 +242,10 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 	rt.Store = sqlStore
 	rt.wireGraphServices(sqlStore)
 	if err := rt.wireAgent(rt.AgentConfig); err != nil {
+		sqlStore.Close()
+		return nil, err
+	}
+	if err := rt.wireVerification(rt.VerificationConfig); err != nil {
 		sqlStore.Close()
 		return nil, err
 	}
@@ -327,6 +390,137 @@ func (r *Runtime) buildAgentRuntime(mode string, cfg AgentConfig) (agent.Runtime
 	default:
 		return nil, fmt.Errorf("app: agent: unknown runtime %q (want %s, %s or %s)",
 			cfg.Runtime, AgentRuntimeDisabled, AgentRuntimeScripted, AgentRuntimeCLI)
+	}
+}
+
+// Verification executors accepted by --verify-executor. "disabled" is spelled out
+// rather than inferred so a typo is an error instead of a silently absent verifier.
+const (
+	VerifyExecutorDisabled    = "disabled"
+	VerifyExecutorScripted    = "scripted"
+	VerifyExecutorCLI         = "cli"
+	VerifyExecutorUnsupported = "unsupported"
+)
+
+// wireVerification builds the P6 engine over the already-wired store and graph
+// services.
+//
+// A misconfigured verifier fails here rather than yielding a server that accepts a
+// verification request it can never execute. A disabled verifier leaves both
+// fields nil, which is what makes the verification routes answer 501.
+func (r *Runtime) wireVerification(cfg VerificationConfig) error {
+	if !cfg.Enabled {
+		return nil
+	}
+	mode := strings.ToLower(strings.TrimSpace(cfg.Executor))
+	switch mode {
+	case VerifyExecutorScripted, VerifyExecutorCLI, VerifyExecutorUnsupported:
+	case VerifyExecutorDisabled:
+		return errors.New("app: verification: Enabled is set but Executor is \"disabled\"; " +
+			"pass --verify-executor scripted, cli or unsupported, or leave verification off")
+	case "":
+		return errors.New("app: verification: Enabled is set but Executor is empty; " +
+			"pass --verify-executor scripted, cli or unsupported")
+	default:
+		return fmt.Errorf("app: verification: unknown executor %q (want %s, %s or %s)",
+			cfg.Executor, VerifyExecutorScripted, VerifyExecutorCLI, VerifyExecutorUnsupported)
+	}
+	steps, err := scriptedSteps(cfg)
+	if err != nil {
+		return err
+	}
+	cfg.ScriptedSteps = steps
+	executor, err := r.buildVerifyExecutor(mode, cfg)
+	if err != nil {
+		return err
+	}
+	if mode == VerifyExecutorScripted && len(cfg.ScriptedSteps) == 0 {
+		// A scripted executor with no script is a dry run with nothing to say: every
+		// step is reported unsupported and every run is BLOCKED. That is honest, but a
+		// silent BLOCKED is the one outcome an operator may misread as a finding, so
+		// it is said out loud here.
+		slog.Warn("verification: the scripted executor has no steps; every plan step will be reported as unsupported and every run will be BLOCKED, which is not a refutation",
+			"flag", "--verify-scripted-steps (server) or --scripted-steps (CLI)")
+	}
+	planner := graph.NewVerifyPlanner(r.Store, r.Graph)
+	planner.MaxSteps = cfg.MaxSteps
+	planner.MaxSliceLines = cfg.MaxSliceLines
+	r.Verifier = verify.NewVerifier(r.Store, executor)
+	r.VerifyPlanner = planner
+	r.VerificationConfig = cfg
+	return nil
+}
+
+// scriptedSteps resolves the scripted executor's script: the parsed form a caller
+// (or a test) passed directly, or the JSON document a configuration supplied.
+//
+// The JSON vocabulary is verify.StepOutcome's own (case-insensitive field names:
+// kind, content, command, contradicts, err, file, line, exitCode), so anything the
+// package marshals can be fed back in. A value starting with "@" reads the document
+// from a file. Malformed JSON is a wiring error here rather than a run that fails
+// later.
+func scriptedSteps(cfg VerificationConfig) ([]verify.StepOutcome, error) {
+	raw := strings.TrimSpace(cfg.ScriptedStepsJSON)
+	if raw == "" {
+		return cfg.ScriptedSteps, nil
+	}
+	if len(cfg.ScriptedSteps) > 0 {
+		return nil, errors.New("app: verification: pass the scripted steps either as the parsed ScriptedSteps or as ScriptedStepsJSON, not both")
+	}
+	if path, ok := strings.CutPrefix(raw, "@"); ok {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			return nil, errors.New("app: verification: --verify-scripted-steps @file needs a file path")
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("app: verification: read the scripted steps file: %w", err)
+		}
+		raw = string(data)
+	}
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	var steps []verify.StepOutcome
+	if err := decoder.Decode(&steps); err != nil {
+		return nil, fmt.Errorf("app: verification: the scripted steps JSON is not a JSON array of step outcomes "+
+			"(each entry has kind, content, command, contradicts, err, file, line, exitCode); "+
+			"it is passed as --verify-scripted-steps on the server and --scripted-steps on the CLI: %w", err)
+	}
+	return steps, nil
+}
+
+// buildVerifyExecutor builds the adapter the configuration names. An unknown mode,
+// a cli executor without a command and an unsupported executor asked to do work
+// are all errors here: each of them would otherwise surface as a verification that
+// fails every time.
+func (r *Runtime) buildVerifyExecutor(mode string, cfg VerificationConfig) (verify.Executor, error) {
+	switch mode {
+	case VerifyExecutorScripted:
+		return verify.NewScriptedExecutor(cfg.ScriptedSteps), nil
+	case VerifyExecutorCLI:
+		if len(cfg.Command) == 0 || strings.TrimSpace(cfg.Command[0]) == "" {
+			return nil, errors.New("app: verification: the cli executor needs a command; " +
+				"pass --verify-command <binary> [args...] (repeatable)")
+		}
+		if strings.TrimSpace(cfg.WorkingDir) == "" {
+			return nil, errors.New("app: verification: the cli executor needs a scratch working directory; " +
+				"pass --verify-working-dir <dir> (it must exist)")
+		}
+		return verify.NewCLIExecutor(verify.CLIConfig{
+			Name:           VerifyExecutorCLI,
+			Version:        "1",
+			Command:        cfg.Command,
+			Env:            cfg.Env,
+			WorkingDir:     cfg.WorkingDir,
+			MaxOutputBytes: cfg.MaxOutputBytes,
+			AllowNetwork:   cfg.AllowNetwork,
+		})
+	case VerifyExecutorUnsupported:
+		return verify.NewUnsupportedExecutor(VerifyExecutorUnsupported, "1",
+			"no verification executor is configured for this deployment"), nil
+	default:
+		return nil, fmt.Errorf("app: verification: unknown executor %q (want %s, %s or %s)",
+			mode, VerifyExecutorScripted, VerifyExecutorCLI, VerifyExecutorUnsupported)
 	}
 }
 

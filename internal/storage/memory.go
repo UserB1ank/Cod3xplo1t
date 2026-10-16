@@ -12,6 +12,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/analysis"
 	"github.com/open-mcp-ai/Codexploit/internal/asg"
 	"github.com/open-mcp-ai/Codexploit/internal/repository"
+	"github.com/open-mcp-ai/Codexploit/internal/verify"
 )
 
 // Memory is an in-process Store. It keeps the same immutability semantics as the
@@ -42,6 +43,15 @@ type Memory struct {
 	// agentHypotheses holds the claims produced by runs, keyed by hypothesis id.
 	// The upsert identity (path_id, digest) is checked when a claim is saved.
 	agentHypotheses map[string]agent.Hypothesis
+	// verificationRuns holds the P6 verification runs, keyed by run id.
+	verificationRuns map[string]verify.Run
+	// evidence holds the immutable, content-addressed evidence objects, keyed by
+	// evidence id. Nothing ever rewrites an entry: a correction is a new object.
+	evidence map[string]verify.Evidence
+	// findings holds the verdict about each hypothesis, keyed by finding id. The
+	// hypothesis is the upsert identity, so a re-upsert updates the row instead of
+	// adding one.
+	findings map[string]verify.Finding
 }
 
 type memorySnapshot struct {
@@ -53,16 +63,19 @@ type memorySnapshot struct {
 // NewMemory returns an empty in-memory store.
 func NewMemory() *Memory {
 	return &Memory{
-		projects:        map[string]Project{},
-		snapshots:       map[string]memorySnapshot{},
-		manifests:       map[string][]byte{},
-		analyses:        map[string]string{},
-		graphs:          map[string]*memoryGraph{},
-		asgDocuments:    map[string]*asg.Document{},
-		idempotency:     map[idempotencyKey]IdempotencyRecord{},
-		audits:          map[string]*auditDocument{},
-		agentRuns:       map[string]*agentRunDocument{},
-		agentHypotheses: map[string]agent.Hypothesis{},
+		projects:         map[string]Project{},
+		snapshots:        map[string]memorySnapshot{},
+		manifests:        map[string][]byte{},
+		analyses:         map[string]string{},
+		graphs:           map[string]*memoryGraph{},
+		asgDocuments:     map[string]*asg.Document{},
+		idempotency:      map[idempotencyKey]IdempotencyRecord{},
+		audits:           map[string]*auditDocument{},
+		agentRuns:        map[string]*agentRunDocument{},
+		agentHypotheses:  map[string]agent.Hypothesis{},
+		verificationRuns: map[string]verify.Run{},
+		evidence:         map[string]verify.Evidence{},
+		findings:         map[string]verify.Finding{},
 	}
 }
 
@@ -209,6 +222,9 @@ func (m *Memory) DeleteSnapshot(_ context.Context, id string) error {
 	// The agent runs of the snapshot go with it, together with their event logs
 	// and the hypotheses they produced.
 	m.deleteAgentRunsForSnapshotLocked(id)
+	// The verification runs of the snapshot go with it, together with their
+	// immutable evidence and the findings they produced.
+	m.deleteVerificationForSnapshotLocked(id)
 	return nil
 }
 

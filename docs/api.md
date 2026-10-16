@@ -573,6 +573,188 @@ a path whose run has not finished would otherwise look identical. A claim carrie
 its `supporting_evidence` and `contradicting_evidence` as resolved refs, so a
 reviewer can check a citation without re-running the agent.
 
+## Verification, evidence and findings (P6)
+
+P6 turns a hypothesis into a finding — or into an honestly unresolved one. The
+distinction it protects is the one the design states plainly: **failing to
+reproduce a vulnerability is not evidence that it does not exist.** A verification
+runs inside a declared scope and budget, its plan is validated before anything
+executes it, and only the derivation in `internal/verify` decides a verdict.
+
+| Endpoint | Capability | Description |
+|---|---|---|
+| `POST /api/hypotheses/{id}/finding` | `writer` | derive the finding for a hypothesis and store its citations as evidence (idempotent) |
+| `POST /api/hypotheses/{id}/verifications` | `writer` | build or accept a plan, authorize it, execute it, derive the verdict |
+| `GET /api/verifications` | `reader` | page of runs (`hypothesis_id`, `finding_id`, `path_id`, `audit_id`, `snapshot_id`, `status`, `outcome`, `limit`, `offset`) |
+| `GET /api/verifications/{id}` | `reader` | one run with its plan, environment digest, approval record, outcome, reason and evidence ids |
+| `GET /api/verifications/{id}/evidence` | `reader` | the run's immutable evidence objects (`kind`, `limit`, `offset`) |
+| `GET /api/findings` | `reader` | page of findings (`audit_id`, `snapshot_id`, `path_id`, `status`, `conclusive`, `candidates`, `limit`, `offset`) |
+| `GET /api/findings/{id}` | `reader` | one finding with its evidence grouped and its verification runs |
+| `GET /api/evidence/{id}` | `reader` | one evidence object |
+| `GET /api/audits/{id}/report` | `reader` | render the audit's findings (`format=md\|json\|sarif`, `include_candidates`) |
+
+Every POST accepts `Idempotency-Key`. Both POSTs are writes: deriving a finding
+changes durable state, and starting a verification spends a budget and records an
+approval. A reader may read all of it and start none of it. A deployment without
+the verification layer answers `501 verification_unavailable` on every route here.
+
+### The three-way distinction
+
+| Status / outcome | What it means | What it requires |
+|---|---|---|
+| `confirmed` / `CONFIRMED` | the behaviour was reproduced | reproduction evidence (`runtime_log` or `test`) **and** the steps that reproduced it, **and** nothing contradicting it |
+| `refuted` / `REFUTED` | there is evidence against the claim | at least one contradicting evidence object: a control that demonstrably blocks the path, or a sink that cannot be reached with attacker data |
+| `inconclusive` / `INCONCLUSIVE` | verification ran and settled nothing | insufficient evidence — **not** a refutation |
+| `blocked` / `BLOCKED` | verification could not run | missing approval, missing environment, unsupported step, refused network access — **not** a refutation either |
+
+A `candidate` finding is an unverified hypothesis: it appears in a report only with
+`include_candidates=true`, because a report of findings must not read as a report of
+vulnerabilities. The HTTP status describes the request while `status` and `outcome`
+describe the run: a run that ended `BLOCKED` was still started successfully, so the
+POST answers `200` with that run in the body.
+
+### `POST /api/hypotheses/{id}/finding`
+
+Derives the finding id from the hypothesis, stores the hypothesis's own citations
+as evidence (kind `source` for a file and line, `static_query` for an id-only ref,
+tool `hypothesis-evidence@1`) and answers `200` with the finding. Re-running it is
+idempotent in the strong sense: it seeds once and never again. A second derivation
+of an unchanged finding returns the stored document without writing, so `updated_at`
+and `version` do not move, and a finding verification has already touched — a
+conclusive status, or any evidence list — is returned untouched.
+
+Every citation the hypothesis records is claim-time context and lands in
+`supporting_evidence`; the `contradicting_evidence` and `inconclusive_evidence`
+lists belong to the verification service, and a citation the planner wrote into
+them would read as a verdict it never reached. A citation the hypothesis itself
+records as contradicting keeps that polarity on the evidence object (the
+`contradicts:` marker in `redaction_notes`), so it stays distinguishable without
+inventing a verdict.
+
+### `POST /api/hypotheses/{id}/verifications`
+
+```json
+{
+  "approved": true,
+  "approved_by": "operator-name",
+  "scope": {
+    "repository": "example.invalid/svc",
+    "snapshot_id": "snap-...",
+    "allowed_targets": ["app.invalid"],
+    "allow_network": false,
+    "requires_human_approval": true
+  },
+  "environment": {
+    "profile": "sandbox-default",
+    "source_read_only": true,
+    "network": "none",
+    "cpu_millis": 1000,
+    "memory_mb": 512,
+    "timeout_seconds": 300
+  }
+}
+```
+
+`plan` is optional. When it is absent the server builds one from the hypothesis and
+the path with the graph-side planner: a `static_check` of the reachability claim, a
+`dataflow_probe` that names the missing dataflow fact as the gap to close, and — only
+when the scope allows network access — a `dynamic_proof` marked as requiring
+approval. The plan carries the claim verbatim, the security goal, and the
+limitations inherited from the path and the hypothesis (reachability is not
+dataflow; a control's presence is not its effectiveness), and it is normalized and
+hashed before it is returned. When `plan` is present it is validated the same way,
+and it must describe the hypothesis in the URL.
+
+**The environment's quotas are ceilings, not defaults.** A plan may ask for less
+than the caps in `verify.Max*`, never more, and `source_read_only` is required:
+a verification reads the snapshot and writes only inside its own scratch space.
+`mount_host_socket` exists to be refused.
+
+**Approval is an explicit write, never an inference.** When a plan contains a
+`dynamic_proof` or any step marked `requires_approval`, the request must carry both
+`approved: true` and a non-empty `approved_by`; the name is recorded on the run
+together with the approval time. There is deliberately no approval key, token or
+header: a refusal and an approval are both ordinary request outcomes.
+
+| Code | HTTP | Meaning |
+|---|---|---|
+| `approval_required` | `409` | the plan needs a recorded approval and `approved_by` is missing — nothing was written |
+| `scope_denied` | `409` | the environment wants egress the scope withholds — nothing was written |
+| `invalid_request` | `400` | the plan or environment does not validate (the message names the field), an unknown filter value, or a bad body |
+| `unsupported_step` | `409` | the configured executor cannot run a step of the plan |
+| `not_found` | `404` | the hypothesis, finding, verification or evidence does not exist |
+| `version_conflict` | `409` | an optimistic-concurrency check lost |
+| `verification_unavailable` | `501` | the server was started without the verification layer |
+
+The same plan for the same hypothesis is the same verification: the run id is
+derived from the hypothesis and the plan hash, so re-submitting an identical plan
+returns the existing run and executes nothing.
+
+### `GET /api/findings/{id}`
+
+The `finding` object carries its three evidence id lists, its verification run ids,
+its environments, its reproduce steps and its limitations. The `evidence` object
+groups the referenced objects into `supporting`, `contradicting` and `inconclusive`,
+and `verifications` holds every run recorded for the finding. The three lists stay
+apart because a contradiction is the interesting part and "we could not tell" is
+not "we disproved it".
+
+### Evidence
+
+Evidence is immutable and content-addressed: the id is derived from its kind, its
+snapshot and the hash of its content, and there is no update path. A correction is a
+new object whose `supersedes` field points at the old one, and both stay readable.
+Every object names the tool and version that produced it and the snapshot,
+hypothesis, path, finding and verification run it belongs to.
+
+**Evidence content is never returned unredacted, because it is never stored
+unredacted.** Credentials, authorization headers, private key blocks, e-mail
+addresses and long opaque values are replaced before storage, the transformation is
+recorded in `redaction_notes` with `redacted: true`, and the content hash covers the
+stored (redacted) bytes so the hash and the content always agree. `GET
+/api/evidence/{id}` therefore returns the stored object as it is: there is no
+unredacted form behind it to leak.
+
+### `GET /api/audits/{id}/report`
+
+Renders the audit's findings and their evidence. `format` is `md` (`text/markdown`),
+`json` (`application/json`) or `sarif` (`application/sarif+json`, SARIF 2.1.0); an
+unknown format is `400 invalid_request` and the message names the three. Candidate
+findings appear only with `include_candidates=true`. Every renderer restates the
+caveats — confirmed was reproduced, refuted means contradicting evidence exists,
+inconclusive and blocked are not refutations — because a report that hides those
+distinctions would undo the layer.
+
+### Configuring the executor and the scripted dry run
+
+`--verify-executor` chooses the adapter (`scripted`, `cli` or `unsupported`), and
+omitting it leaves the whole verification layer unwired, so every route above
+answers `501`. `--verify-command` is the argv prefix of the command a `cli` step
+runs (repeatable, no shell), `--verify-env` is the complete extra environment
+allowlist as `KEY=VALUE` (repeatable), `--verify-working-dir` is the scratch
+directory that must already exist, and `--verify-max-output` bounds the bytes one
+step may return. `--verify-allow-network` declares that `--verify-command` is
+deployed inside a network-capable restricted container: it is a property of the
+deployment, not an approval, and a plan that needs egress still requires the
+request's `approved` and `approved_by`.
+
+`--verify-scripted-steps` gives the `scripted` executor its script as a raw JSON
+array (or `@file` to read one), which is what turns `--verify-executor scripted`
+into a real dry run: prepare, authorize, replay each step, derive the outcome,
+store the evidence and upsert the finding. The CLI spelling is
+`codexploit verify <hypothesis-id> --executor scripted --scripted-steps '<json>'`
+(or `@file`); each entry uses `verify.StepOutcome`'s own field names
+case-insensitively — `kind` (`test` or `runtime_log` for reproduction evidence,
+`source`/`static_query` for a lead), `content`, `command`, `contradicts`, `err`,
+`file`, `line`, `exitCode` — and malformed JSON fails startup with the shape named
+rather than failing a run later.
+
+**A scripted executor with no steps blocks every plan step.** That outcome is
+recorded as `BLOCKED` (`unsupported_step`) and the finding is `blocked`, which is
+**not a refutation**: nothing was reproduced and nothing was disproved. The server
+logs an explicit warning when it is wired that way, and the CLI refuses the run
+and names `--scripted-steps` instead of printing a bare `BLOCKED` result.
+
 ## Provenance
 
 Every graph answer carries a `meta` block:
