@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/open-mcp-ai/Codexploit/internal/analysis"
+	"github.com/open-mcp-ai/Codexploit/internal/asg"
 	"github.com/open-mcp-ai/Codexploit/internal/repository"
 )
 
@@ -22,6 +23,10 @@ type Memory struct {
 	manifests map[string][]byte
 	analyses  map[string]string // analysis_id -> analysis document
 	graphs    map[string]*memoryGraph
+	// asgDocuments holds the derived attack surface of a snapshot, keyed by
+	// snapshot id and kept separate from graphs: the ASG is derived data and can
+	// be dropped and rebuilt without touching an SCG fact.
+	asgDocuments map[string]*asg.Document
 	// idempotency survives for the lifetime of the store, which is what makes a
 	// retry after a restart safe when the store is a database.
 	idempotency map[idempotencyKey]IdempotencyRecord
@@ -36,12 +41,13 @@ type memorySnapshot struct {
 // NewMemory returns an empty in-memory store.
 func NewMemory() *Memory {
 	return &Memory{
-		projects:    map[string]Project{},
-		snapshots:   map[string]memorySnapshot{},
-		manifests:   map[string][]byte{},
-		analyses:    map[string]string{},
-		graphs:      map[string]*memoryGraph{},
-		idempotency: map[idempotencyKey]IdempotencyRecord{},
+		projects:     map[string]Project{},
+		snapshots:    map[string]memorySnapshot{},
+		manifests:    map[string][]byte{},
+		analyses:     map[string]string{},
+		graphs:       map[string]*memoryGraph{},
+		asgDocuments: map[string]*asg.Document{},
+		idempotency:  map[idempotencyKey]IdempotencyRecord{},
 	}
 }
 
@@ -180,6 +186,8 @@ func (m *Memory) DeleteSnapshot(_ context.Context, id string) error {
 	delete(m.snapshots, id)
 	delete(m.manifests, id)
 	delete(m.graphs, id)
+	// The attack surface is derived from the snapshot, so it dies with it.
+	delete(m.asgDocuments, id)
 	return nil
 }
 

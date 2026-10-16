@@ -138,47 +138,67 @@ func runSCGBuild(ctx context.Context, args []string) error {
 	}
 	defer rt.Close()
 
-	snap, err := rt.Manager.Create(ctx, repository.Source{Raw: *source, Ref: *ref})
-	if err != nil {
-		return err
-	}
-	manifest, err := rt.Analyzer.Analyze(ctx, snap)
-	if err != nil {
-		return err
-	}
-	if err := manifest.WriteTo(snap); err != nil && !manifestStored(snap, manifest) {
-		return err
-	}
-	g, err := rt.Builder.Build(ctx, snap)
-	if err != nil {
-		return err
-	}
-	doc, err := g.JSON()
-	if err != nil {
-		return err
-	}
-	name, err := g.ArtifactName()
-	if err != nil {
-		return err
-	}
-	if err := snap.WriteArtifact(name, doc); err != nil {
-		return err
-	}
-	if err := rt.Store.ReplaceGraph(ctx, snap.SnapshotID, g); err != nil {
-		return err
-	}
-	summary, err := rt.Graph.Summary(ctx, snap.SnapshotID)
+	built, err := buildSCGChain(ctx, rt, *source, *ref)
 	if err != nil {
 		return err
 	}
 	if *jsonOut {
-		return printJSON(map[string]any{"snapshot": snap, "graph": summary})
+		return printJSON(map[string]any{"snapshot": built.snapshot, "graph": built.summary})
 	}
-	printSnapshot(snap)
-	printManifest(manifest)
-	printGraphSummary(summary)
-	fmt.Printf("\ngraph document %s\ngraph stored in %s\n", snap.ArtifactPath(name), path)
+	printSnapshot(built.snapshot)
+	printManifest(built.manifest)
+	printGraphSummary(built.summary)
+	fmt.Printf("\ngraph document %s\ngraph stored in %s\n", built.snapshot.ArtifactPath(built.artifact), path)
 	return nil
+}
+
+// scgChain is the result of freezing a revision and indexing it. Both `scg build`
+// and `asg build` need it, so the order (snapshot, manifest, graph) lives here
+// once: building the attack surface on a graph produced by a different chain
+// would be a different answer.
+type scgChain struct {
+	snapshot *repository.Snapshot
+	manifest *analysis.Manifest
+	summary  *scg.Summary
+	artifact string
+}
+
+// buildSCGChain freezes the source, writes the manifest and stores the SCG.
+func buildSCGChain(ctx context.Context, rt *app.Runtime, source, ref string) (*scgChain, error) {
+	snap, err := rt.Manager.Create(ctx, repository.Source{Raw: source, Ref: ref})
+	if err != nil {
+		return nil, err
+	}
+	manifest, err := rt.Analyzer.Analyze(ctx, snap)
+	if err != nil {
+		return nil, err
+	}
+	if err := manifest.WriteTo(snap); err != nil && !manifestStored(snap, manifest) {
+		return nil, err
+	}
+	g, err := rt.Builder.Build(ctx, snap)
+	if err != nil {
+		return nil, err
+	}
+	doc, err := g.JSON()
+	if err != nil {
+		return nil, err
+	}
+	name, err := g.ArtifactName()
+	if err != nil {
+		return nil, err
+	}
+	if err := snap.WriteArtifact(name, doc); err != nil {
+		return nil, err
+	}
+	if err := rt.Store.ReplaceGraph(ctx, snap.SnapshotID, g); err != nil {
+		return nil, err
+	}
+	summary, err := rt.Graph.Summary(ctx, snap.SnapshotID)
+	if err != nil {
+		return nil, err
+	}
+	return &scgChain{snapshot: snap, manifest: manifest, summary: summary, artifact: name}, nil
 }
 
 // manifestStored reports whether the manifest already on disk describes the same

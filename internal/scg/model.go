@@ -183,6 +183,39 @@ type Symbol struct {
 	EndCol     int    `json:"end_col,omitempty"`
 }
 
+// ArgKind classifies one call argument by what static analysis can see.
+type ArgKind string
+
+const (
+	// ArgStringLiteral is a string literal; StringValue holds the unquoted text,
+	// which is what makes route paths and SQL prefixes readable.
+	ArgStringLiteral ArgKind = "string_literal"
+	// ArgLiteral is another literal (number, boolean); Text holds its source form.
+	ArgLiteral ArgKind = "literal"
+	// ArgSymbolRef is an identifier or selector that resolved to a symbol in the
+	// snapshot — for example a handler function passed to a router.
+	ArgSymbolRef ArgKind = "symbol_ref"
+	// ArgExpression is anything else: only its source text is known.
+	ArgExpression ArgKind = "expression"
+)
+
+// ArgRef is one argument of one call site. It is what turns "GET was called"
+// into "GET(\"/users/:id\", handler) was called", which is the fact attack
+// surface extraction needs.
+type ArgRef struct {
+	Position int     `json:"position"`
+	Kind     ArgKind `json:"kind"`
+	// Text is the argument as written, bounded in length.
+	Text string `json:"text,omitempty"`
+	// StringValue is the unquoted value of a string literal.
+	StringValue string `json:"string_value,omitempty"`
+	// SymbolID/SymbolQualified are set when the argument names a symbol.
+	SymbolID        string     `json:"symbol_id,omitempty"`
+	SymbolQualified string     `json:"symbol_qualified,omitempty"`
+	Resolution      Resolution `json:"resolution,omitempty"`
+	Confidence      Confidence `json:"confidence,omitempty"`
+}
+
 // CallSite is a call expression found in the source. It exists whether or not
 // the callee could be resolved: unresolved calls are kept, never deleted
 // (implementation guide §6.2).
@@ -202,6 +235,12 @@ type CallSite struct {
 	Detail          string     `json:"detail,omitempty"`
 	Analyzer        string     `json:"analyzer"`
 	AnalyzerVersion string     `json:"analyzer_version"`
+	// Args holds the call's arguments, up to a bounded number.
+	Args []ArgRef `json:"args,omitempty"`
+	// ReceiverFrom names the call a selector's receiver was bound from, for
+	// example "gin.Default" for `r := gin.Default(); r.GET(...)`. It is how a
+	// rule attributes a route to a framework without type checking.
+	ReceiverFrom string `json:"receiver_from,omitempty"`
 }
 
 // Edge is one relationship between two nodes.

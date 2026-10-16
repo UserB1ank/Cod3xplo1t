@@ -330,6 +330,107 @@ func (s *Service) Files(ctx context.Context, snapshotID, moduleID string, opt Op
 	return files, meta, nil
 }
 
+// CallSiteQuery filters a call-site listing. Argument facts travel with each
+// call site, so this is also how a consumer reads route paths, handler
+// references and SQL prefixes without re-parsing the source.
+type CallSiteQuery struct {
+	CallSiteID     string
+	CallerSymbolID string
+	CalleeSymbolID string
+	FileID         string
+	Resolutions    []scg.Resolution
+	Options        Options
+}
+
+// CallSitePage is a page of call sites.
+type CallSitePage struct {
+	CallSites []scg.CallSite `json:"call_sites"`
+	Total     int            `json:"total"`
+	Meta      Meta           `json:"meta"`
+}
+
+// CallSites lists call sites of a snapshot with optional filters.
+func (s *Service) CallSites(ctx context.Context, snapshotID string, q CallSiteQuery) (*CallSitePage, error) {
+	opt := q.Options.WithDefaults()
+	started := s.now()
+	ctx, cancel := context.WithTimeout(ctx, opt.Timeout)
+	defer cancel()
+
+	args := map[string]string{
+		"call_site_id":     q.CallSiteID,
+		"caller_symbol_id": q.CallerSymbolID,
+		"callee_symbol_id": q.CalleeSymbolID,
+		"file_id":          q.FileID,
+		"resolutions":      strings.Join(resolutionsToStrings(q.Resolutions), ","),
+		"limit":            fmt.Sprint(opt.Limit),
+		"offset":           fmt.Sprint(opt.Offset),
+	}
+	key, version, err := s.cacheKey(ctx, snapshotID, "call_sites", args)
+	if err != nil {
+		return nil, err
+	}
+	var out CallSitePage
+	if s.cacheLoad(key, &out) {
+		out.Meta.CacheHit = true
+		out.Meta.GraphVersion = version
+		out.Meta.ElapsedMS = s.now().Sub(started).Milliseconds()
+		return &out, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	sites, total, err := s.Store.ListCallSites(ctx, storage.CallSiteQuery{
+		SnapshotID:     snapshotID,
+		CallSiteID:     q.CallSiteID,
+		CallerSymbolID: q.CallerSymbolID,
+		CalleeSymbolID: q.CalleeSymbolID,
+		FileID:         q.FileID,
+		Resolution:     q.Resolutions,
+		Limit:          opt.Limit,
+		Offset:         opt.Offset,
+	})
+	if err != nil {
+		return nil, mapStoreError(err, snapshotID)
+	}
+	out = CallSitePage{CallSites: sites, Total: total, Meta: s.meta(ctx, snapshotID, "call_sites", args, opt, started)}
+	if out.CallSites == nil {
+		out.CallSites = []scg.CallSite{}
+	}
+	out.Meta.GraphVersion = version
+	out.Meta.Truncated = opt.Offset+len(out.CallSites) < total
+	if out.Meta.Truncated {
+		out.Meta.TruncationReason = fmt.Sprintf("page %d of %d call sites", len(out.CallSites), total)
+	}
+	s.cacheStore(key, out)
+	return &out, nil
+}
+
+// resolutionsToStrings adapts resolutions to the cache-key helper.
+func resolutionsToStrings(in []scg.Resolution) []string {
+	out := make([]string, 0, len(in))
+	for _, r := range in {
+		out = append(out, string(r))
+	}
+	sort.Strings(out)
+	return out
+}
+
+// GetCallSite returns one call site by id, which is how the attack surface layer
+// dereferences the call sites its nodes were derived from.
+func (s *Service) GetCallSite(ctx context.Context, snapshotID, callSiteID string) (*scg.CallSite, error) {
+	if strings.TrimSpace(callSiteID) == "" {
+		return nil, fmt.Errorf("%w: call site id is required", ErrInvalidArgument)
+	}
+	page, err := s.CallSites(ctx, snapshotID, CallSiteQuery{CallSiteID: callSiteID, Options: Options{Limit: 1}})
+	if err != nil {
+		return nil, err
+	}
+	if len(page.CallSites) == 0 {
+		return nil, fmt.Errorf("%w: call site %s", storage.ErrNotFound, callSiteID)
+	}
+	return &page.CallSites[0], nil
+}
+
 // UnresolvedCalls lists call sites the graph could not resolve, which is how a
 // consumer learns where the graph is blind rather than assuming it is complete.
 func (s *Service) UnresolvedCalls(ctx context.Context, snapshotID, callerSymbolID string, opt Options) ([]scg.CallSite, Meta, error) {

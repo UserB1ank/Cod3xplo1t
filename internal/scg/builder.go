@@ -496,6 +496,10 @@ func (b *Builder) resolveCall(snapshotID string, pf parsedFile, call CallRef, re
 		ModulePath:  pf.module.Name,
 	}
 	res := resolver.ResolveCall(call, frontendFile, pf.unit, index)
+	cs.Args = resolveArgs(call, resolver, frontendFile, pf.unit, index)
+	if len(call.ReceiverFrom) > 0 {
+		cs.ReceiverFrom = strings.Join(call.ReceiverFrom, ".")
+	}
 	cs.Resolution = res.Resolution
 	cs.Confidence = res.Confidence
 	cs.Detail = res.Detail
@@ -515,6 +519,45 @@ func (b *Builder) resolveCall(snapshotID string, pf parsedFile, call CallRef, re
 		return cs, nil
 	}
 	return cs, &ref
+}
+
+// resolveArgs turns the frontend's argument descriptions into facts. A
+// symbol-shaped argument that does not resolve keeps its text and its resolution
+// class but claims no symbol: the graph must not invent a target.
+func resolveArgs(call CallRef, resolver Resolver, file FrontendFile, unit *FileUnit, index *symbolIndex) []ArgRef {
+	if len(call.ArgExprs) == 0 {
+		return nil
+	}
+	out := make([]ArgRef, 0, len(call.ArgExprs))
+	for _, a := range call.ArgExprs {
+		ref := ArgRef{Position: a.Position, Kind: a.Kind, Text: a.Text, StringValue: a.StringValue}
+		if len(a.Parts) > 0 {
+			synthetic := CallRef{
+				EnclosingDecl:    call.EnclosingDecl,
+				Line:             call.Line,
+				Col:              call.Col,
+				Text:             a.Text,
+				Parts:            a.Parts,
+				Form:             a.Form,
+				ReceiverType:     a.ReceiverType,
+				Hint:             a.Hint,
+				InferTargetParts: a.InferTargetParts,
+			}
+			res := resolver.ResolveCall(synthetic, file, unit, index)
+			ref.Resolution = res.Resolution
+			ref.Confidence = res.Confidence
+			ref.SymbolQualified = res.TargetQualified
+			if target, ok := index.byID[res.TargetID]; ok {
+				ref.SymbolID = target.ID
+				ref.SymbolQualified = target.QualifiedName
+				ref.Kind = ArgSymbolRef
+			} else {
+				ref.Kind = ArgExpression
+			}
+		}
+		out = append(out, ref)
+	}
+	return out
 }
 
 // addImportEdges aggregates module-to-module IMPORTS edges.

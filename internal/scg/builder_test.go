@@ -561,3 +561,81 @@ func TestSymbolIDsAreStableWithinASnapshot(t *testing.T) {
 		t.Error("snapshot id does not participate in the symbol id")
 	}
 }
+
+func TestCallSitesCarryArgumentFacts(t *testing.T) {
+	t.Parallel()
+	tree := t.TempDir()
+	files := map[string]string{
+		"go.mod": "module example.invalid/routes\n\ngo 1.24\n",
+		"main.go": `package main
+
+import "example.invalid/routes/web"
+
+func main() { web.Run() }
+`,
+		"web/server.go": `package web
+
+import "net/http"
+
+func Run() {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/users/:id", showUser)
+	http.ListenAndServe(":8080", mux)
+}
+
+func showUser(w http.ResponseWriter, r *http.Request) { _ = w; _ = r }
+`,
+	}
+	for rel, content := range files {
+		p := filepath.Join(tree, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	g := buildFixture(t, tree)
+
+	var route scg.CallSite
+	for _, cs := range g.CallSites {
+		if cs.CalleeText == "mux.HandleFunc" {
+			route = cs
+		}
+	}
+	if route.ID == "" {
+		t.Fatalf("route registration was not recorded: %v", calleeNames(g))
+	}
+	if len(route.Args) != 2 {
+		t.Fatalf("route call has %d argument facts, want 2: %+v", len(route.Args), route.Args)
+	}
+	path := route.Args[0]
+	if path.Kind != scg.ArgStringLiteral || path.StringValue != "/users/:id" {
+		t.Errorf("route path argument = %+v", path)
+	}
+	handler := route.Args[1]
+	if handler.Kind != scg.ArgSymbolRef || handler.SymbolID == "" {
+		t.Fatalf("handler argument was not resolved to a symbol: %+v", handler)
+	}
+	if handler.SymbolQualified != "example.invalid/routes/web.showUser" {
+		t.Errorf("handler qualified name = %q", handler.SymbolQualified)
+	}
+	// The receiver came from a constructor in another package, so no receiver
+	// type could be inferred, but its provenance is recorded.
+	if route.ReceiverFrom != "" && !strings.Contains(route.ReceiverFrom, "NewServeMux") {
+		t.Errorf("receiver provenance = %q", route.ReceiverFrom)
+	}
+	// A non-literal, non-symbol argument keeps its text without claiming a target.
+	var listen scg.CallSite
+	for _, cs := range g.CallSites {
+		if cs.CalleeText == "http.ListenAndServe" {
+			listen = cs
+		}
+	}
+	if listen.ID == "" {
+		t.Fatal("external call was not recorded")
+	}
+	if len(listen.Args) == 0 || listen.Args[0].Kind != scg.ArgStringLiteral || listen.Args[0].StringValue != ":8080" {
+		t.Errorf("listen address argument = %+v", listen.Args)
+	}
+}

@@ -31,6 +31,8 @@ type CallSiteQuery struct {
 	// form is what a bounded neighbourhood query needs.
 	CallerSymbolID string
 	CallerIn       []string
+	// CallSiteID selects exactly one call site.
+	CallSiteID     string
 	FileID         string
 	CalleeSymbolID string
 	Resolution     []scg.Resolution
@@ -106,11 +108,12 @@ func validateGraph(snapshotID string, g *scg.Graph) error {
 	return nil
 }
 
-// FullStore is what the API and CLI need: documents, graph and durable
-// idempotency.
+// FullStore is what the API and CLI need: documents, graph, attack surface and
+// durable idempotency.
 type FullStore interface {
 	Store
 	GraphStore
+	ASGStore
 	IdempotencyStore
 }
 

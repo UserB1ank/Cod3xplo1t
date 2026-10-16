@@ -16,6 +16,7 @@ import (
 	"go/types"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/open-mcp-ai/Codexploit/internal/scg"
@@ -350,6 +351,14 @@ func (w *walker) assign(stmt *ast.AssignStmt) {
 }
 
 // call records one call expression.
+// maxArgFacts bounds how many arguments of one call are described. Beyond that
+// the call is still recorded; only the per-argument detail stops, so a generated
+// call with hundreds of arguments cannot inflate the graph.
+const maxArgFacts = 8
+
+// maxArgText bounds the source text kept for one argument.
+const maxArgText = 120
+
 func (w *walker) call(call *ast.CallExpr) {
 	fun := unwrap(call.Fun)
 	ref := scg.CallRef{
@@ -359,6 +368,7 @@ func (w *walker) call(call *ast.CallExpr) {
 		Form:          scg.FormIdent,
 		Args:          len(call.Args),
 	}
+	ref.ArgExprs = w.argExprs(call.Args)
 	if ref.Line == 0 {
 		ref.Line = lineOf(w.fset, call.Pos())
 		ref.Col = colOf(w.fset, call.Pos())
@@ -398,6 +408,9 @@ func (w *walker) call(call *ast.CallExpr) {
 			case len(bound.fromCall) > 0:
 				ref.InferTargetParts = bound.fromCall
 			}
+			// The binding is also the receiver's provenance, which is what
+			// attributes `r.GET(...)` to the constructor that made r.
+			ref.ReceiverFrom = bound.fromCall
 		}
 	case *ast.FuncLit:
 		ref.Form = scg.FormFuncLiteral
@@ -418,6 +431,72 @@ func (w *walker) call(call *ast.CallExpr) {
 		ref.Hint = strings.TrimSpace(ref.Hint + " variadic")
 	}
 	w.unit.Calls = append(w.unit.Calls, ref)
+}
+
+// argExprs describes the arguments of a call as far as syntax allows: string
+// literals with their unquoted value (route paths, SQL prefixes, file paths),
+// other literals with their source form, and identifiers/selectors that may name
+// a symbol (handlers, sinks, controls).
+func (w *walker) argExprs(args []ast.Expr) []scg.ArgExpr {
+	out := make([]scg.ArgExpr, 0, len(args))
+	for i, arg := range args {
+		if i >= maxArgFacts {
+			break
+		}
+		expr := unwrap(arg)
+		entry := scg.ArgExpr{Position: i, Kind: scg.ArgExpression}
+		switch e := expr.(type) {
+		case *ast.BasicLit:
+			entry.Text = truncateText(e.Value)
+			if e.Kind == token.STRING {
+				entry.Kind = scg.ArgStringLiteral
+				if value, err := strconv.Unquote(e.Value); err == nil {
+					entry.StringValue = value
+					entry.Text = truncateText(value)
+				}
+				break
+			}
+			entry.Kind = scg.ArgLiteral
+		case *ast.Ident:
+			entry.Kind = scg.ArgSymbolRef
+			entry.Text = e.Name
+			entry.Parts = []string{e.Name}
+			entry.Form = scg.FormIdent
+		case *ast.SelectorExpr:
+			entry.Kind = scg.ArgSymbolRef
+			entry.Text = truncateText(types.ExprString(expr))
+			entry.Form = scg.FormSelector
+			if base, ok := unwrap(e.X).(*ast.Ident); ok {
+				entry.Parts = []string{base.Name, e.Sel.Name}
+				if bound, ok := w.bindings[base.Name]; ok {
+					switch {
+					case bound.typeName != "":
+						entry.ReceiverType = bound.typeName
+						entry.Hint = scg.HintReceiverParameter
+					case len(bound.fromCall) > 0:
+						entry.InferTargetParts = bound.fromCall
+					}
+				}
+			} else {
+				entry.Kind = scg.ArgExpression
+			}
+		default:
+			entry.Text = truncateText(types.ExprString(expr))
+			if entry.Text == "" {
+				entry.Kind = scg.ArgExpression
+			}
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
+// truncateText bounds the source text kept for an argument.
+func truncateText(text string) string {
+	if len(text) <= maxArgText {
+		return text
+	}
+	return text[:maxArgText]
 }
 
 // unwrap removes the wrappers that do not change what is being called:

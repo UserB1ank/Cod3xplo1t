@@ -84,6 +84,8 @@ func newTestEnv(t *testing.T, allowNetwork bool) *testEnv {
 		WithAllowNetwork(allowNetwork),
 		WithGraph(rt.Graph),
 		WithBuilder(rt.Builder),
+		WithASG(rt.ASG),
+		WithASGBuilder(rt.ASGBuilder),
 		WithAuth(testAuthenticator(t)),
 		WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil))),
 	)

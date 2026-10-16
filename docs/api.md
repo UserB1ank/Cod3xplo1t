@@ -57,14 +57,14 @@ Status codes used across the API:
 | `400` | malformed request, unknown flag value, missing required argument |
 | `401` | missing or invalid API token (`WWW-Authenticate: Bearer`) |
 | `403` | valid token without the required capability, or a remote source used while network access is disabled |
-| `404` | unknown project, snapshot, symbol — or a snapshot without a graph |
+| `404` | unknown project, snapshot, symbol — or a snapshot without a graph or an attack surface |
 | `405` | wrong method for an existing path |
-| `409` | conflicting immutable write, source changed mid-snapshot, snapshot tree unavailable, `idempotency_in_progress`, `idempotency_key_reuse` |
+| `409` | conflicting immutable write, source changed mid-snapshot, snapshot tree unavailable, `idempotency_in_progress`, `idempotency_key_reuse`, `scg_missing` |
 | `412` | `If-Match` did not match the current `ETag` |
 | `428` | `PATCH` without the `If-Match` it requires |
 | `413` | request body larger than 1 MiB |
 | `422` | snapshot limit exceeded |
-| `501` | the server was started without the graph service or builder |
+| `501` | the server was started without the graph or attack-surface service (`graph_unavailable`, `asg_unavailable`) |
 | `503` | query exceeded its time budget |
 
 ## Idempotency and optimistic concurrency
@@ -119,12 +119,17 @@ Renames a project. Requires `If-Match` with the current `ETag` (capability
 ### `POST /api/projects/{id}/snapshots`
 
 ```json
-{"ref": "v1.2.3", "skip_analysis": false, "build_graph": true}
+{"ref": "v1.2.3", "skip_analysis": false, "build_graph": true, "build_asg": true}
 ```
 
 Freezes the pinned revision, writes `repository_manifest.json`, and — with
-`build_graph` — builds and stores the SCG. The response contains the snapshot
-summary, the manifest summary and the graph summary.
+`build_graph` — builds and stores the SCG. With `build_asg` it also derives and
+stores the attack surface and adds its summary to the response as `"asg"`. The
+response contains the snapshot summary, the manifest summary and the graph
+summary.
+
+`build_asg` needs an SCG from this request or an earlier one. Without one the
+request fails with `409 scg_missing` instead of returning an empty attack surface.
 
 A repeat for an unchanged revision returns `200` with `"existing": true` and the
 same snapshot id: `snapshot_id = hash(repo_identity, commit, submodule_state)`.
@@ -207,6 +212,83 @@ limitations.
 Reads excerpts from the frozen tree. `include` is `declaration` (default),
 `callers`, `calls` or `neighbors`. A `file` with `start_line`/`end_line` can be
 used instead of `symbol_id`.
+
+## Attack surface (ASG)
+
+The attack surface is derived from the stored SCG. Every endpoint is scoped to a
+snapshot, and every answer carries `limitations` and `coverage`: an
+attack-surface answer without them reads as more complete than it is. `REACHES`
+means call-graph reachability, not dataflow.
+
+| Endpoint | Capability | Description |
+|---|---|---|
+| `POST /api/snapshots/{id}/asg` | `writer` | build (or reuse) the attack surface |
+| `GET /api/snapshots/{id}/asg` | `reader` | stored summary |
+| `GET /api/snapshots/{id}/asg/nodes` | `reader` | page of nodes |
+| `GET /api/snapshots/{id}/asg/nodes/{nodeID}` | `reader` | one node with its edges and resolved evidence |
+| `GET /api/snapshots/{id}/asg/entrypoints` | `reader` | route table with boundaries, controls and reachable sinks |
+| `GET /api/snapshots/{id}/asg/edges` | `reader` | page of edges |
+
+### `POST /api/snapshots/{id}/asg`
+
+```json
+{"force": false}
+```
+
+With `force: false` and a stored attack surface, returns `200 {"asg": <summary>,
+"built": false}`. Otherwise it derives the ASG from the SCG, writes
+`asg-<asg-version>-<content-hash>.json` next to the frozen tree and stores it,
+returning `201 {"asg": <summary>, "built": true}`. The route accepts an
+`Idempotency-Key`.
+
+Status codes beyond the table above: `409 scg_missing` when the snapshot has no
+SCG (build the graph first), `501 asg_unavailable` when the server was started
+without the attack-surface service.
+
+### `GET /api/snapshots/{id}/asg`
+
+The stored summary: node and edge counts by kind, evidence counts, coverage,
+limitations. A snapshot without an attack surface is `404 asg_missing`.
+
+### `GET /api/snapshots/{id}/asg/nodes`
+
+Query parameters: `kind` (comma-separated `EntryPoint`, `AttackerControlledInput`,
+`TrustBoundary`, `SecurityControl`, `SensitiveOperation`, `Asset`, `Hypothesis`),
+`subject` (exact), `generator`, `file`, `limit`, `offset`. An unknown `kind` is
+`400`.
+
+### `GET /api/snapshots/{id}/asg/nodes/{nodeID}`
+
+One node with its `outgoing` and `incoming` edges and its `derived_from` entries:
+the SCG symbols and call sites the node was read from, resolved for display.
+
+### `GET /api/snapshots/{id}/asg/entrypoints`
+
+Query parameters: `limit`, `offset`. Returns `entry_points` (entry point,
+`boundary`, `controls`, `inputs`, `sinks`, `observed_controls`), plus the stored
+summary's `limitations`, `coverage` and `evidence_counts`.
+
+```json
+{
+  "entry_points": [
+    {"entry_point": {"label": "GET /users/:id", "detail": {"framework": "gin"}},
+     "boundary": {"subject": "boundary:network"},
+     "controls": [{"subject": "control:authentication:AuthRequired"}],
+     "sinks": [{"subject": "sink:sql_execution"}],
+     "observed_controls": 1}
+  ],
+  "total": 1,
+  "limitations": ["REACHES means call-graph reachability, not dataflow: ..."],
+  "coverage": {"call_sites_examined": 20, "entry_points_truncated": 0},
+  "evidence_counts": {"observed": 16, "inferred": 5}
+}
+```
+
+### `GET /api/snapshots/{id}/asg/edges`
+
+Query parameters: `kind` (comma-separated `REACHES`, `CROSSES`, `PROTECTED_BY`,
+`MAY_AFFECT`, `DERIVED_FROM`, `SUPPORTED_BY`, `VERIFIED_BY`), `from`, `to`
+(comma-separated node ids) and `limit`.
 
 ## Provenance
 

@@ -34,6 +34,7 @@ import (
 	"time"
 
 	"github.com/open-mcp-ai/Codexploit/internal/analysis"
+	"github.com/open-mcp-ai/Codexploit/internal/asg"
 	"github.com/open-mcp-ai/Codexploit/internal/graph"
 	"github.com/open-mcp-ai/Codexploit/internal/repository"
 	"github.com/open-mcp-ai/Codexploit/internal/scg"
@@ -51,11 +52,16 @@ const maxIdempotencyEntries = 1024
 
 // Server serves the REST API.
 type Server struct {
-	Store        storage.FullStore
-	Manager      *repository.Manager
-	Analyzer     *analysis.Analyzer
-	Graph        *graph.Service
-	Builder      *scg.Builder
+	Store    storage.FullStore
+	Manager  *repository.Manager
+	Analyzer *analysis.Analyzer
+	Graph    *graph.Service
+	Builder  *scg.Builder
+	// ASG and ASGBuilder are the attack-surface read and build paths. They are
+	// separate from Graph/Builder so a deployment can serve the SCG without the
+	// P3 layer, in which case every ASG route answers 501 instead of guessing.
+	ASG          *graph.ASGService
+	ASGBuilder   *asg.Builder
 	AllowNetwork bool
 	Logger       *slog.Logger
 	// Auth decides who may do what. When it is nil the server refuses every API
@@ -81,6 +87,14 @@ func WithGraph(svc *graph.Service) Option { return func(s *Server) { s.Graph = s
 
 // WithBuilder attaches the SCG builder, which enables graph construction.
 func WithBuilder(b *scg.Builder) Option { return func(s *Server) { s.Builder = b } }
+
+// WithASG attaches the attack-surface query service, which enables the ASG
+// endpoints.
+func WithASG(svc *graph.ASGService) Option { return func(s *Server) { s.ASG = svc } }
+
+// WithASGBuilder attaches the ASG builder, which enables attack-surface
+// construction.
+func WithASGBuilder(b *asg.Builder) Option { return func(s *Server) { s.ASGBuilder = b } }
 
 // WithAuth attaches the authenticator. Without it the API answers 401 to every
 // request: authentication is opt-out by configuration, never by accident.
@@ -145,6 +159,12 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/snapshots/{id}/unresolved-calls", s.handleUnresolvedCalls)
 	mux.HandleFunc("POST /api/snapshots/{id}/graph/paths", s.handleCallPaths)
 	mux.HandleFunc("POST /api/snapshots/{id}/graph/slice", s.handleSlice)
+	mux.HandleFunc("POST /api/snapshots/{id}/asg", s.withIdempotency(s.handleBuildASG))
+	mux.HandleFunc("GET /api/snapshots/{id}/asg", s.handleASGSummary)
+	mux.HandleFunc("GET /api/snapshots/{id}/asg/nodes", s.handleASGNodes)
+	mux.HandleFunc("GET /api/snapshots/{id}/asg/nodes/{nodeID}", s.handleASGNode)
+	mux.HandleFunc("GET /api/snapshots/{id}/asg/entrypoints", s.handleASGEntryPoints)
+	mux.HandleFunc("GET /api/snapshots/{id}/asg/edges", s.handleASGEdges)
 	return mux
 }
 
@@ -311,12 +331,17 @@ type createSnapshotRequest struct {
 	// BuildGraph builds the SCG after the manifest, so one request produces the
 	// whole P1+P2 chain for a snapshot.
 	BuildGraph bool `json:"build_graph"`
+	// BuildASG builds the attack surface after the graph. It needs an SCG from
+	// this request or an earlier one; without one it is a client mistake and is
+	// reported as scg_missing rather than as an empty attack surface.
+	BuildASG bool `json:"build_asg"`
 }
 
 type snapshotResponse struct {
 	Snapshot snapshotSummary  `json:"snapshot"`
 	Manifest *manifestSummary `json:"manifest,omitempty"`
 	Graph    *scg.Summary     `json:"graph,omitempty"`
+	ASG      *asg.Summary     `json:"asg,omitempty"`
 	Existing bool             `json:"existing"`
 }
 
@@ -425,6 +450,14 @@ func (s *Server) handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		resp.Graph = g.Summarize()
+	}
+
+	if req.BuildASG {
+		summary, _, ok := s.buildASG(w, r, snap.SnapshotID, false)
+		if !ok {
+			return
+		}
+		resp.ASG = summary
 	}
 
 	status := http.StatusCreated

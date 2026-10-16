@@ -83,7 +83,29 @@ type CallRef struct {
 	// Resolving it is a second, evidence-based step: look up that function's
 	// declared result type, then the method on it.
 	InferTargetParts []string
-	Args             int
+	// ReceiverFrom names the call a selector's receiver was bound from, which is
+	// how route registrations are attributed to a framework without type
+	// checking: `r := gin.Default()` makes `r.GET(...)` a gin route.
+	ReceiverFrom []string
+	Args         int
+	// ArgExprs describes the arguments the frontend could describe. Symbolic
+	// arguments are resolved later against the snapshot-wide index.
+	ArgExprs []ArgExpr
+}
+
+// ArgExpr is one argument as the frontend sees it.
+type ArgExpr struct {
+	Position    int
+	Kind        ArgKind
+	Text        string
+	StringValue string
+	// Parts/Form/Hint describe a symbol-shaped argument so the builder can
+	// resolve it exactly like a call target.
+	Parts            []string
+	Form             CallForm
+	ReceiverType     string
+	Hint             string
+	InferTargetParts []string
 }
 
 // Hint values shared by frontends.

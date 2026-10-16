@@ -250,9 +250,10 @@ func (s *SQL) DeleteSnapshot(ctx context.Context, id string) error {
 	if _, err := tx.ExecContext(ctx, s.rebind(`DELETE FROM analyses WHERE snapshot_id = ?`), id); err != nil {
 		return mapSQLError(err)
 	}
-	// The graph belongs to the snapshot: leaving it behind would let a deleted
-	// snapshot keep answering queries.
-	for _, table := range []string{"scg_modules", "scg_files", "scg_symbols", "scg_call_sites", "scg_edges", "graph_builds"} {
+	// The graph and the attack surface belong to the snapshot: leaving them
+	// behind would let a deleted snapshot keep answering queries.
+	for _, table := range []string{"scg_modules", "scg_files", "scg_symbols", "scg_call_sites", "scg_edges", "graph_builds",
+		"asg_nodes", "asg_edges", "asg_builds"} {
 		if _, err := tx.ExecContext(ctx, s.rebind(`DELETE FROM `+table+` WHERE snapshot_id = ?`), id); err != nil {
 			return mapSQLError(err)
 		}

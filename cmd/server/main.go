@@ -87,6 +87,8 @@ func run() error {
 		api.WithAllowNetwork(*allowNetwork),
 		api.WithGraph(rt.Graph),
 		api.WithBuilder(rt.Builder),
+		api.WithASG(rt.ASG),
+		api.WithASGBuilder(rt.ASGBuilder),
 		api.WithAuth(auth),
 		api.WithIdempotencyTTL(*idemTTL),
 		api.WithLogger(logger),

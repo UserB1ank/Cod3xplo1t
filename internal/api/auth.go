@@ -302,6 +302,7 @@ func requiredCapability(method, path string) (Capability, bool) {
 		return CapRead, true
 	case strings.HasPrefix(rest, "snapshots/"):
 		tail := strings.TrimPrefix(rest, "snapshots/")
+		_, action, _ := strings.Cut(tail, "/")
 		switch {
 		case method == http.MethodDelete:
 			return CapAdmin, true
@@ -312,6 +313,11 @@ func requiredCapability(method, path string) (Capability, bool) {
 		case method == http.MethodPost && strings.HasSuffix(tail, "/graph/slice"):
 			return CapRead, true
 		case method == http.MethodPost && strings.HasSuffix(tail, "/graph"):
+			return CapWrite, true
+		// POST /asg is a build, not a query, so it needs write; every ASG read
+		// is already covered by the GET rule above. The action is checked
+		// explicitly so a future POST under /asg cannot inherit this by suffix.
+		case method == http.MethodPost && action == "asg":
 			return CapWrite, true
 		}
 	}

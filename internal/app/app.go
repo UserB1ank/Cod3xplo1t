@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/open-mcp-ai/Codexploit/internal/analysis"
+	"github.com/open-mcp-ai/Codexploit/internal/asg"
 	"github.com/open-mcp-ai/Codexploit/internal/graph"
 	"github.com/open-mcp-ai/Codexploit/internal/repository"
 	"github.com/open-mcp-ai/Codexploit/internal/scg"
@@ -52,13 +53,15 @@ type Config struct {
 
 // Runtime bundles the wired components.
 type Runtime struct {
-	Store     storage.FullStore
-	Manager   *repository.Manager
-	Analyzer  *analysis.Analyzer
-	Builder   *scg.Builder
-	Graph     *graph.Service
-	Workspace string
-	closers   []func() error
+	Store      storage.FullStore
+	Manager    *repository.Manager
+	Analyzer   *analysis.Analyzer
+	Builder    *scg.Builder
+	Graph      *graph.Service
+	ASGBuilder *asg.Builder
+	ASG        *graph.ASGService
+	Workspace  string
+	closers    []func() error
 }
 
 // Build constructs a runtime, applying migrations when a SQL database is used.
@@ -97,7 +100,7 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 	if path == "" || path == "memory" {
 		memory := storage.NewMemory()
 		rt.Store = memory
-		rt.Graph = graph.NewService(memory, mgr)
+		rt.wireGraphServices(memory)
 		return rt, nil
 	}
 	if dir := filepath.Dir(path); dir != "" && dir != "." {
@@ -114,9 +117,19 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 		return nil, err
 	}
 	rt.Store = sqlStore
-	rt.Graph = graph.NewService(sqlStore, mgr)
+	rt.wireGraphServices(sqlStore)
 	rt.closers = append(rt.closers, sqlStore.Close)
 	return rt, nil
+}
+
+// wireGraphServices builds the query layer over the chosen store. Both stores
+// implement the same interfaces, so nothing here depends on which one it is.
+func (r *Runtime) wireGraphServices(store storage.FullStore) {
+	r.Graph = graph.NewService(store, r.Manager)
+	// The ASG builder reads the SCG through *graph.Service, which satisfies
+	// asg.SCGReader with its narrow read methods.
+	r.ASGBuilder = asg.NewBuilder(r.Graph)
+	r.ASG = graph.NewASGService(store, r.Graph)
 }
 
 // Close releases every resource the runtime owns.

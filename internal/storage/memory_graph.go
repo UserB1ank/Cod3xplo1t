@@ -193,6 +193,9 @@ func (m *Memory) ListCallSites(_ context.Context, q CallSiteQuery) ([]scg.CallSi
 	}
 	var all []scg.CallSite
 	for _, cs := range rec.graph.CallSites {
+		if q.CallSiteID != "" && cs.ID != q.CallSiteID {
+			continue
+		}
 		if q.CallerSymbolID != "" && cs.CallerSymbolID != q.CallerSymbolID {
 			continue
 		}

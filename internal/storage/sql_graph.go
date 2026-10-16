@@ -72,16 +72,21 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`))
 
 	callStmt, err := tx.PrepareContext(ctx, s.rebind(`
 INSERT INTO scg_call_sites (call_site_id, snapshot_id, caller_symbol_id, file_id, file, line, col, callee_text,
-    callee_symbol_id, callee_qualified, resolution, confidence, detail, analyzer, analyzer_version)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`))
+    callee_symbol_id, callee_qualified, resolution, confidence, detail, analyzer, analyzer_version,
+    args_json, receiver_from)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`))
 	if err != nil {
 		return mapSQLError(err)
 	}
 	defer callStmt.Close()
 	for _, cs := range g.CallSites {
+		args, err := json.Marshal(cs.Args)
+		if err != nil {
+			return err
+		}
 		if _, err := callStmt.ExecContext(ctx, cs.ID, snapshotID, cs.CallerSymbolID, cs.FileID, cs.File, cs.Line, cs.Col,
 			cs.CalleeText, cs.CalleeSymbolID, cs.CalleeQualified, string(cs.Resolution), string(cs.Confidence),
-			cs.Detail, cs.Analyzer, cs.AnalyzerVersion); err != nil {
+			cs.Detail, cs.Analyzer, cs.AnalyzerVersion, string(args), cs.ReceiverFrom); err != nil {
 			return mapSQLError(err)
 		}
 	}
@@ -394,21 +399,28 @@ WHERE snapshot_id = ? AND (symbol_id = ? OR qualified_name = ?)`), snapshotID, s
 }
 
 const callSiteColumns = `call_site_id, snapshot_id, caller_symbol_id, file_id, file, line, col, callee_text,
-	callee_symbol_id, callee_qualified, resolution, confidence, detail, analyzer, analyzer_version`
+	callee_symbol_id, callee_qualified, resolution, confidence, detail, analyzer, analyzer_version,
+	args_json, receiver_from`
 
 func scanCallSite(scan func(...any) error) (scg.CallSite, error) {
 	var (
 		cs         scg.CallSite
 		resolution string
 		confidence string
+		args       string
 	)
 	if err := scan(&cs.ID, &cs.SnapshotID, &cs.CallerSymbolID, &cs.FileID, &cs.File, &cs.Line, &cs.Col,
 		&cs.CalleeText, &cs.CalleeSymbolID, &cs.CalleeQualified, &resolution, &confidence, &cs.Detail,
-		&cs.Analyzer, &cs.AnalyzerVersion); err != nil {
+		&cs.Analyzer, &cs.AnalyzerVersion, &args, &cs.ReceiverFrom); err != nil {
 		return scg.CallSite{}, err
 	}
 	cs.Resolution = scg.Resolution(resolution)
 	cs.Confidence = scg.Confidence(confidence)
+	if args != "" && args != "[]" {
+		if err := json.Unmarshal([]byte(args), &cs.Args); err != nil {
+			return scg.CallSite{}, fmt.Errorf("storage: decode call-site arguments: %w", err)
+		}
+	}
 	return cs, nil
 }
 
@@ -419,6 +431,10 @@ func (s *SQL) ListCallSites(ctx context.Context, q CallSiteQuery) ([]scg.CallSit
 	}
 	where := []string{"snapshot_id = ?"}
 	args := []any{q.SnapshotID}
+	if q.CallSiteID != "" {
+		where = append(where, "call_site_id = ?")
+		args = append(args, q.CallSiteID)
+	}
 	if q.CallerSymbolID != "" {
 		where = append(where, "caller_symbol_id = ?")
 		args = append(args, q.CallerSymbolID)
