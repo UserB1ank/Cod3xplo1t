@@ -31,11 +31,14 @@ var (
 //   - BLOCKED, PAUSED, INTERRUPTED and FAILED all return to QUEUED, which is what
 //     makes recovery from a crashed worker possible without inventing states.
 var transitions = map[Status][]Status{
-	StatusDiscovered:       {StatusQueued, StatusCancelled},
-	StatusQueued:           {StatusAnalyzing, StatusPaused, StatusCancelled},
-	StatusAnalyzing:        {StatusLocalExploring, StatusHypothesisFormed, StatusConcluded, StatusBlocked, StatusFailed, StatusPaused, StatusInterrupted, StatusCancelled, StatusQueued},
-	StatusLocalExploring:   {StatusAnalyzing, StatusHypothesisFormed, StatusBlocked, StatusFailed, StatusPaused, StatusInterrupted, StatusCancelled},
-	StatusHypothesisFormed: {StatusVerifying, StatusAnalyzing, StatusConcluded, StatusBlocked, StatusFailed, StatusPaused, StatusCancelled},
+	StatusDiscovered:     {StatusQueued, StatusCancelled},
+	StatusQueued:         {StatusAnalyzing, StatusPaused, StatusCancelled},
+	StatusAnalyzing:      {StatusLocalExploring, StatusHypothesisFormed, StatusConcluded, StatusBlocked, StatusFailed, StatusPaused, StatusInterrupted, StatusCancelled, StatusQueued},
+	StatusLocalExploring: {StatusAnalyzing, StatusHypothesisFormed, StatusBlocked, StatusFailed, StatusPaused, StatusInterrupted, StatusCancelled},
+	// QUEUED is a legal target from HYPOTHESIS_FORMED: a claim whose verification
+	// never started (a crash, a cancelled verification task, a workspace rebuilt
+	// from scratch) must be re-analysable instead of sticking forever.
+	StatusHypothesisFormed: {StatusVerifying, StatusAnalyzing, StatusQueued, StatusConcluded, StatusBlocked, StatusFailed, StatusPaused, StatusCancelled},
 	StatusVerifying:        {StatusConcluded, StatusBlocked, StatusFailed, StatusPaused, StatusInterrupted, StatusCancelled},
 	StatusBlocked:          {StatusQueued, StatusFailed, StatusCancelled},
 	StatusPaused:           {StatusQueued, StatusCancelled},

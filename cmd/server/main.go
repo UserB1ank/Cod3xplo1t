@@ -19,6 +19,7 @@ import (
 
 	"github.com/open-mcp-ai/Codexploit/internal/api"
 	"github.com/open-mcp-ai/Codexploit/internal/app"
+	"github.com/open-mcp-ai/Codexploit/internal/graph"
 )
 
 func main() {
@@ -40,6 +41,7 @@ func (r *repeatedFlag) Set(value string) error {
 
 func run() error {
 	var apiTokens repeatedFlag
+	var agentCommand, agentEnv repeatedFlag
 	var (
 		addr         = flag.String("addr", ":8080", "listen address")
 		workspace    = flag.String("workspace", ".codexploit", "workspace directory for snapshots")
@@ -49,8 +51,24 @@ func run() error {
 		logLevel     = flag.String("log-level", "info", "debug, info, warn or error")
 		anonymous    = flag.Bool("insecure-anonymous", false, "serve without authentication (local development only)")
 		idemTTL      = flag.Duration("idempotency-ttl", 24*time.Hour, "how long a stored write response may be replayed")
+
+		agentRuntime    = flag.String("agent-runtime", app.AgentRuntimeDisabled, "agent adapter: disabled, scripted or cli")
+		agentWorkDir    = flag.String("agent-working-dir", "", "working directory of the agent process")
+		agentTimeout    = flag.Int("agent-timeout", 0, "agent run timeout in seconds (0 uses the policy default)")
+		agentMaxHops    = flag.Int("agent-max-hops", 0, "maximum hops one agent run may explore (0 uses the default)")
+		agentMaxBranch  = flag.Int("agent-max-branches", 0, "maximum active branches one agent run may hold (0 uses the default)")
+		agentMaxTools   = flag.Int("agent-max-tool-calls", 0, "maximum tool calls one agent run may make (0 uses the default)")
+		agentMaxExpand  = flag.Int("agent-max-expansions", 0, "maximum expansions one agent run may request")
+		agentTokenBudge = flag.Int("agent-token-budget", 0, "reported token budget of one agent run (0 is not enforced)")
+		agentTools      = flag.String("agent-tools", strings.Join(graph.AgentToolNames(), ","),
+			"comma-separated tool allowlist (the default is every graph agent tool)")
+		agentOwner     = flag.String("agent-owner", "", "lease owner recorded on agent runs (default orchestrator)")
+		agentHeartbeat = flag.Int("agent-heartbeat", 0, "lease heartbeat interval in seconds (0 uses the default)")
+		agentAnswer    = flag.String("agent-scripted-answer", "", "raw JSON answer for the scripted runtime (dry run)")
 	)
 	flag.Var(&apiTokens, "api-token", "token as name:role:secret, repeatable; role is reader, writer or admin")
+	flag.Var(&agentCommand, "agent-command", "agent command argv, repeatable; the binary plus its arguments")
+	flag.Var(&agentEnv, "agent-env", "environment entry for the agent process as KEY=VALUE, repeatable")
 	flag.Parse()
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: parseLevel(*logLevel)}))
@@ -77,11 +95,33 @@ func run() error {
 		DBPath:       path,
 		AllowNetwork: *allowNetwork,
 		GitBin:       *gitBin,
+		Agent: app.AgentConfig{
+			Enabled:            !strings.EqualFold(strings.TrimSpace(*agentRuntime), app.AgentRuntimeDisabled),
+			Runtime:            *agentRuntime,
+			Command:            agentCommand,
+			Env:                agentEnv,
+			WorkingDir:         *agentWorkDir,
+			TimeoutSeconds:     *agentTimeout,
+			MaxHops:            *agentMaxHops,
+			MaxBranches:        *agentMaxBranch,
+			MaxToolCalls:       *agentMaxTools,
+			MaxExpansions:      *agentMaxExpand,
+			TokenBudget:        *agentTokenBudge,
+			AllowedTools:       commaSeparated(*agentTools),
+			Owner:              *agentOwner,
+			HeartbeatSeconds:   *agentHeartbeat,
+			ScriptedAnswerJSON: *agentAnswer,
+		},
 	})
 	if err != nil {
 		return err
 	}
 	defer rt.Close()
+
+	if rt.Agent == nil {
+		logger.Info("agent disabled; run and hypothesis routes answer 501",
+			"hint", "pass --agent-runtime scripted (with --agent-scripted-answer) or --agent-runtime cli --agent-command <binary>")
+	}
 
 	srv := api.NewServer(rt.Store, rt.Manager, rt.Analyzer,
 		api.WithAllowNetwork(*allowNetwork),
@@ -90,6 +130,7 @@ func run() error {
 		api.WithASG(rt.ASG),
 		api.WithASGBuilder(rt.ASGBuilder),
 		api.WithAudit(rt.Audit),
+		api.WithAgent(rt.Agent),
 		api.WithAuth(auth),
 		api.WithIdempotencyTTL(*idemTTL),
 		api.WithLogger(logger),
@@ -120,6 +161,20 @@ func run() error {
 		defer cancel()
 		return httpServer.Shutdown(shutdownCtx)
 	}
+}
+
+// commaSeparated parses a comma-separated flag value. An empty value returns nil
+// rather than a list holding one empty name, because an empty entry would be a
+// tool the registry does not know.
+func commaSeparated(value string) []string {
+	parts := strings.Split(value, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
 }
 
 // buildAuthenticator reads tokens from the flags or from CODEXPLOIT_API_TOKENS

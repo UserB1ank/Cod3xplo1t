@@ -348,6 +348,22 @@ func requiredCapability(method, path string) (Capability, bool) {
 		case http.MethodPost:
 			return CapWrite, true
 		}
+
+	// /api/runs ... and /api/hypotheses ...
+	//
+	// A run is operator work: starting one spends the audit's budget and moves a
+	// path, exactly like a claim, so every POST needs write. The reads are the
+	// evidence a reviewer examines, so they need only read — but a reader must
+	// never be able to start a run, which is why the POST rules are explicit
+	// rather than inherited from the audits/paths prefixes above.
+	case rest == "runs" && method == http.MethodGet:
+		return CapRead, true
+	case strings.HasPrefix(rest, "runs/") && method == http.MethodGet:
+		return CapRead, true
+	case rest == "hypotheses" && method == http.MethodGet:
+		return CapRead, true
+	case strings.HasPrefix(rest, "hypotheses/") && method == http.MethodGet:
+		return CapRead, true
 	}
 	return CapNone, false
 }

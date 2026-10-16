@@ -503,6 +503,22 @@ func (s *Service) ReclaimExpired(limit int) ([]Path, error) {
 // policy, not convenience: a paused path cannot be completed, and a concluded path
 // cannot be re-analysed without a new audit.
 func (s *Service) Transition(pathID string, to Status, actor, reason string) (*Path, error) {
+	// The operator form: no owner, so the store performs no lease-ownership check.
+	// Pausing, resuming or cancelling work someone else started is an operator
+	// action, and refusing it because a worker holds the lease would make a stuck
+	// path unrecoverable.
+	return s.transition(pathID, "", to, actor, reason)
+}
+
+// TransitionOwned is the worker form: the caller must be the path's lease owner,
+// and a foreign owner is refused with ErrLeaseHeld. A worker that advances or
+// completes a path it does not hold is a scheduler bug, and the store is the only
+// place that can refuse it atomically.
+func (s *Service) TransitionOwned(pathID, owner string, to Status, actor, reason string) (*Path, error) {
+	return s.transition(pathID, owner, to, actor, reason)
+}
+
+func (s *Service) transition(pathID, owner string, to Status, actor, reason string) (*Path, error) {
 	current, err := s.Store.GetPath(pathID)
 	if err != nil {
 		return nil, err
@@ -514,7 +530,7 @@ func (s *Service) Transition(pathID string, to Status, actor, reason string) (*P
 	// must find out at its next heartbeat instead of continuing to spend budget on
 	// a path that is no longer its own.
 	return s.Store.Transition(TransitionRequest{
-		PathID: pathID, To: to, Actor: actor, Reason: reason,
+		PathID: pathID, To: to, Owner: owner, Actor: actor, Reason: reason,
 		ClearLease: !to.Active(), EventType: EventPathStatusChange,
 		ExpectedVersion: current.Version,
 	})

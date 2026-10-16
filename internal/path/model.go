@@ -75,9 +75,13 @@ func ValidStatus(s Status) bool {
 func (s Status) Claimable() bool { return s == StatusQueued }
 
 // Active reports whether the status means "a worker holds this path now".
+//
+// HYPOTHESIS_FORMED is deliberately not active: the analysis run is over and its
+// claim is recorded, so no worker holds the path any more. Counting it as active
+// would keep its lease alive, spend the audit's active-lease ceiling on finished
+// work, and leave an expired lease in a state reclaim cannot legally leave.
 func (s Status) Active() bool {
-	return s == StatusAnalyzing || s == StatusLocalExploring ||
-		s == StatusHypothesisFormed || s == StatusVerifying
+	return s == StatusAnalyzing || s == StatusLocalExploring || s == StatusVerifying
 }
 
 // Terminal reports whether no further transition is expected.

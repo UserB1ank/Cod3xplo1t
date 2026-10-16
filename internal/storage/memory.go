@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/open-mcp-ai/Codexploit/internal/agent"
 	"github.com/open-mcp-ai/Codexploit/internal/analysis"
 	"github.com/open-mcp-ai/Codexploit/internal/asg"
 	"github.com/open-mcp-ai/Codexploit/internal/repository"
@@ -34,6 +35,13 @@ type Memory struct {
 	// generation, its append-only feature snapshots and its event log, so a
 	// generation replacement is a single swap under the store lock.
 	audits map[string]*auditDocument
+	// agentRuns holds the P5 agent runs, keyed by run id. Each document keeps the
+	// run with its own append-only event log, so deleting a snapshot's runs is one
+	// delete per run.
+	agentRuns map[string]*agentRunDocument
+	// agentHypotheses holds the claims produced by runs, keyed by hypothesis id.
+	// The upsert identity (path_id, digest) is checked when a claim is saved.
+	agentHypotheses map[string]agent.Hypothesis
 }
 
 type memorySnapshot struct {
@@ -45,14 +53,16 @@ type memorySnapshot struct {
 // NewMemory returns an empty in-memory store.
 func NewMemory() *Memory {
 	return &Memory{
-		projects:     map[string]Project{},
-		snapshots:    map[string]memorySnapshot{},
-		manifests:    map[string][]byte{},
-		analyses:     map[string]string{},
-		graphs:       map[string]*memoryGraph{},
-		asgDocuments: map[string]*asg.Document{},
-		idempotency:  map[idempotencyKey]IdempotencyRecord{},
-		audits:       map[string]*auditDocument{},
+		projects:        map[string]Project{},
+		snapshots:       map[string]memorySnapshot{},
+		manifests:       map[string][]byte{},
+		analyses:        map[string]string{},
+		graphs:          map[string]*memoryGraph{},
+		asgDocuments:    map[string]*asg.Document{},
+		idempotency:     map[idempotencyKey]IdempotencyRecord{},
+		audits:          map[string]*auditDocument{},
+		agentRuns:       map[string]*agentRunDocument{},
+		agentHypotheses: map[string]agent.Hypothesis{},
 	}
 }
 
@@ -196,6 +206,9 @@ func (m *Memory) DeleteSnapshot(_ context.Context, id string) error {
 	// So do the audits of the snapshot: leaving them behind would let a deleted
 	// snapshot keep answering audit queries.
 	m.deleteAuditsForSnapshotLocked(id)
+	// The agent runs of the snapshot go with it, together with their event logs
+	// and the hypotheses they produced.
+	m.deleteAgentRunsForSnapshotLocked(id)
 	return nil
 }
 

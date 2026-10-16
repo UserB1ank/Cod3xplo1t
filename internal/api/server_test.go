@@ -54,45 +54,40 @@ type testEnv struct {
 
 // newTestServer wires a full runtime over an in-memory store and a temp
 // workspace, then serves it through httptest.
+//
+// The agent is configured here, not only in the P5 tests: a server with a dead
+// agent would make every existing audit fixture exercise a 501 path, which is not
+// the environment those tests describe.
 func newTestEnv(t *testing.T, allowNetwork bool) *testEnv {
 	t.Helper()
 	rt, err := app.Build(context.Background(), app.Config{
 		Workspace:    filepath.Join(t.TempDir(), "work"),
 		DBPath:       "memory",
 		AllowNetwork: allowNetwork,
+		Agent: app.AgentConfig{
+			Enabled:            true,
+			Runtime:            app.AgentRuntimeScripted,
+			ScriptedAnswerJSON: agentTestPlaceholderAnswer(t),
+			MaxToolCalls:       30,
+		},
 	})
 	if err != nil {
 		t.Fatalf("app.Build: %v", err)
 	}
-	t.Cleanup(func() {
-		// Frozen trees are read-only: purge every snapshot before the temporary
-		// workspace is removed, which is also the documented way to delete them.
-		ids, err := rt.Manager.List()
-		if err != nil {
-			t.Errorf("list snapshots for cleanup: %v", err)
-		}
-		for _, id := range ids {
-			if err := rt.Manager.Remove(id); err != nil {
-				t.Errorf("remove snapshot %s: %v", id, err)
-			}
-		}
-		if err := rt.Close(); err != nil {
-			t.Errorf("runtime close: %v", err)
-		}
-	})
-	srv := NewServer(rt.Store, rt.Manager, rt.Analyzer,
-		WithAllowNetwork(allowNetwork),
-		WithGraph(rt.Graph),
-		WithBuilder(rt.Builder),
-		WithASG(rt.ASG),
-		WithASGBuilder(rt.ASGBuilder),
-		WithAudit(rt.Audit),
-		WithAuth(testAuthenticator(t)),
-		WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil))),
-	)
-	ts := httptest.NewServer(srv.Handler())
-	t.Cleanup(ts.Close)
+	if rt.Agent == nil || rt.AgentRegistry == nil {
+		t.Fatalf("the configured agent was not wired")
+	}
+	// A fixed script cannot know the security goal the graph derives from a path,
+	// so the adapter answers the task it receives. See echoRuntime in agent_test.go.
+	rt.Agent.Runtime = &echoRuntime{Answer: agentTestAnswer}
+	env := serveTestEnv(t, rt, allowNetwork)
+	env.source = newTestSource(t)
+	return env
+}
 
+// newTestSource writes the small repository every P1 test snapshots.
+func newTestSource(t *testing.T) string {
+	t.Helper()
 	source := t.TempDir()
 	writeFile(t, source, "go.mod", "module example.invalid/app\n\ngo 1.24\n\nrequire github.com/gin-gonic/gin v1.9.1\n")
 	writeFile(t, source, "main.go", `package main
@@ -110,7 +105,7 @@ func Start() { Serve() }
 func Serve() {}
 `)
 	writeFile(t, source, "Dockerfile", "FROM scratch\n")
-	return &testEnv{ts: ts, rt: rt, source: source, workspace: rt.Workspace}
+	return source
 }
 
 func writeFile(t *testing.T, root, rel, content string) {

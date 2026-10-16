@@ -122,3 +122,88 @@ func TestBuildFailsWhenDatabasePathIsADirectory(t *testing.T) {
 		t.Logf("open error: %v", err)
 	}
 }
+
+// TestBuildRejectsMisconfiguredAgent pins the contract that a deployment which
+// cannot run an agent fails at construction. A server that started anyway would
+// accept a run request and fail every attempt, which is worse than refusing to
+// start: the operator would debug an empty queue instead of a typo.
+func TestBuildRejectsMisconfiguredAgent(t *testing.T) {
+	t.Parallel()
+	answer := `{"schema_version":1,"security_goal":"g","hypothesis":{"statement":"s","status":"candidate","confidence":"low"},
+		"supporting_evidence":[{"kind":"source","ref":"ev-1"}],"finding_candidate":false}`
+	cases := []struct {
+		name string
+		cfg  AgentConfig
+	}{
+		{"unknown runtime", AgentConfig{Enabled: true, Runtime: "gpt"}},
+		{"disabled but enabled", AgentConfig{Enabled: true, Runtime: AgentRuntimeDisabled}},
+		{"scripted without an answer", AgentConfig{Enabled: true, Runtime: AgentRuntimeScripted}},
+		{"scripted with invalid json", AgentConfig{
+			Enabled: true, Runtime: AgentRuntimeScripted, ScriptedAnswerJSON: "{not json",
+		}},
+		{"scripted with an unknown field", AgentConfig{
+			Enabled: true, Runtime: AgentRuntimeScripted,
+			ScriptedAnswerJSON: `{"security_goal":"g","nope":true}`,
+		}},
+		{"cli without a command", AgentConfig{Enabled: true, Runtime: AgentRuntimeCLI}},
+		{"unknown tool", AgentConfig{
+			Enabled: true, Runtime: AgentRuntimeScripted, ScriptedAnswerJSON: answer,
+			AllowedTools: []string{"graph.query"},
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rt, err := Build(context.Background(), Config{
+				Workspace: filepath.Join(t.TempDir(), "work"), DBPath: "memory", Agent: tc.cfg,
+			})
+			if err == nil {
+				rt.Close()
+				t.Fatalf("Build accepted %+v", tc.cfg)
+			}
+		})
+	}
+}
+
+// TestBuildWiresAgentOnlyWhenEnabled pins the 501 contract: a disabled agent
+// leaves both fields nil, which is what makes the run routes answer
+// agent_unavailable instead of pretending a run is missing.
+func TestBuildWiresAgentOnlyWhenEnabled(t *testing.T) {
+	t.Parallel()
+	workspace := filepath.Join(t.TempDir(), "work")
+	disabled, err := Build(context.Background(), Config{Workspace: workspace, DBPath: "memory"})
+	if err != nil {
+		t.Fatalf("Build (disabled): %v", err)
+	}
+	defer disabled.Close()
+	if disabled.Agent != nil || disabled.AgentRegistry != nil {
+		t.Errorf("a disabled agent was wired: %+v", disabled.Agent)
+	}
+
+	answer := `{"schema_version":1,"security_goal":"g","hypothesis":{"statement":"s","status":"candidate","confidence":"low"},
+		"supporting_evidence":[{"kind":"source","ref":"ev-1"}],"finding_candidate":false}`
+	enabled, err := Build(context.Background(), Config{
+		Workspace: filepath.Join(t.TempDir(), "work"), DBPath: "memory",
+		Agent: AgentConfig{Enabled: true, Runtime: AgentRuntimeScripted, ScriptedAnswerJSON: answer},
+	})
+	if err != nil {
+		t.Fatalf("Build (enabled): %v", err)
+	}
+	defer enabled.Close()
+	if enabled.Agent == nil || enabled.AgentRegistry == nil {
+		t.Fatal("the enabled agent was not wired")
+	}
+	if enabled.Agent.Tasks == nil || enabled.Agent.Paths == nil || enabled.Agent.Store == nil {
+		t.Errorf("the runner is incomplete: %+v", enabled.Agent)
+	}
+	// The advertised allowlist is the registry's own: every name the agent is
+	// told about is one the orchestrator can execute.
+	names := enabled.AgentRegistry.Names()
+	if len(names) == 0 {
+		t.Fatal("the tool registry is empty")
+	}
+	for _, name := range enabled.Agent.Policy.AllowedTools {
+		if _, ok := enabled.AgentRegistry.Lookup(name); !ok {
+			t.Errorf("policy allows %q, which the registry cannot execute", name)
+		}
+	}
+}

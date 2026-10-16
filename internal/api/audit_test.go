@@ -176,8 +176,14 @@ func TestAuditGenerationAndQueue(t *testing.T) {
 	for _, p := range byPriority.Paths {
 		defaultIDs = append(defaultIDs, p.ID)
 	}
-	if len(ids) > 1 && equalStrings(ids, defaultIDs) {
-		t.Errorf("sort=path_id did not change the order: %v", ids)
+	// Both orders must contain the same paths. Whether they *differ* is a property of
+	// the fixture's scores, not of the sort: with a handful of paths the priority
+	// order can legitimately coincide with the path-id order, so asserting a
+	// difference is a flaky test. The ordering properties themselves are asserted
+	// above (priority descending by default, ids ascending for sort=path_id).
+	sort.Strings(defaultIDs)
+	if !equalStrings(ids, defaultIDs) {
+		t.Errorf("sort=path_id returned a different set of paths: %v vs %v", ids, defaultIDs)
 	}
 
 	// The event log is a bounded page with a resumable cursor.

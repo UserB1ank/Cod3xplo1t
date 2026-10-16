@@ -941,3 +941,61 @@ func TestConcludingAPathReleasesItsLease(t *testing.T) {
 		t.Errorf("concluded -> ANALYZING = %v, want ErrInvalidTransition", err)
 	}
 }
+
+// TestWorkerTransitionsEnforceLeaseOwnership pins the difference between the
+// operator form and the worker form of a status change. A worker that settles a
+// path it does not hold is a scheduler bug, and the store is the only place that
+// can refuse it atomically; an operator must still be able to stop a stuck path.
+func TestWorkerTransitionsEnforceLeaseOwnership(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	service := fixedService(store, fixtureReader())
+	created, err := service.CreateAudit(context.Background(), CreateAuditRequest{
+		SnapshotID: "snap-0123456789abcdef0123456789abcdef",
+	})
+	if err != nil {
+		t.Fatalf("CreateAudit: %v", err)
+	}
+	claimed, err := service.Claim(context.Background(), created.Audit.ID, "worker-1", time.Minute)
+	if err != nil {
+		t.Fatalf("Claim: %v", err)
+	}
+
+	// The owner may complete its own path, and completing it releases the lease.
+	completed, err := service.TransitionOwned(claimed.ID, "worker-1", StatusHypothesisFormed, "worker-1", "hypothesis recorded")
+	if err != nil {
+		t.Fatalf("TransitionOwned by the owner: %v", err)
+	}
+	if completed.Status != StatusHypothesisFormed {
+		t.Errorf("status = %q, want HYPOTHESIS_FORMED", completed.Status)
+	}
+	if completed.LeaseOwner != "" || completed.LeaseUntil != "" {
+		t.Errorf("a finished run left a lease behind: %+v", completed)
+	}
+	// A hypothesis waiting for verification must be reclaimable and re-analysable,
+	// otherwise an abandoned verification sticks forever.
+	if !CanTransition(StatusHypothesisFormed, StatusQueued) {
+		t.Error("HYPOTHESIS_FORMED cannot return to QUEUED")
+	}
+	if recovered, err := store.ReclaimExpired(NowString(time.Now().UTC().Add(time.Hour)), 10, "scheduler"); err != nil {
+		t.Fatalf("ReclaimExpired: %v", err)
+	} else if len(recovered) != 0 {
+		t.Errorf("a path without a lease was reclaimed: %+v", recovered)
+	}
+
+	// A foreign worker cannot settle a leased path.
+	second, err := service.Next(created.Audit.ID)
+	if err != nil {
+		t.Fatalf("Next: %v", err)
+	}
+	if _, err := service.Claim(context.Background(), created.Audit.ID, "worker-1", time.Minute); err != nil {
+		t.Fatalf("second claim: %v", err)
+	}
+	if _, err := service.TransitionOwned(second.ID, "worker-2", StatusConcluded, "worker-2", "not mine"); !errors.Is(err, ErrLeaseHeld) {
+		t.Errorf("foreign worker transition = %v, want ErrLeaseHeld", err)
+	}
+	// The operator form still works: stopping someone else's work must stay possible.
+	if _, err := service.Pause(second.ID, "operator", "investigating"); err != nil {
+		t.Errorf("operator pause of a leased path = %v", err)
+	}
+}

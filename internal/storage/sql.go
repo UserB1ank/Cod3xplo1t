@@ -263,6 +263,11 @@ func (s *SQL) DeleteSnapshot(ctx context.Context, id string) error {
 	if _, err := s.deleteAuditRowsForSnapshot(ctx, tx, id); err != nil {
 		return err
 	}
+	// The agent runs of the snapshot go with it, together with their event logs
+	// and the hypotheses they produced.
+	if _, err := s.deleteAgentRowsForSnapshot(ctx, tx, id); err != nil {
+		return err
+	}
 	res, err := tx.ExecContext(ctx, s.rebind(`DELETE FROM snapshots WHERE snapshot_id = ?`), id)
 	if err != nil {
 		return mapSQLError(err)

@@ -48,6 +48,12 @@ func main() {
 		err = runASG(ctx, args[1:])
 	case "audit":
 		err = runAudit(ctx, args[1:])
+	case "run", "runs", "hypotheses", "hypothesis":
+		// The singular spelling is an alias, so dispatch is on the canonical name.
+		if args[0] == "hypothesis" {
+			args[0] = "hypotheses"
+		}
+		err = runAgent(ctx, args)
 	case "version", "--version", "-v":
 		fmt.Printf("codexploit %s (snapshot schema %d, manifest schema %d)\n", version, repository.SchemaVersion, analysis.SchemaVersion)
 	case "help", "--help", "-h":
@@ -80,6 +86,9 @@ Usage:
   codexploit audit create --snapshot <id> [--force] [--json]   generate and rank audit paths
   codexploit audit list|show|paths|path|events|next|order ...
   codexploit audit claim|heartbeat|release|pause|resume|cancel|reclaim|rescore ...
+  codexploit run <audit-id|path-id> [--runtime scripted|cli] [--max-runs N] [--json]
+  codexploit runs list|show|events [--path --audit --snapshot --status --type --after --limit --json]
+  codexploit hypotheses list|show [--audit --path --status --finding-candidates --limit --offset --json]
   codexploit snapshots list [--workspace <dir>]          list snapshots in a workspace
   codexploit snapshots remove --id <snapshot-id>         delete a snapshot (unfreezes the tree first)
   codexploit version

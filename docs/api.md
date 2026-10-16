@@ -440,6 +440,139 @@ resurrected.
 | `audit_unavailable` | `501` | the server was started without the path engine |
 | `precondition_required` / `precondition_failed` | `428` / `412` | `If-Match` is missing or stale |
 
+## Agent runs and hypotheses (P5)
+
+A run is one bounded agent execution over one claimed path. The Go orchestrator
+owns the process, the lease, the deadline and the budget; the adapter receives a
+task and returns events, and it never sees a lease or a registry. A run is a
+database row rather than a session, so it survives a crashed process and every
+exchange is auditable afterwards. Nothing here stores or requests a chain of
+thought: a run persists the task, the tool exchanges, the expansion decisions and
+the structured answer.
+
+A hypothesis is the claim a run asserts. It is not a finding: `status` may be
+`candidate`, `inconclusive` or `refuted` — confirmation belongs to the
+verification phase, and an adapter that answers `confirmed` is rejected as
+`INVALID_OUTPUT`.
+
+| Endpoint | Capability | Description |
+|---|---|---|
+| `POST /api/audits/{id}/runs` | `writer` | run up to `max_runs` paths of the audit's queue (canonical) |
+| `POST /api/paths/{id}/runs` | `writer` | same operation reached through a path id (alias) |
+| `GET /api/runs` | `reader` | page of runs (`path_id`, `audit_id`, `snapshot_id`, `status`, `limit`, `offset`) |
+| `GET /api/runs/{id}` | `reader` | one run, including the task the agent was given |
+| `GET /api/runs/{id}/events` | `reader` | bounded page of the run's exchange log (`type`, `after_seq`, `limit`) |
+| `GET /api/paths/{id}/hypotheses` | `reader` | page of the claims recorded for one path |
+| `GET /api/hypotheses` | `reader` | page of claims (`audit_id`, `path_id`, `status`, `finding_candidates`, `limit`, `offset`) |
+| `GET /api/hypotheses/{id}` | `reader` | one claim with its supporting and contradicting evidence |
+
+Both POSTs accept `Idempotency-Key`: a retry must not run a second path.
+
+### `POST /api/audits/{id}/runs` and `POST /api/paths/{id}/runs`
+
+```json
+{
+  "max_runs": 1,
+  "policy": {
+    "max_hops": 2,
+    "max_branches": 4,
+    "max_tool_calls": 30,
+    "max_expansions": 3,
+    "timeout_seconds": 600,
+    "token_budget": 0,
+    "allowed_tools": ["graph.slice"]
+  }
+}
+```
+
+`max_runs` defaults to `1` and is capped at `10`; a larger value is `400
+invalid_request`, not a silently clamped batch. The answer is
+`{"runs": [...], "count": N, "stop_reason": "..."}` where `stop_reason` is the
+last run's reason (`completed`, `tool_call_budget_exceeded`, `deadline_exceeded`,
+`invalid_output`, `repeated_output_without_new_evidence`, `adapter_failed`,
+`lease_lost`, ...).
+
+The request policy only narrows the configured one. Every field is optional; a
+field that is sent is capped at the configured value, so a caller may spend less
+of the agent's budget but never more, and `allowed_tools` is the configured
+allowlist intersected with what the request asked for. `max_expansions` and
+`token_budget` are the exception to the usual "zero means default": zero is a
+real ceiling there.
+
+**The advertised allowlist is the enforced one.** `allowed_tools` must name tools
+the deployment actually registered; an unknown tool is `400 invalid_request` and
+the message names it. A tool the registry cannot execute is refused rather than
+advertised, because an allowlist the orchestrator would deny teaches the agent to
+waste its budget on refusals.
+
+`POST /api/paths/{id}/runs` resolves that path's audit and then runs the audit's
+next pick. It is a convenience for a caller that already holds a path id, **not**
+a request for that particular path — the run that starts may be over a different
+path, exactly as with `POST /api/paths/{id}/claim`. Treat the `path_id` in the
+answer as authoritative.
+
+The HTTP status describes the request; the run's own status describes the run. A
+run that ended `FAILED`, `INVALID_OUTPUT` or `BUDGET_EXCEEDED` was still started
+successfully, so the POST answers `200` with that run in the body — the operator
+reads `status` and `stop_reason` rather than inferring them from a transport
+error. The POST is only a non-2xx answer when the request itself could not be
+honoured:
+
+| Code | HTTP | Meaning |
+|---|---|---|
+| `not_found` | `404` | the audit or path does not exist, or the queue is empty |
+| `invalid_request` | `400` | malformed body, `max_runs` over the cap, an unknown tool or filter value |
+| `budget_exceeded` | `409` | the audit's active-lease ceiling is already reached |
+| `version_conflict` | `409` | the optimistic-concurrency check lost |
+| `agent_unavailable` | `501` | the server was started without the agent runtime |
+
+### `GET /api/runs` and `GET /api/runs/{id}`
+
+Parameters: `path_id`, `audit_id`, `snapshot_id` (comma-separated `status`
+values), `limit`, `offset`. The listing answers `{"runs": [...], "total": N}`. A
+run document includes its `task` verbatim, so a reviewer can see what the agent
+was asked before judging what it answered, and its `answer` when one was
+accepted. `status` values are `CREATED`, `RUNNING`, `PAUSING`, `PAUSED`,
+`CANCELLING`, `SUCCEEDED`, `FAILED`, `CANCELLED`, `TIMED_OUT`,
+`BUDGET_EXCEEDED` and `INVALID_OUTPUT`; an unknown one is `400 invalid_request`,
+not a silently empty page.
+
+### `GET /api/runs/{id}/events`
+
+The exchange log, ordered by `seq` and numbered per run. Parameters: `type` (a
+comma-separated event type, e.g. `run_created`, `run_started`, `task_delivered`,
+`tool_requested`, `tool_allowed`, `tool_denied`, `tool_result`,
+`expansion_requested`, `expansion_decided`, `output_received`,
+`output_rejected`, `hypothesis_recorded`, `run_heartbeat`, `run_error`,
+`run_finished`), `after_seq` (strictly greater than) and `limit`. The answer is
+`{"run_id": ..., "events": [...], "total": N, "next_after_seq": N}`, and
+`after_seq` makes a poll a resumable cursor, exactly as on the audit log.
+
+### Expansion approval is policy-driven for this phase
+
+There is deliberately no operator approval route for an expansion. The runner
+decides each expansion inline under the run's policy — approve, shrink, defer or
+reject — and records the decision as an `expansion_decided` event carrying the
+decision, the reason and what was granted. An expansion buys exploration room,
+never permissions: the granted tool list is always a subset of the run's own
+allowlist.
+
+`GET /api/runs/{id}/events?type=expansion_decided` is therefore the approval
+audit trail. A separate operator approval queue is a later phase, and adding one
+now would give the control plane a second, divergent way to widen a run's budget.
+
+### `GET /api/hypotheses` and `GET /api/paths/{id}/hypotheses`
+
+Both answer `{"hypotheses": [...], "total": N}`. The global listing accepts
+`audit_id`, `path_id`, `snapshot_id`, comma-separated `status`,
+`finding_candidates` (a boolean — `finding_candidates=true` is what a
+verification phase schedules from), `limit` and `offset`. `GET
+/api/paths/{id}/hypotheses` is the same page scoped to one path, and it reports
+`404 not_found` for an unknown path rather than an empty page, because a typo and
+a path whose run has not finished would otherwise look identical. A claim carries
+its `supporting_evidence` and `contradicting_evidence` as resolved refs, so a
+reviewer can check a citation without re-running the agent.
+
 ## Provenance
 
 Every graph answer carries a `meta` block:

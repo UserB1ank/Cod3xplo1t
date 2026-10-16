@@ -118,6 +118,10 @@ type FullStore interface {
 
 	// AuditStore is the path engine's persistence contract (P4).
 	AuditStore
+	// AgentStore is the agent runtime's persistence contract (P5). Its event
+	// methods are run-scoped (AppendRunEvents and friends) so the two logs stay
+	// distinguishable in Go, which has no overloading.
+	AgentStore
 }
 
 // sameAnalysis reports whether two serialised manifests describe the same

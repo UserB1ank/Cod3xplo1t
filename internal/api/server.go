@@ -33,6 +33,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/open-mcp-ai/Codexploit/internal/agent"
 	"github.com/open-mcp-ai/Codexploit/internal/analysis"
 	"github.com/open-mcp-ai/Codexploit/internal/asg"
 	"github.com/open-mcp-ai/Codexploit/internal/graph"
@@ -66,7 +67,12 @@ type Server struct {
 	// Audit is the path engine. It is separate from the graph services so a
 	// deployment can serve the SCG/ASG without the P4 layer, in which case every
 	// audit route answers 501 instead of pretending an audit is missing.
-	Audit        *path.Service
+	Audit *path.Service
+	// Agent is the P5 orchestrator. Like Audit it is separate from the graph
+	// services so a deployment can serve the P4 surface without the P5 layer, in
+	// which case every run route answers 501 instead of pretending a run is
+	// missing.
+	Agent        *agent.Runner
 	AllowNetwork bool
 	Logger       *slog.Logger
 	// Auth decides who may do what. When it is nil the server refuses every API
@@ -183,9 +189,17 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/paths/{id}/resume", s.handlePathTransition("resume"))
 	mux.HandleFunc("POST /api/paths/{id}/cancel", s.handlePathTransition("cancel"))
 	mux.HandleFunc("POST /api/audits/{id}/claim", s.handleClaimAudit)
+	mux.HandleFunc("POST /api/audits/{id}/runs", s.withIdempotency(s.handleAuditRuns))
 	mux.HandleFunc("POST /api/paths/{id}/claim", s.handleClaimPath)
 	mux.HandleFunc("POST /api/paths/{id}/heartbeat", s.handleHeartbeat)
 	mux.HandleFunc("POST /api/paths/{id}/release", s.handleReleasePath)
+	mux.HandleFunc("POST /api/paths/{id}/runs", s.withIdempotency(s.handlePathRuns))
+	mux.HandleFunc("GET /api/runs", s.handleListRuns)
+	mux.HandleFunc("GET /api/runs/{id}", s.handleGetRun)
+	mux.HandleFunc("GET /api/runs/{id}/events", s.handleRunEvents)
+	mux.HandleFunc("GET /api/hypotheses", s.handleListHypotheses)
+	mux.HandleFunc("GET /api/hypotheses/{id}", s.handleGetHypothesis)
+	mux.HandleFunc("GET /api/paths/{id}/hypotheses", s.handlePathHypotheses)
 	return mux
 }
 
