@@ -2,290 +2,314 @@
 
 > Map the Code. Trace the Attack. Verify the Evidence.
 
-Codexploit is a static-analysis-driven code security auditing platform. This
-repository currently contains the **P1 vertical slice**: the deterministic,
-Agent-free foundation that pins a repository to an immutable revision, freezes a
-read-only snapshot and produces a reviewed `repository_manifest.json`.
+Codexploit is a static-analysis-driven code security auditing platform. It pins a
+repository to an immutable revision, freezes a read-only snapshot, writes a
+reviewed `repository_manifest.json`, and builds a deterministic Source Code
+Graph (SCG) that humans and agents query through a bounded REST API or an MCP
+server. Nothing in an audited repository is ever executed: no build scripts, no
+hooks, no installers and no tests of the audited project.
 
-Design and implementation references:
-
-- [`docs/codexploit_design.md`](docs/codexploit_design.md) — architecture
-- [`docs/codexploit_implementation_guide.md`](docs/codexploit_implementation_guide.md) — engineering guide
+This file is the introduction and user manual. Process, design and interface
+documentation lives under [`docs/`](docs/) — see the
+[documentation index](#documentation-index).
 
 ## Status
 
 | Phase | Scope | State |
 |---|---|---|
-| P1 | Workspace, snapshot, repository analyzer | **implemented** |
-| P2 | SCG (modules, symbols, call sites, call edges), bounded graph queries, REST + MCP | **implemented** (Go frontend; see gaps) |
-| P3 | Attack surface extraction, ASG candidate | not started |
-| P4–P7 | Path engine, Agent runtime, verification, productisation | not started |
+| P1 | Workspace, immutable snapshot chain, repository manifest (languages, frameworks, dependencies, entrypoints, build descriptors, coverage, unknowns) | **implemented** |
+| P2 | Source Code Graph (modules, files, symbols, call sites, arguments, call edges), bounded graph queries, REST API and MCP server | **implemented** (Go frontend) |
+| P3 | Attack surface extraction: entry points, inputs, sinks, controls, assets, bounded reachability, ASG candidate, REST + CLI | **implemented** (rule-based; the semantic-agent and verification layers are later phases) |
+| P4–P7 | Path engine, agent runtime, verification, productisation | not started |
 
-Nothing in this repository executes repository code: no build scripts, no hooks,
-no installers, no tests from the audited project.
+The Go frontend is currently the only language frontend; files in other source
+languages are listed and counted, never silently dropped. See
+[`docs/scg.md`](docs/scg.md) for the graph's guarantees and its known limits.
 
-## Quick start
+## Install and build
 
-```bash
-make build                 # bin/server and bin/cli
+Requirements:
 
-# freeze a snapshot and write its manifest (works on a git URL or a local path)
-bin/cli manifest --source /path/to/repo --workspace .codexploit
-bin/cli snapshot --source https://example.invalid/org/repo.git --ref v1.2.3 --allow-network
-bin/cli snapshots list --workspace .codexploit
-bin/cli snapshots remove --id snap-0123456789abcdef0123456789abcdef
-
-# REST API: authentication is mandatory, so pass at least one token
-bin/server --addr :8080 --workspace .codexploit --db .codexploit/codexploit.db \
-  --api-token ci:admin:$(openssl rand -hex 16)
-# or, for local development only (anonymous writers, no destructive operations):
-bin/server --insecure-anonymous
-
-# the whole chain in one step: snapshot + manifest + source code graph
-bin/cli scg build --source /path/to/repo --workspace .codexploit
-bin/cli scg modules --snapshot snap-0123456789abcdef0123456789abcdef
-bin/cli scg symbols --snapshot snap-… --name Save --kind method
-bin/cli scg callees --snapshot snap-… --symbol example.invalid/app/internal/store.Store.Save --depth 2
-bin/cli scg paths   --snapshot snap-… --from example.invalid/app.main --to example.invalid/app/internal/store.write
-bin/cli scg slice   --snapshot snap-… --symbol example.invalid/app.main --include calls
-bin/cli scg unresolved --snapshot snap-…
-```
+- Go 1.26 or newer (see `go.mod`);
+- `git` on `PATH` for git sources (`--git` overrides the executable).
 
 ```bash
-curl -s localhost:8080/healthz
-curl -s -X POST localhost:8080/api/projects \
-     -H 'Content-Type: application/json' -d '{"source":"/path/to/repo"}'
-curl -s -X POST localhost:8080/api/projects/<project-id>/snapshots \
-     -H 'Content-Type: application/json' -H 'Idempotency-Key: run-1' -d '{}'
-curl -s localhost:8080/api/snapshots/<snapshot-id>/manifest
+make build          # builds bin/cli, bin/server and bin/mcp
+make vet            # go vet ./...
+make fmt            # go fmt ./...
 ```
 
-## Layout
+Equivalent without make:
+
+```bash
+go build -o bin/cli    ./cmd/cli
+go build -o bin/server ./cmd/server
+go build -o bin/mcp    ./cmd/mcp
+```
+
+SQLite is provided by `modernc.org/sqlite`, a pure-Go driver: there is no cgo
+and the binaries behave identically on Linux, macOS and Windows.
+
+## Workspace
+
+Every command writes under a workspace directory (`--workspace`, default
+`.codexploit`):
 
 ```text
-cmd/cli/            developer entry point (snapshot, manifest, snapshots list/remove)
-cmd/server/         REST API process
-internal/app/       wiring: workspace, store, migrations (the only place the SQL driver is chosen)
-internal/repository/  P1 snapshot chain: identity, snapshot id, git/local sources, limits, freeze
-internal/analysis/    P1 analyzer: pluggable detectors, repository manifest
-internal/scg/         P2 SCG model, stable ids, builder, pluggable frontend interface
-internal/scg/gofrontend/ the Go frontend (standard library AST) and its call resolver
-internal/graph/       P2 graph service: bounded queries, code slices, result cache
-internal/storage/     Store interface, in-memory store, database/sql store, migrations runner
-internal/api/         REST handlers, JSON errors, idempotency keys
-internal/mcp/         MCP server exposing the graph to agents
-cmd/mcp/              stdio MCP binary
-migrations/           SQL schema (embedded at build time)
+.codexploit/
+  snapshots/<snapshot-id>/snapshot.json              snapshot metadata
+  snapshots/<snapshot-id>/repository_manifest.json   analyzer output
+  snapshots/<snapshot-id>/repo/                      frozen source tree (read-only)
+  snapshots/<snapshot-id>/scg-<version>-<hash>.json  stored graph document
+  cache/git/                                         bare clone caches for remote sources
+  codexploit.db                                      SQLite store (server, scg commands)
 ```
 
-Detailed REST reference: [`docs/api.md`](docs/api.md). MCP tool catalogue:
-[`docs/mcp-tools.md`](docs/mcp-tools.md).
+A snapshot tree is frozen read-only. `rm -rf` on a workspace therefore fails on
+every supported platform: delete snapshots with
+[`snapshots remove`](#managing-snapshots) or the `DELETE` API, which unfreeze the
+tree first.
 
-## Contracts
-
-These invariants are enforced by code and covered by tests; changing one is a
-schema or identity change, not a refactor.
-
-1. **Deterministic identity.**
-   `snapshot_id = hash(repo_identity, commit, submodule_state)` (length-prefixed,
-   `snap-` + 128-bit digest) and
-   `analysis_id = hash(snapshot_id, engine, engine_version, ruleset_hash, config_hash)`.
-   The same inputs always produce the same ids; changing the rule set or the
-   analyzer configuration yields a new `analysis_id`.
-2. **Immutable artifacts.** `snapshot.json` and `repository_manifest.json` are
-   written once and never overwritten. A conflicting write is an error
-   (`409 Conflict` over HTTP), so evidence cannot be silently replaced.
-3. **Read-only trees.** `snapshots/<id>/repo` is frozen (`0444` files, `0555`
-   directories). Delete snapshots through the CLI/API, which unfreeze first;
-   `rm -rf` on a frozen tree fails on every supported platform.
-4. **Explicit coverage.** Every dropped file is counted, and the bounded sample
-   carries a reason (`ignored`, `binary`, `file_too_large`, `max_depth`,
-   `symlink`, `unreadable`, `submodule`, `limit`). The snapshot lists its
-   limitations; the manifest lists its unknowns. "Not found" is never presented
-   as "not present".
-5. **No silent inference.** Framework hits cite a dependency declaration, a
-   source marker or a marker file, and carry a confidence *class*
-   (`observed` / `inferred` / `unresolved`) — never a probability.
-6. **Offline by default.** Remote git URLs are refused unless network access is
-   explicitly enabled. Git runs with hooks, credential helpers, system/global
-   config, prompts and LFS smudge disabled.
-7. **Deterministic documents.** Manifests are byte-identical for identical
-   inputs (timestamps aside) and list fields serialise as arrays, never `null`.
-8. **Authentication fails closed.** Every API route is classified as `reader`,
-   `writer` or `admin` in one table; secrets are compared as SHA-256 digests with
-   a constant-time comparison, and a server without tokens refuses to start (a
-   `Server` without an authenticator answers `401` to every API call) unless
-   `--insecure-anonymous` was passed deliberately. `DELETE` and `PATCH` are
-   `admin`, and anonymous access is never administrative.
-9. **Write retries are safe across processes.** `Idempotency-Key` claims live in
-   the store: key, request fingerprint and caller are part of the claim, so a
-   retry after a restart replays the first answer, a different body is refused
-   with `409 idempotency_key_reuse`, and a key that is still running answers
-   `409 idempotency_in_progress` with `Retry-After` instead of doing the work
-   twice.
-10. **Writes are optimistic.** `GET /api/projects/{id}` returns an `ETag` and
-   `PATCH` requires `If-Match` (`428` when missing, `412` when stale).
-
-### Snapshot semantics worth knowing
-
-- The tree always comes from the pinned commit, never from the working copy. A
-  dirty worktree is recorded (`worktree_dirty`, `dirty_path_count`,
-  `dirty_paths`) and stated as a limitation, but does not change the snapshot id.
-  **Consequence:** the same commit yields the same snapshot, so the recorded
-  dirty state describes the moment the snapshot was first taken.
-- Directory sources without VCS metadata are pinned to a content digest of the
-  accepted file set (`commit = content:<digest>`); the files are re-hashed while
-  copying and a concurrent edit aborts the snapshot instead of producing a tree
-  that does not match its id.
-- Submodule gitlinks are recorded and their content is **not** expanded; an empty
-  directory is not planted in the tree. Untracked or ignored paths (including
-  `.gitignore`d files) are never part of a git snapshot.
-- Symlinks are recorded, not followed and not materialised.
-- Git LFS content is never fetched automatically: tracked files stay pointers and
-  the limitation is stated.
-- Binary files are skipped unless enabled, identified by a NUL byte in the first
-  8000 bytes.
-
-### Default limits
-
-| Limit | Default | Override |
-|---|---|---|
-| Total accepted bytes | 512 MiB | `repository.Limits.MaxRepoBytes` |
-| Files | 50 000 | `MaxFiles` |
-| Single file | 4 MiB | `MaxFileBytes` |
-| Path depth | 32 | `MaxDepth` |
-| Ignored directories | generated, vendor, cache | `ExtraIgnoreDirs`, `IncludeIgnoredDirs` |
-| Symlinks / submodules / LFS | record | `Symlinks`, `Submodules`, `LFS` |
-
-`IncludeIgnoredDirs` is the documented escape hatch when a normally generated
-directory holds audited source (for example `vendor`).
-
-## Source Code Graph (P2)
-
-The SCG is the deterministic fact layer: modules, files, symbols, call sites and
-the (possibly unresolved) relationships between them. It is built by static
-analysis only — no agent, no LLM — and every assertion carries its provenance
-(`analyzer`, `analyzer_version`, source location, resolution status).
-
-Facts and their limits:
-
-1. **Ids are content derived.** `symbol_id = hash(snapshot_id, language, file,
-   qualified_name, signature, start position)`, so editing a function body does
-   not change its id while a different snapshot produces different ids.
-2. **Resolution is classified, never boolean.** `resolved`,
-   `resolved_best_effort`, `unresolved_ambiguous`, `unresolved_dynamic`,
-   `unresolved_external`, `builtin`, `unresolved_unsupported`. Best-effort edges
-   come from inference (a local type assignment or a constructor's declared
-   result type) and are marked `inferred`.
-3. **Unresolved calls are kept.** A call site with no edge stays in the graph, is
-   listed by `list_unresolved_calls` / `scg unresolved`, and travels with every
-   neighbourhood answer as `unresolved_call_sites`.
-4. **Every query is snapshot-scoped and bounded.** `max_depth`, `max_nodes`,
-   `max_edges`, `limit`, `offset` and `timeout_ms` are enforced; a query that
-   runs out of budget returns partial results with `truncated` and a
-   `truncation_reason` instead of an answer that looks complete.
-5. **Depth is not truncation.** `more_beyond_depth` reports that deeper
-   neighbours exist when the requested depth was reached.
-6. **Results are cached by content.** The cache key follows design §9:
-   `hash(snapshot_id, graph_version, query_type, canonical args)`.
-7. **Coverage is stated.** Files without a frontend, files that are not source,
-   oversized files, parse failures, symbols and call sites dropped by a budget,
-   and the overall resolved/unresolved split all appear in the summary and as
-   limitations. `FLOWS_TO` and `CONTROLS` edges are declared but not produced in
-   P2: dataflow and control-flow analysis are later phases, and the graph says so.
-
-## REST API
-
-| Method | Path | Notes |
-|---|---|---|
-| `GET` | `/healthz` | liveness |
-| `POST` | `/api/projects` | create or reuse a project; id derives from the repository identity |
-| `GET` | `/api/projects` | list projects |
-| `GET` | `/api/projects/{id}` | read one project |
-| `POST` | `/api/projects/{id}/snapshots` | freeze + analyse; body `{"ref":"...","skip_analysis":false}` |
-| `GET` | `/api/snapshots?project_id=` | list snapshot records |
-| `GET` | `/api/snapshots/{id}` | snapshot metadata summary |
-| `DELETE` | `/api/snapshots/{id}` | remove record and unfreeze/delete the tree |
-| `GET` | `/api/snapshots/{id}/manifest` | full repository manifest |
-| `POST` | `/api/snapshots/{id}/graph` | build or reuse the SCG; body `{"force":false}` |
-| `GET` | `/api/snapshots/{id}/graph` | graph summary, resolution mix, coverage |
-| `GET` | `/api/snapshots/{id}/modules` | modules of the snapshot |
-| `GET` | `/api/snapshots/{id}/symbols` | filters: `module_id`, `file_id`, `kind`, `name`, `qualified_name`, `limit`, `offset` |
-| `GET` | `/api/snapshots/{id}/symbols/{symbolID}` | one symbol plus query metadata |
-| `GET` | `/api/snapshots/{id}/symbols/{symbolID}/callers` | bounded traversal, `max_depth`/`max_nodes`/`limit` |
-| `GET` | `/api/snapshots/{id}/symbols/{symbolID}/callees` | bounded traversal |
-| `GET` | `/api/snapshots/{id}/unresolved-calls` | call sites with no edge |
-| `POST` | `/api/snapshots/{id}/graph/paths` | `{source, sink, max_paths}` over `CALLS` edges |
-| `POST` | `/api/snapshots/{id}/graph/slice` | `{symbol_id\|file, include, max_lines}` |
-
-Status codes: `400` malformed request, `403` remote source without network
-permission, `404` unknown record/source, `405` wrong method, `409` conflicting
-immutable write or a source that changed mid-snapshot, `413` oversized body,
-`422` limit exceeded. Every error body is `{"error": "...", "code": "..."}`.
-
-`Idempotency-Key` on `POST` replays the first response for that key
-(`Idempotent-Replay: true`). The cache is **per process and in memory**; durable
-exactly-once semantics belong to P7.
-
-## Storage
-
-SQLite is the default through `modernc.org/sqlite` (pure Go, no cgo, identical
-behaviour on Linux, macOS and Windows). `internal/storage` talks to
-`database/sql` and only rebinds placeholders per dialect, so pointing it at
-PostgreSQL means changing the driver name and DSN:
-
-```go
-sqlStore, err := storage.OpenSQL(ctx, "postgres", dsn) // "?" -> "$1" rebinding
-err = sqlStore.EnsureSchema(ctx, migrations.FS)
-```
-
-Migrations live in `migrations/` and are applied in order inside transactions;
-`schema_migrations` makes reruns a no-op. Only the P1 tables exist
-(`projects`, `snapshots`, `analyses`); graph, path, agent and evidence tables
-arrive with the phases that use them.
-
-## Testing
+## CLI
 
 ```bash
-make test         # go test ./... -count=1 -shuffle=on -race -timeout 240s (identical to CI)
-make test-stress  # same suite three times, for filesystem and lifecycle races
-make vet
+bin/cli <command> [flags]
 ```
 
-CI (`.github/workflows/test.yml`) runs the suite on ubuntu, macos and windows.
-Tests never need the network: git fixtures are created locally, remotes are
-rejected by policy, and the SQL store runs against a temporary SQLite file. Use
-`t.TempDir()` and remember that frozen trees must be removed through the
-repository manager, not `os.RemoveAll`.
+Commands: `snapshot`, `manifest` (alias `scan`), `snapshots`, `scg` (alias
+`graph`), `version`, `help`.
 
-The `.cache/` directory in this workspace is a local Go module/build cache used
-only in sandboxed runs (`GOMODCACHE`/`GOCACHE` cannot write outside the
-workspace). It is git-ignored and can be deleted at any time; normal
-development uses the standard Go cache.
+### Snapshot and manifest
 
-## Known gaps
+`manifest` freezes a snapshot **and** writes its repository manifest;
+`snapshot` freezes it without analysing. Both work on a git URL or a local path,
+and are stateless (they do not need the database).
 
-- **Language coverage**: the Go frontend is the only frontend. Files in other
-  source languages are listed with `unsupported_language` and counted, never
-  silently dropped; adding a language means implementing `scg.Frontend` (and
-  optionally `scg.Resolver`).
-- **No type checking**: the Go frontend is AST-only. Interface dispatch,
-  function values, reflection, calls whose receiver type cannot be inferred from
-  syntax, and methods of external types are unresolved. Struct-field types and
-  cross-package result types are not resolved, which is why a large share of call
-  sites in a real repository are reported as `unresolved_dynamic`.
-- **No dataflow**: `FLOWS_TO` and `CONTROLS` edges, local taint and constraint
-  solving are later phases. A call path is reachability, not propagation.
-- **Token lifecycle**: tokens are static configuration; there is no rotation,
-  revocation, expiry or per-token rate limit yet, and the audit trail is a
-  structured log line rather than the append-only event table of design §9.
-- **Authorisation granularity**: three roles (`reader`, `writer`, `admin`) is
-  coarser than a per-project ACL — a token may act on every project in the store.
-- **Submodule expansion, LFS fetching, incremental (diff-based) analysis**: not
-  implemented; each is stated as a limitation in the documents rather than being
-  quietly absent.
-- **Module path case**: `go.mod` declares
-  `github.com/open-mcp-ai/Codexploit`, matching the repository name exactly as
-  the go command requires. Requests for a differently cased path do not resolve;
-  adopting all-lowercase would mean renaming the repository and rewriting the
-  module path and every import.
+```bash
+# freeze a local repository at HEAD and write its manifest
+bin/cli manifest --source /path/to/repo --workspace .codexploit
+
+# pin a tag, keep the tree writable for debugging, print the full document
+bin/cli snapshot --source /path/to/repo --ref v1.2.3 --no-freeze --json
+
+# a remote URL requires an explicit network opt-in
+bin/cli snapshot --source https://host/org/repo.git --ref main --allow-network
+```
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--source` | — (required) | repository URL or local path |
+| `--ref` | `HEAD` for git sources | revision to pin (tag, branch or commit SHA) |
+| `--workspace` | `.codexploit` | workspace directory |
+| `--allow-network` | `false` | permit cloning remote git URLs |
+| `--no-freeze` | `false` | keep the snapshot tree writable (debugging only) |
+| `--json` | `false` | print the full document instead of a summary |
+
+### Source Code Graph
+
+`scg build` runs the whole chain in one step: snapshot → manifest → graph, and
+writes the graph document next to the frozen tree. The other subcommands are
+read-only queries against the stored graph and need the database
+(`--db`, default `<workspace>/codexploit.db`).
+
+```bash
+# build everything for one revision
+bin/cli scg build --source /path/to/repo --workspace .codexploit
+
+# where am I? counts, resolution mix and coverage of a snapshot
+bin/cli scg summary --snapshot snap-0123456789abcdef0123456789abcdef
+
+# the build units (module roots) of the snapshot
+bin/cli scg modules --snapshot snap-0123456789abcdef0123456789abcdef
+
+# the files of one module (module id or path is optional)
+bin/cli scg files --snapshot snap-0123456789abcdef0123456789abcdef example.com/app/internal/store
+
+# search declarations
+bin/cli scg symbols --snapshot snap-0123456789abcdef0123456789abcdef --name Save --kind method
+
+# who calls this symbol, and what it calls
+bin/cli scg callers --snapshot snap-0123456789abcdef0123456789abcdef \
+  --symbol example.com/app/internal/store.Store.Save --depth 2
+bin/cli scg callees --snapshot snap-0123456789abcdef0123456789abcdef \
+  --symbol example.com/app/main.main --depth 3
+
+# bounded call paths between two symbols
+bin/cli scg paths --snapshot snap-0123456789abcdef0123456789abcdef \
+  --from example.com/app/main.main --to example.com/app/internal/store.write --max-paths 5
+
+# source excerpts around a symbol or a file window
+bin/cli scg slice --snapshot snap-0123456789abcdef0123456789abcdef \
+  --symbol example.com/app/main.main --include callers
+bin/cli scg slice --snapshot snap-0123456789abcdef0123456789abcdef \
+  --file internal/store/store.go --start-line 40 --end-line 120
+
+# call sites whose callee could not be resolved (where the graph is blind)
+bin/cli scg unresolved --snapshot snap-0123456789abcdef0123456789abcdef
+```
+
+| Flag | Used by | Default | Meaning |
+|---|---|---|---|
+| `--source` | `build` | — (required) | repository URL or local path |
+| `--ref` | `build` | `HEAD` | revision to pin |
+| `--allow-network` | `build` | `false` | permit cloning remote git URLs |
+| `--workspace` | all | `.codexploit` | workspace directory |
+| `--db` | all except `build`'s default | `<workspace>/codexploit.db` | SQLite store to query |
+| `--snapshot` | all except `build` | — (required) | snapshot id |
+| `--symbol` | `callers`, `callees`, `slice`, `unresolved` | — | symbol id or qualified name |
+| `--from`, `--to` | `paths` | — (required) | source and sink symbols |
+| `--max-paths` | `paths` | `5` | maximum distinct paths to return |
+| `--module` | `symbols` | — | module id or module path |
+| `--kind` | `symbols` | — | comma-separated kinds (`function`, `method`, `type`, `interface`, `const`, `var`, `package`) |
+| `--name` | `symbols` | — | substring match on the symbol name |
+| `--qualified-name` | `symbols` | — | exact qualified name |
+| `--file`, `--start-line`, `--end-line` | `slice` | — | file window instead of a symbol |
+| `--include` | `slice` | `declaration` | `declaration`, `callers`, `calls` or `neighbors` |
+| `--max-lines` | `slice` | service default (60) | lines per section |
+| `--depth` | `callers`, `callees`, `paths` | service default | traversal / path depth |
+| `--max-nodes` | traversal commands | service default | node budget |
+| `--timeout-ms` | traversal commands | service default | accepted by the flag set; the service budget applies |
+| `--limit`, `--offset` | list commands | `50`, `0` | paging |
+| `--json` | all | `false` | print the full document |
+
+Query budgets, `truncated` semantics and the meaning of every resolution class
+are documented in [`docs/scg.md`](docs/scg.md) and
+[`docs/api.md`](docs/api.md).
+
+### Attack surface (ASG)
+
+```bash
+# snapshot + manifest + SCG + attack surface in one command
+bin/cli asg build --source /path/to/repo --workspace .codexploit
+
+# the route table: what is reachable from outside, and what guards it
+bin/cli asg entrypoints --snapshot snap-0123456789abcdef0123456789abcdef
+bin/cli asg summary     --snapshot snap-… --json
+bin/cli asg nodes       --snapshot snap-… --kind SensitiveOperation
+bin/cli asg nodes       --snapshot snap-… --kind SecurityControl
+bin/cli asg node        --snapshot snap-… --node asgn-0123456789abcdef0123456789abcdef
+bin/cli asg edges       --snapshot snap-… --kind REACHES
+```
+
+`asg entrypoints` prints one row per entry point: method and path (or the
+registration kind, for gRPC, message consumers and CLI flags), the framework and
+handler, the trust boundary, the controls that guard it — with the number wired
+in as middleware separated from the number merely reachable — and the reachable
+sensitive operations.
+
+`asg build` needs an SCG and says so if one is missing: run
+`bin/cli scg build` first, or use `asg build`, which produces the whole chain.
+What every node and edge means, which rules produced them, and what the ASG
+deliberately does not claim are in [`docs/asg.md`](docs/asg.md).
+
+### Managing snapshots
+
+```bash
+bin/cli snapshots list --workspace .codexploit
+bin/cli snapshots remove --id snap-0123456789abcdef0123456789abcdef --workspace .codexploit
+```
+
+`snapshots list` prints one line per snapshot (id, VCS, short revision, file
+count); `--json` prints the ids as a document. `remove` unfreezes the tree and
+then deletes the snapshot directory.
+
+## Server
+
+```bash
+# authentication is mandatory: configure at least one token
+bin/server --addr :8080 --workspace .codexploit --db .codexploit/codexploit.db \
+  --api-token ci:writer:$(openssl rand -hex 16) \
+  --api-token ops:admin:sha256:<hex digest>
+
+# tokens may also come from the environment (semicolon separated)
+CODEXPLOIT_API_TOKENS='ci:writer:...;ops:admin:sha256:...' bin/server
+
+# local development only: anonymous callers get writer, never admin
+bin/server --insecure-anonymous
+```
+
+Without tokens and without `--insecure-anonymous` the server refuses to start.
+Clients present the secret as `Authorization: Bearer <secret>` (or `X-API-Key`).
+A missing or wrong secret returns `401`; a valid token without the required
+capability returns `403`. Roles are `reader`, `writer` and `admin`; secrets must
+be at least 16 characters, may be given pre-hashed as `sha256:<hex digest>`, and
+may themselves contain `:`.
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--addr` | `:8080` | listen address |
+| `--workspace` | `.codexploit` | workspace directory for snapshots |
+| `--db` | `<workspace>/codexploit.db` | SQLite file; `memory` uses an in-process store |
+| `--api-token` | — | `name:role:secret`, repeatable; role is `reader`, `writer` or `admin` |
+| `--allow-network` | `false` | permit cloning remote git URLs |
+| `--git` | `git` | git executable |
+| `--insecure-anonymous` | `false` | serve without authentication (local development only) |
+| `--idempotency-ttl` | `24h` | how long a stored write response may be replayed |
+| `--log-level` | `info` | `debug`, `info`, `warn` or `error` |
+
+Environment: `CODEXPLOIT_API_TOKENS` (used when no `--api-token` flag is given).
+
+```bash
+# create or reuse a project for a repository
+curl -s -X POST localhost:8080/api/projects \
+  -H 'Authorization: Bearer <secret>' -H 'Content-Type: application/json' \
+  -d '{"source":"/path/to/repo"}'
+
+# freeze a snapshot, analyse it and build the graph (retry-safe with a key)
+curl -s -X POST localhost:8080/api/projects/<project-id>/snapshots \
+  -H 'Authorization: Bearer <secret>' -H 'Idempotency-Key: run-1' \
+  -H 'Content-Type: application/json' -d '{"ref":"v1.2.3","build_graph":true}'
+
+# read the manifest and query the graph
+curl -s localhost:8080/api/snapshots/<snapshot-id>/manifest -H 'Authorization: Bearer <secret>'
+curl -s 'localhost:8080/api/snapshots/<snapshot-id>/symbols?name=Save&limit=20' \
+  -H 'Authorization: Bearer <secret>'
+```
+
+`GET /healthz` needs no credential. The full endpoint list, status codes and
+error codes are in [`docs/api.md`](docs/api.md).
+
+## MCP server
+
+`bin/mcp` serves the graph service over the Model Context Protocol on stdio, for
+agents that must not be handed a shell or a free-form query language:
+
+```bash
+bin/mcp --workspace .codexploit --db .codexploit/codexploit.db
+```
+
+It exposes **nine read-only tools** (`graph_summary`, `list_modules`,
+`list_symbols`, `get_symbol`, `get_callers`, `get_callees`, `find_call_paths`,
+`get_code_slice`, `list_unresolved_calls`). Every tool is scoped to one
+`snapshot_id`, is bounded by the graph service's budgets and returns the
+service's provenance block unchanged. `--transport stdio` is the only supported
+transport (the default); the process never opens a listening socket. Because
+authority comes from running the binary, there is no token. Flags:
+`--workspace`, `--db`, `--transport`, `--log-level`. Tool arguments and error
+codes: [`docs/mcp-tools.md`](docs/mcp-tools.md).
+
+## Documentation index
+
+| Document | Contents |
+|---|---|
+| [`docs/architecture.md`](docs/architecture.md) | pipeline, package responsibilities, storage schema, layering rules, configuration wiring |
+| [`docs/contracts.md`](docs/contracts.md) | every invariant the code enforces, with the file that enforces it |
+| [`docs/scg.md`](docs/scg.md) | Source Code Graph: nodes, edges, ids, resolution classes, query budgets, coverage, limits |
+| [`docs/asg.md`](docs/asg.md) | Attack Surface Graph: node and edge kinds, rule tables, evidence model, reachability, limits |
+| [`docs/api.md`](docs/api.md) | REST interface reference |
+| [`docs/mcp-tools.md`](docs/mcp-tools.md) | MCP tool catalogue |
+| [`docs/testing.md`](docs/testing.md) | how to run the suite and what CI does |
+| [`docs/codexploit_design.md`](docs/codexploit_design.md) | upstream design specification |
+| [`docs/codexploit_implementation_guide.md`](docs/codexploit_implementation_guide.md) | upstream implementation guide |
+
+## Safety notes
+
+- Codexploit never runs code from an audited repository, and never reaches the
+  network for a source unless `--allow-network` was passed deliberately.
+- Snapshots, manifests and stored graph documents are immutable evidence:
+  nothing is rewritten in place, and a conflicting write is an error.
+- An answer that is incomplete says so in its own result.
+
+The guarantees behind these statements, and the limits that come with them, are
+specified in [`docs/contracts.md`](docs/contracts.md) and
+[`docs/scg.md`](docs/scg.md).
