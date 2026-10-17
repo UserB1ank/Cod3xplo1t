@@ -54,5 +54,9 @@
   {
     "file": "examples/publication.json",
     "schema": "publication.schema.json"
+  },
+  {
+    "file": "examples/workflow-runtime.json",
+    "schema": "workflow-runtime.schema.json"
   }
 ]

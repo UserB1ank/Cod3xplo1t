@@ -1,0 +1,12 @@
+{
+  "api_version": "codexploit/v1",
+  "valid": false,
+  "diagnostics": [
+    {
+      "path": "/nodes/0/needs",
+      "code": "missing_dependency",
+      "message": "Dependency node does not exist"
+    }
+  ],
+  "nodes": []
+}

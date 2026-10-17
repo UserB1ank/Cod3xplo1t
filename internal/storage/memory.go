@@ -16,6 +16,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/plugin"
 	"github.com/open-mcp-ai/Codexploit/internal/repository"
 	"github.com/open-mcp-ai/Codexploit/internal/verify"
+	"github.com/open-mcp-ai/Codexploit/internal/workflow"
 )
 
 // Memory is an in-process Store. It keeps the same immutability semantics as the
@@ -33,6 +34,9 @@ type Memory struct {
 	// knowledge holds the immutable publication revisions of each project
 	// snapshot: the revision documents, their batch index and the outbox.
 	knowledge         map[string]*knowledgeScopeState
+	workflowPlans     map[string][]byte
+	workflows         map[string][]byte
+	workflowHeads     map[string]workflowHead
 	plugins           map[string][]byte
 	pluginInvocations map[string][]byte
 	snapshots         map[string]memorySnapshot
@@ -258,6 +262,12 @@ func (m *Memory) DeleteSnapshot(_ context.Context, id string) error {
 		return fmt.Errorf("%w: snapshot %s", ErrNotFound, id)
 	}
 	delete(m.snapshots, id)
+	for key, raw := range m.workflowPlans {
+		var plan workflow.Plan
+		if json.Unmarshal(raw, &plan) == nil && plan.Scope.SnapshotID == id {
+			delete(m.workflowPlans, key)
+		}
+	}
 	for key, raw := range m.pluginInvocations {
 		var inv plugin.Invocation
 		if json.Unmarshal(raw, &inv) == nil && inv.Request.Scope.SnapshotID == id {

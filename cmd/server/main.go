@@ -229,6 +229,8 @@ func run() error {
 	}
 
 	srv := api.NewServer(rt.Store, rt.Manager, rt.Analyzer,
+		api.WithWorkflows(rt.Workflows),
+		api.WithWorkflowCompiler(rt.WorkflowCompiler),
 		api.WithPluginCatalog(rt.PluginCatalog),
 		api.WithPlugins(rt.Plugins),
 		api.WithLocalSourceRoot(*localSourceRoot),

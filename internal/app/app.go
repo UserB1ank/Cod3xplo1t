@@ -31,6 +31,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/schedule"
 	"github.com/open-mcp-ai/Codexploit/internal/storage"
 	"github.com/open-mcp-ai/Codexploit/internal/verify"
+	"github.com/open-mcp-ai/Codexploit/internal/workflow"
 	"github.com/open-mcp-ai/Codexploit/migrations"
 
 	_ "modernc.org/sqlite"
@@ -178,16 +179,18 @@ type AgentConfig struct {
 
 // Runtime bundles the wired components.
 type Runtime struct {
-	PluginCatalog *plugin.Catalog
-	Plugins       *plugin.Host
-	Snapshots     lifecycle.Snapshots
-	Store         storage.FullStore
-	Manager       *repository.Manager
-	Analyzer      *analysis.Analyzer
-	Builder       *scg.Builder
-	Graph         *graph.Service
-	ASGBuilder    *asg.Builder
-	ASG           *graph.ASGService
+	Workflows        *workflow.Catalog
+	WorkflowCompiler *workflow.Compiler
+	PluginCatalog    *plugin.Catalog
+	Plugins          *plugin.Host
+	Snapshots        lifecycle.Snapshots
+	Store            storage.FullStore
+	Manager          *repository.Manager
+	Analyzer         *analysis.Analyzer
+	Builder          *scg.Builder
+	Graph            *graph.Service
+	ASGBuilder       *asg.Builder
+	ASG              *graph.ASGService
 	// Audit is the path engine: it generates candidate AuditPaths, ranks them and
 	// serves the scheduling queue.
 	Audit *path.Service
@@ -341,6 +344,28 @@ func (r *Runtime) wirePlugins() error {
 		return err
 	}
 	r.closers = append(r.closers, r.Plugins.Close)
+	workflowRepo, ok := r.Store.(workflow.Repository)
+	if !ok {
+		return workflow.ErrInvalid
+	}
+	r.Workflows = &workflow.Catalog{Repository: workflowRepo}
+	planRepo, ok := r.Store.(workflow.PlanRepository)
+	if !ok {
+		return workflow.ErrInvalid
+	}
+	knowledge, ok := r.Store.(workflow.Knowledge)
+	if !ok {
+		return workflow.ErrInvalid
+	}
+	ports := map[string]workflow.AdapterInputs{plugin.BuiltinID + "@" + plugin.BuiltinVersion: {Schemas: []string{"codexploit/source-tar/v1"}}}
+	for _, executor := range builtinanalysis.Executors() {
+		var manifest plugin.Manifest
+		if err := json.Unmarshal(executor.Manifest, &manifest); err != nil {
+			return err
+		}
+		ports[manifest.ID+"@"+manifest.Version] = workflow.AdapterInputs{Schemas: executor.InputSchemas, Producers: executor.InputPlugins}
+	}
+	r.WorkflowCompiler = &workflow.Compiler{AdapterInputs: ports, Plugins: r.PluginCatalog, Workflows: r.Workflows, Plans: planRepo, Artifacts: objects, Scopes: index, Knowledge: knowledge}
 	return nil
 }
 

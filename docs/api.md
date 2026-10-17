@@ -1051,3 +1051,7 @@ five attempts per minute per peer IP trigger 429 with `Retry-After: 60`.
 Account hashes persist in the Docker data volume; sessions are deliberately
 in-memory and expire on restart. Explicit bearer API tokens remain supported
 for automation and CLI clients.
+
+## 工作流版本与编译计划
+
+正式工作流编辑、项目内版本 CAS、字段级校验、固定计划和导入导出接口见 [工作流 API](workflows.md)。新增 `/api/v1/projects/{projectID}/workflows` 与 `/workflow-plans/{planID}`，响应通过公共 workflow-runtime Schema；编译不启动插件执行。

@@ -6,7 +6,7 @@ import type { Snapshot } from "./types";
 import { latestSnapshot } from "./workbench";
 import type { ArtifactRef } from "./Artifacts";
 
-interface PluginRecord {
+export interface PluginRecord {
   manifest: {
     api_version: string;
     id: string;

@@ -1,0 +1,348 @@
+{
+  "type": "object",
+  "properties": {
+    "api_version": {
+      "const": "codexploit/v1"
+    },
+    "workflow": {
+      "$ref": "#/$defs/Record"
+    },
+    "workflows": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "$ref": "#/$defs/Entry"
+      }
+    },
+    "next_cursor": {
+      "type": "string"
+    },
+    "plan": {
+      "$ref": "#/$defs/Plan"
+    },
+    "valid": {
+      "type": "boolean"
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Diagnostic"
+      }
+    },
+    "nodes": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "$ref": "#/$defs/CompiledNode"
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "code": {
+      "const": "workflow_invalid"
+    }
+  },
+  "required": [
+    "api_version"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codexploit.invalid/contracts/v1/workflow-runtime.schema.json",
+  "title": "Immutable workflow versions, compilation diagnostics and plans",
+  "oneOf": [
+    {
+      "required": [
+        "workflow"
+      ]
+    },
+    {
+      "required": [
+        "workflows",
+        "next_cursor"
+      ]
+    },
+    {
+      "required": [
+        "plan"
+      ]
+    },
+    {
+      "required": [
+        "valid",
+        "diagnostics",
+        "nodes"
+      ]
+    },
+    {
+      "required": [
+        "error",
+        "code",
+        "diagnostics"
+      ]
+    }
+  ],
+  "$defs": {
+    "Record": {
+      "type": "object",
+      "properties": {
+        "project_id": {
+          "$ref": "common.schema.json#/$defs/ID"
+        },
+        "spec": {
+          "$ref": "workflow.schema.json"
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "project_id",
+        "spec",
+        "digest",
+        "created_at"
+      ],
+      "additionalProperties": false
+    },
+    "Entry": {
+      "type": "object",
+      "properties": {
+        "project_id": {
+          "$ref": "common.schema.json#/$defs/ID"
+        },
+        "spec": {
+          "$ref": "workflow.schema.json"
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "head_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "project_id",
+        "spec",
+        "digest",
+        "created_at",
+        "head_digest"
+      ],
+      "additionalProperties": false
+    },
+    "Diagnostic": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "code",
+        "message"
+      ],
+      "additionalProperties": false
+    },
+    "Binding": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "from": {
+          "type": "string"
+        },
+        "schema_id": {
+          "type": "string"
+        },
+        "producer_plugin": {
+          "type": "string"
+        },
+        "source": {
+          "enum": [
+            "root",
+            "node"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "from",
+        "schema_id",
+        "source"
+      ],
+      "additionalProperties": false
+    },
+    "CompiledNode": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,49}$"
+        },
+        "plugin_id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9]*([.-][a-z0-9]+)+$"
+        },
+        "plugin_version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "needs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "config": {
+          "type": "object"
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 120
+        },
+        "plugin": {
+          "$ref": "plugin-runtime.schema.json#/$defs/Record"
+        },
+        "config_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "inputs": {
+          "type": "array",
+          "maxItems": 9,
+          "items": {
+            "$ref": "#/$defs/Binding"
+          }
+        },
+        "outputs": {
+          "type": "array",
+          "maxItems": 9,
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "plugin_id",
+        "plugin_version",
+        "needs",
+        "config",
+        "timeout_seconds",
+        "plugin",
+        "config_digest",
+        "inputs",
+        "outputs"
+      ],
+      "additionalProperties": false
+    },
+    "Plan": {
+      "type": "object",
+      "properties": {
+        "api_version": {
+          "const": "codexploit/v1"
+        },
+        "compiler_version": {
+          "$ref": "common.schema.json#/$defs/Version"
+        },
+        "scope": {
+          "$ref": "common.schema.json#/$defs/Scope"
+        },
+        "workflow": {
+          "$ref": "#/$defs/Record"
+        },
+        "inputs": {
+          "type": "array",
+          "maxItems": 9,
+          "items": {
+            "$ref": "common.schema.json#/$defs/ArtifactRef"
+          }
+        },
+        "language": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "knowledge": {
+          "type": "object",
+          "properties": {
+            "revision": {
+              "type": "string",
+              "pattern": "^rev-[0-9]+$"
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "revision",
+            "digest"
+          ],
+          "additionalProperties": false
+        },
+        "max_input_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 268435456
+        },
+        "nodes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/CompiledNode"
+          }
+        },
+        "plan_id": {
+          "type": "string",
+          "pattern": "^plan-[a-f0-9]{32}$"
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "api_version",
+        "compiler_version",
+        "scope",
+        "workflow",
+        "inputs",
+        "language",
+        "knowledge",
+        "max_input_bytes",
+        "nodes",
+        "plan_id",
+        "digest",
+        "created_at"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

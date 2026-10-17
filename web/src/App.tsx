@@ -39,6 +39,7 @@ import { Sources, sourceInput, readSources, type CodeSource } from "./Sources";
 import { ProjectTasks } from "./TaskList";
 import { Artifacts } from "./Artifacts";
 import { Plugins } from "./Plugins";
+import { Workflows } from "./Workflows";
 import { Knowledge } from "./Knowledge";
 import {
   Badge,
@@ -265,6 +266,7 @@ export default function App() {
     { id: "findings", label: "项目漏洞库", icon: ShieldCheck },
     { id: "artifacts", label: "产物与证据", icon: FileText },
     { id: "plugins", label: "插件中心", icon: Box },
+    { id: "workflows", label: "工作流", icon: GitBranch },
     { id: "settings", label: "项目设置", icon: Settings2 },
   ];
   return (
@@ -480,15 +482,17 @@ export default function App() {
                   <p>
                     {route.view === "tasks"
                       ? "为每一次挖掘设定目标，复用项目已积累的知识。"
-                      : route.view === "knowledge"
-                        ? "项目级代码事实与攻击面，供所有任务共同查询。"
-                        : route.view === "artifacts"
-                          ? "查看固定快照的输入产物、内容摘要和来源，核对后下载。"
-                          : route.view === "findings"
-                            ? "汇总任务发现，按证据结论与漏洞严重度查看。"
-                            : route.view === "sources"
-                              ? "管理文件夹与 Git 仓库，固定源码版本，再选择代码基线创建任务。"
-                              : project.source || "项目代码源独立管理。"}
+                      : route.view === "workflows"
+                        ? "编辑插件流程，保存不可变版本，编译固定输入与知识版本的计划。"
+                        : route.view === "knowledge"
+                          ? "项目级代码事实与攻击面，供所有任务共同查询。"
+                          : route.view === "artifacts"
+                            ? "查看固定快照的输入产物、内容摘要和来源，核对后下载。"
+                            : route.view === "findings"
+                              ? "汇总任务发现，按证据结论与漏洞严重度查看。"
+                              : route.view === "sources"
+                                ? "管理文件夹与 Git 仓库，固定源码版本，再选择代码基线创建任务。"
+                                : project.source || "项目代码源独立管理。"}
                   </p>
                 </div>
                 <div className="heading-actions">
@@ -535,6 +539,15 @@ export default function App() {
                     setTaskSnapshot(snapshot);
                     setDialog("task");
                   }}
+                />
+              ) : route.view === "workflows" ? (
+                <Workflows
+                  key={project.id}
+                  api={api}
+                  projectID={project.id}
+                  snapshots={snapshots.data || []}
+                  canWrite={canWrite}
+                  revision={revision}
                 />
               ) : route.view === "plugins" ? (
                 <Plugins

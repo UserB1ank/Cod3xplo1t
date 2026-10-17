@@ -51,6 +51,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/schedule"
 	"github.com/open-mcp-ai/Codexploit/internal/storage"
 	"github.com/open-mcp-ai/Codexploit/internal/verify"
+	"github.com/open-mcp-ai/Codexploit/internal/workflow"
 )
 
 // maxBodyBytes bounds request bodies; the API has no large payloads in P1.
@@ -58,13 +59,15 @@ const maxBodyBytes = 1 << 20
 
 // Server serves the REST API.
 type Server struct {
-	PluginCatalog *plugin.Catalog
-	Plugins       *plugin.Host
-	snapshots     lifecycle.Snapshots
-	Store         storage.FullStore
-	Manager       *repository.Manager
-	Analyzer      *analysis.Analyzer
-	Artifacts     artifact.Store
+	Workflows        *workflow.Catalog
+	WorkflowCompiler *workflow.Compiler
+	PluginCatalog    *plugin.Catalog
+	Plugins          *plugin.Host
+	snapshots        lifecycle.Snapshots
+	Store            storage.FullStore
+	Manager          *repository.Manager
+	Analyzer         *analysis.Analyzer
+	Artifacts        artifact.Store
 	// Knowledge is the pinned, project-scoped read view over the graph, the
 	// attack surface and the path queue. It is nil when no graph service is
 	// wired, which is what makes every knowledge route answer 501.
@@ -200,6 +203,13 @@ func (s *Server) Handler() http.Handler {
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.handleHealth)
+	mux.HandleFunc("GET /api/v1/projects/{projectID}/workflows", s.handleListWorkflows)
+	mux.HandleFunc("POST /api/v1/projects/{projectID}/workflows/validate", s.handleValidateWorkflow)
+	mux.HandleFunc("POST /api/v1/projects/{projectID}/workflows", s.handleSaveWorkflow)
+	mux.HandleFunc("POST /api/v1/projects/{projectID}/workflows/{workflowID}/versions/{version}/compile", s.handleCompileWorkflow)
+	mux.HandleFunc("GET /api/v1/projects/{projectID}/workflow-plans/{planID}", s.handleGetWorkflowPlan)
+	mux.HandleFunc("GET /api/v1/projects/{projectID}/workflows/{workflowID}/versions/{version}", s.handleGetWorkflow)
+	mux.HandleFunc("GET /api/v1/projects/{projectID}/workflows/{workflowID}/versions/{version}/export", s.handleGetWorkflow)
 	mux.HandleFunc("GET /api/v1/plugins", s.handleListPlugins)
 	mux.HandleFunc("POST /api/v1/projects/{projectID}/snapshots/{snapshotID}/plugin-invocations", s.withIdempotency(s.handleExecutePlugin))
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/snapshots/{snapshotID}/plugin-invocations", s.handleListInvocations)

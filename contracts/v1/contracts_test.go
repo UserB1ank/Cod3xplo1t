@@ -13,7 +13,7 @@ import (
 func loadSchemas(t *testing.T) map[string]*jsonschema.Resolved {
 	t.Helper()
 	names, err := fs.Glob(Files, "*.schema.json")
-	if err != nil || len(names) != 14 {
+	if err != nil || len(names) != 15 {
 		t.Fatalf("schemas: %d %v", len(names), err)
 	}
 	byID := map[string]*jsonschema.Schema{}

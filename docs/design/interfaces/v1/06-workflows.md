@@ -1,5 +1,7 @@
 # L6 工作流层
 
+已实现：`WorkflowCatalog`、`WorkflowCompiler`（版本、校验、不可变编译计划与正式页面，见 [工作流 API](../../../workflows.md)）。`WorkflowRunner` 的执行、暂停与恢复由后续 Issue 接入。
+
 接口：`WorkflowCompiler`、`WorkflowRunner`。Schema：[workflow.schema.json](../../../../contracts/v1/workflow.schema.json)。示例：[workflow.json](../../../../contracts/v1/examples/workflow.json)。
 
 ## 定义与输入绑定
@@ -28,7 +30,7 @@ Compile 固定工作流字节、插件版本/包摘要、输入摘要、图谱�
 - 检查插件已注册且所选执行器具有所需能力。
 - 检查语言、输入类型、参数 Schema、预算、超时与网络策略。
 - 缺少路径能力时允许只产出告警，但不能把其接成依赖真实 taint_flow 的节点。
-- 完整执行器还必须检查输出 Schema 摘要、集合/单值绑定和授权；原型只实现 DAG、引用、版本与粗粒度产物类型校验。
+- 当前正式编译器固定根产物实际摘要、适配器输入 Schema / producer、插件版本与包摘要、参数、知识版本和输入预算，按单值协议拒绝歧义。输出内容与运行时产物归属由后续执行器再次验证；原型仍单独隔离。
 
 ## 状态、失败与恢复
 
