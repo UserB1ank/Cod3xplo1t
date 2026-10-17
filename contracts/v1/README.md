@@ -1,6 +1,8 @@
 # Codexploit v1 machine-readable contracts
 
-Maturity: design baseline / interactive prototype, not a production transport implementation.
+Maturity: layered design baseline with implemented adapters for sources, artifacts,
+pinned knowledge views and the builtin plugin host. See the implementation map
+in the layered specification; external process/worker transports remain planned.
 
 See [the layered interface specification](../../docs/design/interfaces/v1/README.md).
 Schemas use JSON Schema 2020-12. All schema IDs live under the reserved offline
@@ -15,3 +17,7 @@ are specified per layer and require adapter conformance tests.
 
 Run `make check-contracts`. The prototype imports these same schemas for its
 interface browser and contract export. Versioned objects reject unknown fields.
+
+`plugin-runtime.schema.json` validates the formal catalog and invocation responses;
+manifests still use `plugin.schema.json`. This does not declare external plugins
+installed or authorize execution of audited source code.

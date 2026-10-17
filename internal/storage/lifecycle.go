@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/open-mcp-ai/Codexploit/internal/plugin"
 	"github.com/open-mcp-ai/Codexploit/internal/repository"
 )
 
@@ -168,6 +169,15 @@ func (m *Memory) BeginSnapshotDeletion(_ context.Context, id string) error {
 			return fmt.Errorf("%w: snapshot %s has unfinished verification runs", ErrConflict, id)
 		}
 	}
+	for _, raw := range m.pluginInvocations {
+		var inv plugin.Invocation
+		if json.Unmarshal(raw, &inv) != nil {
+			return ErrConflict
+		}
+		if inv.Request.Scope.SnapshotID == id && !plugin.Terminal(inv.Status) {
+			return fmt.Errorf("%w: snapshot has unfinished plugin invocations", ErrConflict)
+		}
+	}
 	m.deleting[id] = true
 	return nil
 }
@@ -183,6 +193,7 @@ VALUES (?, ?) ON CONFLICT(snapshot_id) DO UPDATE SET completed = 0`), id, format
 		return mapSQLError(err)
 	}
 	for _, query := range []string{
+		`SELECT COUNT(*) FROM plugin_invocations WHERE snapshot_id = ? AND status IN ('CREATED', 'RUNNING')`,
 		`SELECT COUNT(*) FROM audit_paths WHERE snapshot_id = ? AND status IN ('ANALYZING','LOCAL_EXPLORING','VERIFYING')`,
 		`SELECT COUNT(*) FROM agent_runs WHERE snapshot_id = ? AND status NOT IN ('SUCCEEDED','FAILED','CANCELLED','TIMED_OUT','BUDGET_EXCEEDED','INVALID_OUTPUT')`,
 		`SELECT COUNT(*) FROM verification_runs WHERE snapshot_id = ? AND status NOT IN ('SUCCEEDED','FAILED','BLOCKED','CANCELLED','TIMED_OUT')`,

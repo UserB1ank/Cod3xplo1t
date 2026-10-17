@@ -1,5 +1,7 @@
 # L5 统一插件层
 
+Issue #6 已实现目录、内置 Go 执行路径、原子产物发布、版本取消、持久化记录及正式插件页面。实际 Go 端口、HTTP、预算、源码指纹和单宿主恢复约定见 [插件接口](../../../plugins.md)。下文的外部进程 JSON-RPC、worker 安装与多实例租约仍是后续协议目标，不表示已具备这些执行能力。
+
 接口：`PluginCatalog`、`PluginHost`。Schema：[plugin.schema.json](../../../../contracts/v1/plugin.schema.json)。示例：[plugin.json](../../../../contracts/v1/examples/plugin.json)。
 
 ## 清单字段

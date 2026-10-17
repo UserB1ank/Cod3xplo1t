@@ -191,6 +191,8 @@ func serveTestEnv(t *testing.T, rt *app.Runtime, allowNetwork bool) *testEnv {
 		}
 	})
 	srv := NewServer(rt.Store, rt.Manager, rt.Analyzer,
+		WithPluginCatalog(rt.PluginCatalog),
+		WithPlugins(rt.Plugins),
 		WithAllowNetwork(allowNetwork),
 		WithGraph(rt.Graph),
 		WithBuilder(rt.Builder),

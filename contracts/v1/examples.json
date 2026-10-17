@@ -42,5 +42,9 @@
   {
     "file": "examples/view.json",
     "schema": "view.schema.json"
+  },
+  {
+    "file": "examples/plugin-runtime.json",
+    "schema": "plugin-runtime.schema.json"
   }
 ]

@@ -68,6 +68,7 @@ export function readRoute(hash: string): Route {
         "knowledge",
         "findings",
         "artifacts",
+        "plugins",
         "settings",
       ].includes(page)
         ? page

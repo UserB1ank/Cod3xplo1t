@@ -1,5 +1,8 @@
 # Codexploit REST API
 
+Versioned plugin registration, builtin Go parsing and scoped invocation records
+are documented in [Plugin interfaces](plugins.md#认证-http-api).
+
 The project/task workbench endpoints, shared knowledge rules and high/medium/low
 grading API are documented in [Web UI and deployment](webui.md#new-api-surface).
 Task classification, pin/archive CAS writes, live status filters and stable

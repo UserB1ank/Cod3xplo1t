@@ -26,6 +26,8 @@
 - 2026-10-17 — #4 正式页面查看、校验并下载快照产物：`internal/artifact` 本地内容寻址存储按暂存 → 核对大小与 SHA-256 → 原子建对象 → 事务发布推进，读取前重新核对并拒绝缺失、损坏与链接逃逸；Memory 与 SQLite 保存同一不可变引用、Scope 归属和快照删除栅栏。`/api/v1/projects/{id}/snapshots/{id}/artifacts` 提供 reader 目录、writer 登记、校验元数据与流式下载（摘要 ETag、Content-Length、attachment、nosniff），预算、冲突与损坏先于成功响应返回 413/409。正式“产物与证据”页接通项目、快照详情与任务固定输入，展示 kind、摘要、大小、Scope 与 producer，支持校验、有界 JSON 预览和下载后浏览器复核摘要，失败呈现真实错误而不退回演示成功。共享采集输入早于任务产生，Producer `task_id` 改为可选。已通过 TDD red/green、完整乱序竞态回归、三轮稳定性测试、`make lint`、前端测试/构建，并在独立 Docker 容器完成目录、校验、下载、重启恢复、源目录变化后的冻结内容、同尺寸损坏与恢复的接口及页面验收。按交付流程提交并关闭；未 push。
 - 2026-10-17 — #5 正式图谱页面探索固定快照的真实代码事实：`internal/knowledge` 在现有 SCG / ASG / 路径查询之上提供自描述、重启可验证的固定视图（scope + 图层版本 + built_at），`symbols`、`neighborhood`、`nodes`、`paths`、`code_slice`、`provenance` 全部按 pin 读取，重建后旧视图返回 `view_superseded` 而不是隐式换版；路径按快照与版本过滤并报告 `stale_layer_version` 省略数。`/api/v1/projects/{id}/knowledge/views` 提供 reader 可用的认证接口，响应经 `contracts/v1/view.schema.json` 校验，旧 `/api` 图谱接口保持兼容。正式“共享知识图谱”页接通三个图层、键盘行选择、覆盖与截断说明、空图 / 未构建 / 不可用 / 失效状态，以及源码切片、调用方和来源（插件、版本、配置摘要、共享任务、原始产物）。已通过 TDD red/green（两个已确认边界）、完整乱序竞态回归、三轮稳定性测试、`make lint`、前端测试 / 构建，并在独立 Docker 容器完成三层目录、节点抽屉、项目隔离与重启恢复的接口及浏览器验收。按交付流程提交并关闭；未 push。
 
+- 2026-10-17 — #6 版本化插件与内置 Go 解析：实现插件目录、不可变版本 / 包摘要、真实 Go AST / facts、原子输出发布、预算、CAS 取消、单宿主重启中断状态与正式插件中心；接口文档见 `docs/plugins.md`。外部清单登记后明确标记执行器未安装，内置解析保留输入、配置、覆盖范围和输出来源，兼容既有符号 ID。已通过完整乱序竞态回归、修正切片共享竞态后的十轮相关竞态用例、完整三轮 `make test-stress`、`make lint`、前端测试 / 构建及 Docker 构建；独立容器已完成认证 API、原子预算失败、项目隔离和重启恢复验收。内置浏览器已验收清单导入、真实解析、无效参数拒绝、覆盖范围、AST JSON 预览、下载后摘要核对，以及容器重启后的清单 / 调用恢复。按交付流程提交并关闭；未 push。
+
 ## Agent skills
 
 ### Issue tracker

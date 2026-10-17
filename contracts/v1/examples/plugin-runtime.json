@@ -1,0 +1,43 @@
+{
+  "api_version": "codexploit/v1",
+  "plugins": [
+    {
+      "manifest": {
+        "api_version": "codexploit/v1",
+        "id": "team.scanner.example",
+        "version": "1.0.0",
+        "name": "Example scanner adapter",
+        "description": "Synthetic contract example.",
+        "kind": "analyzer",
+        "languages": [
+          "go"
+        ],
+        "runtime": {
+          "kind": "process",
+          "entrypoint": "bin/scanner-adapter"
+        },
+        "consumes": [
+          "source.snapshot"
+        ],
+        "produces": [
+          "scanner.alerts"
+        ],
+        "permissions": {
+          "network": "none",
+          "source_write": false
+        },
+        "config_schema": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        }
+      },
+      "package_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+      "manifest_digest": "e0a046b09bee850a56812b0b5c649ad932eb8a50a4d4005923e2563991ea21aa",
+      "source": "offline contract fixture",
+      "executable": false,
+      "reason": "Manifest registered; no installed execution adapter"
+    }
+  ],
+  "next_cursor": ""
+}

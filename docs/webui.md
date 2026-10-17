@@ -366,6 +366,13 @@ graph as 尚未构建, and a rebuilt layer surfaces `view_superseded` with a
 
 ## Validation
 
+The formal **插件中心** page provides the real versioned catalog and builtin Go
+parser. Administrators can register schema-validated manifests; uninstalled
+external entries remain unavailable. Writers select a fixed source snapshot and
+plugin version, validate configuration/budgets, start/cancel calls and inspect
+persistent coverage and outputs. AST/fact artifacts use the existing preview and
+download page. See [Plugin interfaces](plugins.md) for the complete contract.
+
 ```bash
 make test-web
 npm --prefix web run build

@@ -12,6 +12,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/analysis"
 	"github.com/open-mcp-ai/Codexploit/internal/artifact"
 	"github.com/open-mcp-ai/Codexploit/internal/asg"
+	"github.com/open-mcp-ai/Codexploit/internal/plugin"
 	"github.com/open-mcp-ai/Codexploit/internal/repository"
 	"github.com/open-mcp-ai/Codexploit/internal/verify"
 )
@@ -21,17 +22,19 @@ import (
 // faithful target for API tests and for `--db memory` runs.
 type Memory struct {
 	// Presence blocks writes; true means pending cleanup, false means completed.
-	deleting        map[string]bool
-	mu              sync.RWMutex
-	projects        map[string]Project
-	sources         map[string]SourceDefinition
-	sourceSnapshots map[string]SourceSnapshot
-	taskCategories  map[string]TaskCategories
-	artifacts       map[string]artifact.Ref
-	snapshots       map[string]memorySnapshot
-	manifests       map[string][]byte
-	analyses        map[string]string // analysis_id -> analysis document
-	graphs          map[string]*memoryGraph
+	deleting          map[string]bool
+	mu                sync.RWMutex
+	projects          map[string]Project
+	sources           map[string]SourceDefinition
+	sourceSnapshots   map[string]SourceSnapshot
+	taskCategories    map[string]TaskCategories
+	artifacts         map[string]artifact.Ref
+	plugins           map[string][]byte
+	pluginInvocations map[string][]byte
+	snapshots         map[string]memorySnapshot
+	manifests         map[string][]byte
+	analyses          map[string]string // analysis_id -> analysis document
+	graphs            map[string]*memoryGraph
 	// asgDocuments holds the derived attack surface of a snapshot, keyed by
 	// snapshot id and kept separate from graphs: the ASG is derived data and can
 	// be dropped and rebuilt without touching an SCG fact.
@@ -251,6 +254,12 @@ func (m *Memory) DeleteSnapshot(_ context.Context, id string) error {
 		return fmt.Errorf("%w: snapshot %s", ErrNotFound, id)
 	}
 	delete(m.snapshots, id)
+	for key, raw := range m.pluginInvocations {
+		var inv plugin.Invocation
+		if json.Unmarshal(raw, &inv) == nil && inv.Request.Scope.SnapshotID == id {
+			delete(m.pluginInvocations, key)
+		}
+	}
 	for key, ref := range m.artifacts {
 		if ref.Scope.SnapshotID == id {
 			delete(m.artifacts, key)

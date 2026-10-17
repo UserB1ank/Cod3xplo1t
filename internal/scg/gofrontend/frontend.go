@@ -10,6 +10,9 @@ package gofrontend
 
 import (
 	"context"
+	"crypto/sha256"
+	_ "embed"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -24,6 +27,12 @@ import (
 
 // Language is the language name this frontend handles.
 const Language = "Go"
+
+//go:embed frontend.go
+var implementationSource []byte
+
+// ImplementationDigest identifies the source compiled into the builtin bundle.
+func ImplementationDigest() string { return fmt.Sprintf("%x", sha256.Sum256(implementationSource)) }
 
 // Frontend is the Go frontend.
 type Frontend struct{}

@@ -2015,3 +2015,9 @@ pre {
 .knowledge-list, .knowledge-steps { margin: 0; padding-left: 18px; line-height: 2; font-size: 11px; }
 .knowledge-inspector-panel { margin-top: 16px; }
 .inspector-heading { display: grid; gap: 6px; margin-bottom: 14px; font-size: 12px; }
+
+.plugin-run-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; padding: 24px; }
+.plugin-run-form label { display: grid; gap: 8px; font-size: 12px; color: var(--muted); }
+.plugin-run-form label:has(textarea) { grid-column: 1 / -1; }
+.plugin-digest { font-size: 11px; overflow-wrap: anywhere; word-break: break-all; max-width: 320px; display: inline-block; }
+@media (max-width: 780px) { .plugin-run-form { grid-template-columns: minmax(0, 1fr); } }

@@ -41,7 +41,9 @@ func (r contextReader) Read(p []byte) (int, error) {
 	return r.source.Read(p)
 }
 
-func (s *Local) Put(ctx context.Context, ref Ref, src io.Reader, budget int64) (Ref, error) {
+// Prepare verifies and stores an object without publishing a metadata reference.
+// A host can then publish several outputs and its terminal state atomically.
+func (s *Local) Prepare(ctx context.Context, ref Ref, src io.Reader, budget int64) (Ref, error) {
 	if err := ref.Validate(); err != nil {
 		return Ref{}, err
 	}
@@ -84,10 +86,18 @@ func (s *Local) Put(ctx context.Context, ref Ref, src io.Reader, budget int64) (
 		return Ref{}, err
 	}
 	verified.Close()
-	if err := s.index.PublishArtifact(ctx, ref); err != nil {
+	return ref, nil
+}
+
+func (s *Local) Put(ctx context.Context, ref Ref, src io.Reader, budget int64) (Ref, error) {
+	prepared, err := s.Prepare(ctx, ref, src, budget)
+	if err != nil {
 		return Ref{}, err
 	}
-	return ref, nil
+	if err := s.index.PublishArtifact(ctx, prepared); err != nil {
+		return Ref{}, err
+	}
+	return prepared, nil
 }
 
 func (s *Local) openVerified(ctx context.Context, ref Ref, budget int64) (*os.File, error) {

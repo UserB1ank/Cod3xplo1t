@@ -44,6 +44,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/lifecycle"
 	"github.com/open-mcp-ai/Codexploit/internal/llm"
 	"github.com/open-mcp-ai/Codexploit/internal/path"
+	"github.com/open-mcp-ai/Codexploit/internal/plugin"
 	"github.com/open-mcp-ai/Codexploit/internal/repository"
 	"github.com/open-mcp-ai/Codexploit/internal/scg"
 	"github.com/open-mcp-ai/Codexploit/internal/schedule"
@@ -56,11 +57,13 @@ const maxBodyBytes = 1 << 20
 
 // Server serves the REST API.
 type Server struct {
-	snapshots lifecycle.Snapshots
-	Store     storage.FullStore
-	Manager   *repository.Manager
-	Analyzer  *analysis.Analyzer
-	Artifacts artifact.Store
+	PluginCatalog *plugin.Catalog
+	Plugins       *plugin.Host
+	snapshots     lifecycle.Snapshots
+	Store         storage.FullStore
+	Manager       *repository.Manager
+	Analyzer      *analysis.Analyzer
+	Artifacts     artifact.Store
 	// Knowledge is the pinned, project-scoped read view over the graph, the
 	// attack surface and the path queue. It is nil when no graph service is
 	// wired, which is what makes every knowledge route answer 501.
@@ -190,6 +193,12 @@ func (s *Server) Handler() http.Handler {
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.handleHealth)
+	mux.HandleFunc("GET /api/v1/plugins", s.handleListPlugins)
+	mux.HandleFunc("POST /api/v1/projects/{projectID}/snapshots/{snapshotID}/plugin-invocations", s.withIdempotency(s.handleExecutePlugin))
+	mux.HandleFunc("GET /api/v1/projects/{projectID}/snapshots/{snapshotID}/plugin-invocations", s.handleListInvocations)
+	mux.HandleFunc("GET /api/v1/projects/{projectID}/snapshots/{snapshotID}/plugin-invocations/{invocationID}", s.handleGetInvocation)
+	mux.HandleFunc("POST /api/v1/projects/{projectID}/snapshots/{snapshotID}/plugin-invocations/{invocationID}/cancel", s.handleCancelInvocation)
+	mux.HandleFunc("POST /api/v1/plugins", s.handleRegisterPlugin)
 	mux.HandleFunc("GET /api/auth/status", s.handleAuthStatus)
 	mux.HandleFunc("POST /api/auth/setup", s.handleAccountLogin(true))
 	mux.HandleFunc("POST /api/auth/login", s.handleAccountLogin(false))

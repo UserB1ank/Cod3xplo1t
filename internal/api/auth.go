@@ -276,6 +276,10 @@ func requiredCapability(method, path string) (Capability, bool) {
 	rest := strings.TrimPrefix(path, "/api/")
 
 	switch {
+	case rest == "v1/plugins" && method == http.MethodGet:
+		return CapRead, true
+	case rest == "v1/plugins" && method == http.MethodPost:
+		return CapAdmin, true
 	case rest == "v1/projects" && method == http.MethodPost:
 		return CapWrite, true
 	case strings.HasPrefix(rest, "v1/sources/"):
@@ -285,6 +289,14 @@ func requiredCapability(method, path string) (Capability, bool) {
 		}
 	case strings.HasPrefix(rest, "v1/projects/"):
 		_, action, _ := strings.Cut(strings.TrimPrefix(rest, "v1/projects/"), "/")
+		if strings.HasPrefix(action, "snapshots/") && strings.Contains(action, "/plugin-invocations") {
+			if method == http.MethodGet {
+				return CapRead, true
+			}
+			if method == http.MethodPost {
+				return CapWrite, true
+			}
+		}
 		if strings.HasPrefix(action, "knowledge/") {
 			return CapRead, true
 		}

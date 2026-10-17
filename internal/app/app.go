@@ -17,11 +17,13 @@ import (
 
 	"github.com/open-mcp-ai/Codexploit/internal/agent"
 	"github.com/open-mcp-ai/Codexploit/internal/analysis"
+	"github.com/open-mcp-ai/Codexploit/internal/artifact"
 	"github.com/open-mcp-ai/Codexploit/internal/asg"
 	"github.com/open-mcp-ai/Codexploit/internal/graph"
 	"github.com/open-mcp-ai/Codexploit/internal/lifecycle"
 	"github.com/open-mcp-ai/Codexploit/internal/llm"
 	"github.com/open-mcp-ai/Codexploit/internal/path"
+	"github.com/open-mcp-ai/Codexploit/internal/plugin"
 	"github.com/open-mcp-ai/Codexploit/internal/repository"
 	"github.com/open-mcp-ai/Codexploit/internal/scg"
 	"github.com/open-mcp-ai/Codexploit/internal/scg/gofrontend"
@@ -175,14 +177,16 @@ type AgentConfig struct {
 
 // Runtime bundles the wired components.
 type Runtime struct {
-	Snapshots  lifecycle.Snapshots
-	Store      storage.FullStore
-	Manager    *repository.Manager
-	Analyzer   *analysis.Analyzer
-	Builder    *scg.Builder
-	Graph      *graph.Service
-	ASGBuilder *asg.Builder
-	ASG        *graph.ASGService
+	PluginCatalog *plugin.Catalog
+	Plugins       *plugin.Host
+	Snapshots     lifecycle.Snapshots
+	Store         storage.FullStore
+	Manager       *repository.Manager
+	Analyzer      *analysis.Analyzer
+	Builder       *scg.Builder
+	Graph         *graph.Service
+	ASGBuilder    *asg.Builder
+	ASG           *graph.ASGService
 	// Audit is the path engine: it generates candidate AuditPaths, ranks them and
 	// serves the scheduling queue.
 	Audit *path.Service
@@ -260,6 +264,13 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 		memory := storage.NewMemory()
 		rt.Store = memory
 		rt.wireGraphServices(memory)
+		rt.PluginCatalog, err = plugin.NewCatalog(ctx, memory)
+		if err != nil {
+			return nil, err
+		}
+		if err := rt.wirePlugins(); err != nil {
+			return nil, err
+		}
 		if err := rt.wireAgent(rt.AgentConfig); err != nil {
 			return nil, err
 		}
@@ -286,6 +297,15 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 	}
 	rt.Store = sqlStore
 	rt.wireGraphServices(sqlStore)
+	rt.PluginCatalog, err = plugin.NewCatalog(ctx, sqlStore)
+	if err != nil {
+		sqlStore.Close()
+		return nil, err
+	}
+	if err := rt.wirePlugins(); err != nil {
+		sqlStore.Close()
+		return nil, err
+	}
 	if err := rt.wireAgent(rt.AgentConfig); err != nil {
 		sqlStore.Close()
 		return nil, err
@@ -300,6 +320,27 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 	}
 	rt.closers = append(rt.closers, sqlStore.Close)
 	return rt, nil
+}
+
+func (r *Runtime) wirePlugins() error {
+	repo, ok := r.Store.(plugin.Repository)
+	if !ok {
+		return plugin.ErrUnsupported
+	}
+	index, ok := r.Store.(artifact.Index)
+	if !ok {
+		return plugin.ErrUnsupported
+	}
+	objects, err := artifact.NewLocal(filepath.Join(r.Workspace, "artifacts"), index)
+	if err != nil {
+		return err
+	}
+	r.Plugins, err = plugin.NewHost(plugin.Deps{Catalog: r.PluginCatalog, Repository: repo, Artifacts: objects, Scopes: index})
+	if err != nil {
+		return err
+	}
+	r.closers = append(r.closers, r.Plugins.Close)
+	return nil
 }
 
 // wireGraphServices builds the query layer over the chosen store. Both stores

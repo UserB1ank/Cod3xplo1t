@@ -5,7 +5,7 @@ import { EmptyState, Hint, Modal, Panel } from "./components";
 import type { Snapshot } from "./types";
 import { latestSnapshot } from "./workbench";
 
-interface ArtifactRef {
+export interface ArtifactRef {
   id: string;
   kind: string;
   sha256: string;
@@ -274,7 +274,7 @@ export function Artifacts({
           )}
         </div>
         <Hint>
-          当前展示源码清单与冻结源码归档。产物属于固定快照，任务共享这些输入。漏洞证据仍可从任务发现详情查看。
+          展示固定快照的源码输入与分析产物，保留摘要和调用来源。漏洞证据仍可从任务发现详情查看。
         </Hint>
         {loading && !page ? (
           <p className="source-description" role="status">
@@ -305,7 +305,13 @@ export function Artifacts({
                       <strong>
                         {ref.schema_id === "codexploit/source-tar/v1"
                           ? "冻结源码归档"
-                          : "源码文件清单"}
+                          : ref.kind === "code.ast"
+                            ? "Go 语法树"
+                            : ref.kind === "code.facts"
+                              ? "代码事实"
+                              : ref.schema_id === "codexploit/source-files/v1"
+                                ? "源码文件清单"
+                                : ref.kind}
                       </strong>
                       <div className="cell-subtitle mono">{ref.id}</div>
                       <p className="mono">
@@ -384,7 +390,7 @@ export function Artifacts({
                           }
                         >
                           <FileText size={14} />
-                          预览清单
+                          预览 JSON
                         </button>
                         <button
                           className="button secondary"
@@ -441,7 +447,7 @@ export function Artifacts({
       <Modal
         open={!!preview}
         onClose={() => setPreview(undefined)}
-        title="源码清单预览"
+        title="产物 JSON 预览"
         wide
       >
         <p className="mono">{preview?.title}</p>

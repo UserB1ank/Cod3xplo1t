@@ -1,0 +1,304 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codexploit.invalid/contracts/v1/plugin-runtime.schema.json",
+  "title": "Plugin catalog and invocation response",
+  "type": "object",
+  "properties": {
+    "api_version": {
+      "const": "codexploit/v1"
+    },
+    "plugin": {
+      "$ref": "#/$defs/Record"
+    },
+    "plugins": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "$ref": "#/$defs/Record"
+      }
+    },
+    "invocation": {
+      "$ref": "#/$defs/Invocation"
+    },
+    "invocations": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "$ref": "#/$defs/Invocation"
+      }
+    },
+    "next_cursor": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "api_version"
+  ],
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "required": [
+        "plugin"
+      ]
+    },
+    {
+      "required": [
+        "plugins",
+        "next_cursor"
+      ]
+    },
+    {
+      "required": [
+        "invocation"
+      ]
+    },
+    {
+      "required": [
+        "invocations",
+        "next_cursor"
+      ]
+    }
+  ],
+  "$defs": {
+    "Record": {
+      "type": "object",
+      "properties": {
+        "manifest": {
+          "$ref": "plugin.schema.json"
+        },
+        "package_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "manifest_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "executable": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "manifest",
+        "package_digest",
+        "manifest_digest",
+        "source",
+        "executable"
+      ],
+      "additionalProperties": false
+    },
+    "Request": {
+      "type": "object",
+      "properties": {
+        "api_version": {
+          "const": "codexploit/v1"
+        },
+        "invocation_id": {
+          "$ref": "common.schema.json#/$defs/ID"
+        },
+        "plugin_id": {
+          "type": "string"
+        },
+        "plugin_version": {
+          "$ref": "common.schema.json#/$defs/Version"
+        },
+        "package_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "scope": {
+          "$ref": "common.schema.json#/$defs/Scope"
+        },
+        "inputs": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {
+            "$ref": "common.schema.json#/$defs/ArtifactRef"
+          }
+        },
+        "config": {
+          "type": "object"
+        },
+        "budget": {
+          "type": "object",
+          "properties": {
+            "max_input_bytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 268435456
+            },
+            "max_output_bytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 67108864
+            },
+            "max_files": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20000
+            },
+            "max_file_bytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4194304
+            },
+            "max_ast_nodes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500000
+            },
+            "timeout_seconds": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 120
+            }
+          },
+          "required": [
+            "max_input_bytes",
+            "max_output_bytes",
+            "max_files",
+            "max_file_bytes",
+            "max_ast_nodes",
+            "timeout_seconds"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "api_version",
+        "invocation_id",
+        "plugin_id",
+        "plugin_version",
+        "package_digest",
+        "scope",
+        "inputs",
+        "config",
+        "budget"
+      ],
+      "additionalProperties": false
+    },
+    "Invocation": {
+      "type": "object",
+      "properties": {
+        "invocation_id": {
+          "$ref": "common.schema.json#/$defs/ID"
+        },
+        "request": {
+          "$ref": "#/$defs/Request"
+        },
+        "request_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "config_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "status": {
+          "enum": [
+            "CREATED",
+            "RUNNING",
+            "SUCCEEDED",
+            "PARTIAL",
+            "FAILED",
+            "CANCELLED",
+            "TIMED_OUT",
+            "UNSUPPORTED"
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "outputs": {
+          "type": "array",
+          "maxItems": 2,
+          "items": {
+            "$ref": "common.schema.json#/$defs/ArtifactRef"
+          }
+        },
+        "coverage": {
+          "type": "object",
+          "properties": {
+            "input_files": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "parsed_files": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "partial_files": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "unparsed_files": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "unhandled_files": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "descriptor_files": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "input_bytes": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "input_files",
+            "parsed_files",
+            "partial_files",
+            "unparsed_files",
+            "unhandled_files",
+            "descriptor_files",
+            "input_bytes"
+          ],
+          "additionalProperties": false
+        },
+        "limitations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "error_code": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "invocation_id",
+        "request",
+        "request_digest",
+        "config_digest",
+        "status",
+        "version",
+        "outputs",
+        "coverage",
+        "limitations",
+        "created_at",
+        "updated_at"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

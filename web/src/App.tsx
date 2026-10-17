@@ -38,6 +38,7 @@ import { LLMSettings } from "./LLMSettings";
 import { Sources, sourceInput, readSources, type CodeSource } from "./Sources";
 import { ProjectTasks } from "./TaskList";
 import { Artifacts } from "./Artifacts";
+import { Plugins } from "./Plugins";
 import { Knowledge } from "./Knowledge";
 import {
   Badge,
@@ -263,6 +264,7 @@ export default function App() {
     { id: "knowledge", label: "共享知识图谱", icon: Network },
     { id: "findings", label: "项目漏洞库", icon: ShieldCheck },
     { id: "artifacts", label: "产物与证据", icon: FileText },
+    { id: "plugins", label: "插件中心", icon: Box },
     { id: "settings", label: "项目设置", icon: Settings2 },
   ];
   return (
@@ -533,6 +535,23 @@ export default function App() {
                     setTaskSnapshot(snapshot);
                     setDialog("task");
                   }}
+                />
+              ) : route.view === "plugins" ? (
+                <Plugins
+                  key={project.id}
+                  api={api}
+                  projectID={project.id}
+                  snapshots={snapshots.data || []}
+                  revision={revision}
+                  canWrite={canWrite}
+                  canRegister={identity.role === "admin"}
+                  onArtifacts={(snapshot) =>
+                    navigate({
+                      project: project.id,
+                      view: "artifacts",
+                      snapshot,
+                    })
+                  }
                 />
               ) : route.view === "artifacts" ? (
                 <Artifacts
