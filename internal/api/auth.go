@@ -285,6 +285,9 @@ func requiredCapability(method, path string) (Capability, bool) {
 		}
 	case strings.HasPrefix(rest, "v1/projects/"):
 		_, action, _ := strings.Cut(strings.TrimPrefix(rest, "v1/projects/"), "/")
+		if strings.HasPrefix(action, "knowledge/") {
+			return CapRead, true
+		}
 		if strings.HasPrefix(action, "snapshots/") && strings.Contains(action, "/artifacts") {
 			if method == http.MethodGet {
 				return CapRead, true

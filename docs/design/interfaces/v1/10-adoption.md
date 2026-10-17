@@ -10,7 +10,7 @@
 | SnapshotService / ArtifactStore | repository.Snapshot、lifecycle.Snapshots、artifact.Store 本地适配器、规范引用与 SQLite 索引 | 外部产物存储、跨服务恢复与分析产物接线 |
 | Parser / Analyzer | scg.Frontend、analysis.Detector | 包装为类型化产物与通用插件能力 |
 | Normalizer | ASG、路径和验证各自领域逻辑 | 原始工具格式适配、公共结果与局部 ID 映射 |
-| KnowledgeReader / Publisher | graph.Service、ASGService、GraphStore | 多层固定视图、观察账本、增量批次 CAS |
+| KnowledgeReader / Publisher | graph.Service、ASGService、GraphStore、knowledge.Reader 固定视图 | 观察账本、增量批次 CAS 与外部图数据库 |
 | PluginHost | agent.Runtime / verify.Executor | 通用清单、握手、插件安装状态与统一执行器 |
 | WorkflowRunner | schedule.Scheduler、path.Service | DAG 编译、节点状态、产物绑定、栅栏与恢复 |
 | FindingService | verify.Store / Verifier、项目发现 API | 适配公共 DTO，保留所有来源与现有裁定 |
@@ -41,6 +41,8 @@ Issue #2 已补充 Git 代码源 → 固定提交快照及图谱 → 独立任�
 Issue #3 的正式任务表已接通项目分类目录、置顶、归档/恢复和已有暂停/继续操作。搜索、状态、分类及归档过滤在服务端完成后稳定分页；状态和进度读取实时路径记录。任务与分类目录均使用 ETag / 版本 CAS，拒绝陈旧写入和跨项目任务更新；归档需先暂停并等待活动路径和未结束运行完成，保留原任务与所有引用。Memory / SQLite 公开 HTTP 用例覆盖重启恢复、并发编辑、分页边界和实时状态。
 
 ## 实施顺序
+
+Issue #5 已把正式“共享知识图谱”页面接到固定视图：`POST /api/v1/projects/{id}/knowledge/views` 记录快照的 SCG / ASG 版本与构建时间，`symbols`、`neighborhood`、`nodes`、`paths`、`code_slice`、`provenance` 都从该 pin 读取并带覆盖与截断说明。同快照的多个任务共享一组事实与路径，重建后旧视图显式返回 `view_superseded`。旧 `/api` 图谱接口保持兼容；增量发布仍属 #8。
 
 Issue #4 已接通正式产物目录、完整引用、预算校验、清单预览与认证下载。新代码源快照自动登记逐文件清单和冻结源码 tar，既有快照可显式登记。ArtifactStore 与认证 HTTP API 的测试覆盖不可变发布、冲突、读取取消、预算、损坏/丢失、项目与来源隔离、分页、退役拒绝和 SQLite 重启；外部容器存储另由 #19 接入。
 

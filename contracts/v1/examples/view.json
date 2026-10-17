@@ -1,0 +1,46 @@
+{
+  "api_version": "codexploit/v1",
+  "view": {
+    "view_id": "view-eyJwIjoicHJvai1leGFtcGxlIiwicyI6InNuYXAtMDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWYiLCJnIjoic2NnLWdyYXBoLTAxMjM0NTY3ODlhYmNkZWYiLCJnYiI6IjIwMjYtMTAtMTdUMDQ6MDA6MDBaIiwibCI6WyJhc2ciLCJwYXRocyIsInNjZyJdfQ",
+    "revision": "9f2c1d4e6a8b0c3d",
+    "scope": {
+      "project_id": "proj-example",
+      "snapshot_id": "snap-0123456789abcdef0123456789abcdef"
+    },
+    "layers": {
+      "scg": {
+        "status": "available",
+        "version": "scg-graph-0123456789abcdef",
+        "built_at": "2026-10-17T04:00:00Z"
+      },
+      "asg": {
+        "status": "available",
+        "version": "asg-0123456789abcdef",
+        "built_at": "2026-10-17T04:00:01Z"
+      },
+      "paths": {
+        "status": "available",
+        "tasks": 2,
+        "items": 18
+      }
+    },
+    "engine": {
+      "name": "codexploit/scg",
+      "version": "1.0.0"
+    },
+    "coverage": {
+      "files_in_snapshot": 12,
+      "files_too_large": 0,
+      "files_parsed": 11,
+      "files_partial": 0,
+      "files_unparsed": 1,
+      "files_unsupported": 0,
+      "files_not_source": 0,
+      "symbols_skipped": 0,
+      "call_sites_skipped": 2
+    },
+    "limitations": [
+      "calls on external or unknown receiver types stay unresolved"
+    ]
+  }
+}

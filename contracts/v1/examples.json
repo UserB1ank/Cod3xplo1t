@@ -38,5 +38,9 @@
   {
     "file": "examples/task.json",
     "schema": "application.schema.json"
+  },
+  {
+    "file": "examples/view.json",
+    "schema": "view.schema.json"
   }
 ]

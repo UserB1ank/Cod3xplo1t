@@ -1,0 +1,211 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codexploit.invalid/contracts/v1/view.schema.json",
+  "title": "Pinned knowledge view",
+  "description": "One immutable pin of a snapshot's code graph, attack surface and path queue. Queries are answered from the pin, and a rebuild supersedes the view instead of changing it silently.",
+  "type": "object",
+  "properties": {
+    "api_version": {
+      "const": "codexploit/v1"
+    },
+    "view": {
+      "$ref": "#/$defs/View"
+    }
+  },
+  "required": [
+    "api_version",
+    "view"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "Scope": {
+      "type": "object",
+      "properties": {
+        "project_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        },
+        "snapshot_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        }
+      },
+      "required": [
+        "project_id",
+        "snapshot_id"
+      ],
+      "additionalProperties": false
+    },
+    "Layer": {
+      "type": "object",
+      "description": "state of one layer inside the pin; a missing capability is stated, never skipped",
+      "properties": {
+        "status": {
+          "enum": [
+            "available",
+            "not_built",
+            "unavailable"
+          ]
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "built_at": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "detail": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "tasks": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "items": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "additionalProperties": false
+    },
+    "Engine": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "additionalProperties": false
+    },
+    "Coverage": {
+      "type": "object",
+      "properties": {
+        "files_in_snapshot": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "files_too_large": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "files_parsed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "files_partial": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "files_unparsed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "files_unsupported": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "files_not_source": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "symbols_skipped": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "call_sites_skipped": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "files_in_snapshot",
+        "files_too_large",
+        "files_parsed",
+        "files_partial",
+        "files_unparsed",
+        "files_unsupported",
+        "files_not_source",
+        "symbols_skipped",
+        "call_sites_skipped"
+      ],
+      "additionalProperties": false
+    },
+    "View": {
+      "type": "object",
+      "properties": {
+        "view_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "revision": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "layers": {
+          "type": "object",
+          "propertyNames": {
+            "enum": [
+              "scg",
+              "asg",
+              "paths"
+            ]
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/Layer"
+          },
+          "minProperties": 1
+        },
+        "engine": {
+          "$ref": "#/$defs/Engine"
+        },
+        "coverage": {
+          "$ref": "#/$defs/Coverage"
+        },
+        "limitations": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 400
+          },
+          "maxItems": 100
+        }
+      },
+      "required": [
+        "view_id",
+        "revision",
+        "scope",
+        "layers",
+        "engine",
+        "coverage",
+        "limitations"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

@@ -346,6 +346,24 @@ snapshots can explicitly register inputs; new source captures register them.
 See [the artifact interface and recovery contract](artifacts.md) for routes,
 limits, local volume layout and the external storage extension point.
 
+## Shared knowledge graph
+
+The formal **共享知识图谱** page reads pinned knowledge views instead of the
+legacy per-snapshot endpoints. Pick a code version, then a layer: 源码图谱 lists
+real symbols with their code position, 攻击面 lists entry points, sensitive
+operations and controls, and 审计路径 lists the paths of every task that shares
+that snapshot and layer version. Rows are keyboard selectable (arrow keys move,
+Enter opens); the drawer shows the code slice, callers and provenance — the
+plugin, version, config digest, sharing tasks and the source artifact the fact
+was derived from.
+
+The page states its coverage (parsed files, unparsed files, skipped symbols),
+the number of sharing tasks and any budget truncation. A layer that was never
+built is shown as 未构建, a missing capability as 不可用, a snapshot without a
+graph as 尚未构建, and a rebuilt layer surfaces `view_superseded` with a
+“重新固定版本” action instead of silently switching to the new build. See
+[the fixed-view contract](knowledge.md) for routes, pins and limits.
+
 ## Validation
 
 ```bash

@@ -41,6 +41,6 @@ v1 查询种类为 symbols、callers、callees、neighborhood、paths、code_sli
 
 PostgreSQL 可通过规范化节点、边、观察及版本索引提供上述接口。后续图数据库作为适配器或投影接入；公共查询和 Scope 语义保持一致，见 [持久化层](09-persistence.md)。
 
-现有 `graph.Service`、`ASGService` 与 `GraphStore.ReplaceGraph` 提供单快照查询和整图事务写入。增量批次、统一观察账本和不可变多层视图尚待接线。
+现有 `graph.Service`、`ASGService` 与 `GraphStore.ReplaceGraph` 提供单快照查询和整图事务写入。Issue #5 已在其上接线 `internal/knowledge.Reader`：`OpenView` 固定快照的 SCG / ASG 版本与 `built_at`，`symbols`、`neighborhood`、`nodes`、`paths`、`code_slice`、`provenance` 按 pin 读取，重建后旧视图返回 `view_superseded` 而不是隐式换版；Schema 见 `contracts/v1/view.schema.json`，端口与限额见 [固定视图与知识查询](../../../knowledge.md)。增量批次、统一观察账本和真正的不可变多版本视图仍待 #8 接线。
 
 验收：并发批次 CAS、原子可见性、重复提交、孤立边、跨 Scope 引用、冲突观察保留、固定视图分页和截断声明。

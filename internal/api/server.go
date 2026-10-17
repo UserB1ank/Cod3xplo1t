@@ -40,6 +40,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/artifact"
 	"github.com/open-mcp-ai/Codexploit/internal/asg"
 	"github.com/open-mcp-ai/Codexploit/internal/graph"
+	"github.com/open-mcp-ai/Codexploit/internal/knowledge"
 	"github.com/open-mcp-ai/Codexploit/internal/lifecycle"
 	"github.com/open-mcp-ai/Codexploit/internal/llm"
 	"github.com/open-mcp-ai/Codexploit/internal/path"
@@ -60,6 +61,10 @@ type Server struct {
 	Manager   *repository.Manager
 	Analyzer  *analysis.Analyzer
 	Artifacts artifact.Store
+	// Knowledge is the pinned, project-scoped read view over the graph, the
+	// attack surface and the path queue. It is nil when no graph service is
+	// wired, which is what makes every knowledge route answer 501.
+	Knowledge *knowledge.Reader
 	Graph     *graph.Service
 	Builder   *scg.Builder
 	// ASG and ASGBuilder are the attack-surface read and build paths. They are
@@ -156,6 +161,19 @@ func NewServer(store storage.FullStore, mgr *repository.Manager, analyzer *analy
 			s.Artifacts, _ = artifact.NewLocal(filepath.Join(s.Manager.Root, "artifacts"), index)
 		}
 	}
+	if s.Graph != nil {
+		var artifacts knowledge.ArtifactReader
+		if reader, ok := store.(knowledge.ArtifactReader); ok {
+			artifacts = reader
+		}
+		s.Knowledge = knowledge.New(knowledge.Deps{
+			Store:     store,
+			Graph:     s.Graph,
+			ASG:       s.ASG,
+			Queue:     s.Audit,
+			Artifacts: artifacts,
+		})
+	}
 	s.snapshots = lifecycle.Snapshots{Store: s.Store, Manager: s.Manager}
 	s.handler = s.routes()
 	return s
@@ -179,6 +197,13 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/me", s.handleMe)
 	mux.HandleFunc("POST /api/v1/projects", s.withIdempotency(s.handleCreateSourceProject))
 	mux.HandleFunc("GET /api/v1/projects/{id}/sources", s.handleListSources)
+	mux.HandleFunc("POST /api/v1/projects/{projectID}/knowledge/views", s.handleOpenKnowledgeView)
+	mux.HandleFunc("GET /api/v1/projects/{projectID}/knowledge/views/{viewID}/symbols", s.handleKnowledgeSymbols)
+	mux.HandleFunc("GET /api/v1/projects/{projectID}/knowledge/views/{viewID}/neighborhood", s.handleKnowledgeNeighborhood)
+	mux.HandleFunc("GET /api/v1/projects/{projectID}/knowledge/views/{viewID}/nodes", s.handleKnowledgeNodes)
+	mux.HandleFunc("GET /api/v1/projects/{projectID}/knowledge/views/{viewID}/paths", s.handleKnowledgePaths)
+	mux.HandleFunc("GET /api/v1/projects/{projectID}/knowledge/views/{viewID}/code-slice", s.handleKnowledgeSlice)
+	mux.HandleFunc("GET /api/v1/projects/{projectID}/knowledge/views/{viewID}/provenance", s.handleKnowledgeProvenance)
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/snapshots/{snapshotID}/artifacts", s.handleSnapshotArtifacts)
 	mux.HandleFunc("POST /api/v1/projects/{projectID}/snapshots/{snapshotID}/artifacts", s.handleSnapshotArtifacts)
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/snapshots/{snapshotID}/artifacts/{artifactID}", s.handleReadArtifact)
