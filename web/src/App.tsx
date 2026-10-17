@@ -478,7 +478,7 @@ export default function App() {
                         : route.view === "findings"
                           ? "汇总任务发现，按证据结论与漏洞严重度查看。"
                           : route.view === "sources"
-                            ? "登记本地目录，冻结真实快照，再选择代码基线创建任务。"
+                            ? "管理文件夹与 Git 仓库，固定源码版本，再选择代码基线创建任务。"
                             : project.source || "项目代码源独立管理。"}
                   </p>
                 </div>
@@ -617,7 +617,7 @@ export default function App() {
             action(
               "建立项目与图谱",
               async () => {
-                if (values.kind === "local_folder") {
+                if (values.kind !== "legacy_auto") {
                   const created = await api.post<{ project: Project }>(
                     "/v1/projects",
                     { api_version: "codexploit/v1", name: values.name },
@@ -625,7 +625,14 @@ export default function App() {
                   navigate({ project: created.project.id, view: "sources" });
                   const input = await api.post<{ source: CodeSource }>(
                     `/v1/projects/${created.project.id}/sources`,
-                    sourceInput(created.project.id, values.name, values.source),
+                    sourceInput(
+                      created.project.id,
+                      values.name,
+                      values.source,
+                      values.kind as CodeSource["kind"],
+                      values.ref,
+                      values.credentialRef,
+                    ),
                   );
                   await api.post(`/v1/sources/${input.source.id}/snapshots`, {
                     project_id: created.project.id,
@@ -2770,6 +2777,7 @@ function ProjectForm({
     source: string;
     ref: string;
     kind: string;
+    credentialRef: string;
   }) => void;
 }) {
   const [kind, setKind] = useState("local_folder");
@@ -2783,6 +2791,7 @@ function ProjectForm({
           source: String(form.get("source")),
           ref: String(form.get("ref")),
           kind,
+          credentialRef: String(form.get("credential_ref") || ""),
         });
       }}
     >
@@ -2799,15 +2808,26 @@ function ProjectForm({
         代码源类型
         <select value={kind} onChange={(event) => setKind(event.target.value)}>
           <option value="local_folder">本地文件夹 · 读取当前文件</option>
-          <option value="legacy_auto">项目仓库 · 既有 Git 入口</option>
+          <option value="git_repository">Git 仓库 · 固定提交</option>
+          <option value="legacy_auto">既有自动识别入口</option>
         </select>
       </label>
       <label>
-        {kind === "local_folder" ? "容器内代码目录" : "代码仓库"}
+        {kind === "local_folder"
+          ? "容器内代码目录"
+          : kind === "git_repository"
+            ? "Git 仓库 URL"
+            : "代码仓库"}
         <input
           required
           name="source"
-          pattern={kind === "local_folder" ? "/repos/.+" : undefined}
+          pattern={
+            kind === "local_folder"
+              ? "/repos/.+"
+              : kind === "git_repository"
+                ? "(https|ssh)://.+"
+                : undefined
+          }
           placeholder={
             kind === "local_folder"
               ? "/repos/service"
@@ -2830,6 +2850,16 @@ function ProjectForm({
             name="ref"
             defaultValue="HEAD"
             placeholder="分支、标签或 Commit"
+          />
+        </label>
+      )}
+      {kind === "git_repository" && (
+        <label>
+          凭据引用（可选）
+          <input
+            name="credential_ref"
+            maxLength={160}
+            placeholder="已在服务端登记的引用 ID"
           />
         </label>
       )}

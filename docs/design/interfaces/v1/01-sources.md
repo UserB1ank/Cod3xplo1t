@@ -39,6 +39,10 @@ v1 先支持挂载文件夹与远程 Git。浏览器上传、同步目录及本�
 
 现有 `internal/repository.Manager.Resolve` 保留目录、本地 Git 和远程 Git 的自动识别；显式 `KindDir` 强制读取当前文件，支持 provider 持有的受控 `fs.FS`。正式界面已接通本地文件夹、多代码源、真实快照与任务绑定。`storage.SourceRepository` 是独立于旧 Store 的代码源持久化端口，Memory / SQLite 均已实现；快照登记与来源绑定原子写入。
 
-当前已实现的 HTTP 子集与示例见 [API 文档](../../../api.md#explicit-local-sources-implemented-v1-subset)。定义从 `version: 1` 开始，暂不提供修改接口；`revision` 仅统计不同快照的发布。`--local-source-root` 是部署侧登记的唯一根目录，公开位置仍为 `/repos/...`。远程 Git provider、Probe / Resolve / Release 协议及读取句柄 TTL 仍是目标接口，尚未作为正式 v1 能力交付。
+当前已实现的 HTTP 子集与示例见 [API 文档](../../../api.md#explicit-project-sources-implemented-v1-subset)。定义从 `version: 1` 开始，暂不提供修改接口；`revision` 仅统计快照发布。`--local-source-root` 是部署侧登记的唯一根目录，公开位置仍为 `/repos/...`。
+
+Git 代码源已接到正式 API 和界面：分支 / 标签 / 提交解析为固定 SHA，请求 ref 与解析提交可查看；分支和远端默认 HEAD 变化不修改旧任务。HTTPS / SSH URL、凭据引用的项目和 origin 归属、网络策略均由服务端校验。凭据文件由部署侧登记，HTTPS 使用授权头，SSH 使用显式身份文件和固定 known_hosts，不继承用户的 Git 配置、SSH agent 或交互提示。获取只使用 Git 对象与 archive，不运行目标 hook、build、test 或脚本。覆盖局限沿用真实快照元数据。
+
+独立 Probe / Resolve / Release 协议及读取句柄 TTL 仍是目标接口；本次没有宣称完成整个目标 SourceProvider 协议。
 
 验收：同一固定提交可复现；文件夹变化被检测；跨项目和越界挂载被拒绝；添加代码源不改变已有任务的固定快照。

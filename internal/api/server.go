@@ -432,6 +432,7 @@ type snapshotSummary struct {
 	ProjectID      string   `json:"project_id"`
 	VCS            string   `json:"vcs"`
 	Commit         string   `json:"commit"`
+	RequestedRef   string   `json:"requested_ref,omitempty"`
 	WorktreeDirty  bool     `json:"worktree_dirty"`
 	Files          int      `json:"files"`
 	Bytes          int64    `json:"bytes"`
@@ -652,6 +653,7 @@ func summaryOf(snap *repository.Snapshot, projectID string) snapshotSummary {
 		ProjectID:      projectID,
 		VCS:            snap.VCS,
 		Commit:         snap.Commit,
+		RequestedRef:   snap.RequestedRef,
 		WorktreeDirty:  snap.WorktreeDirty,
 		Files:          snap.Stats.Files,
 		Bytes:          snap.Stats.Bytes,

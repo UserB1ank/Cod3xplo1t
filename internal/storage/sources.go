@@ -12,17 +12,18 @@ import (
 // SourceDefinition records a versioned input owned by one project. Location is
 // a logical container path, never the deployment's physical mount root.
 type SourceDefinition struct {
-	APIVersion string `json:"api_version"`
-	ID         string `json:"id"`
-	ProjectID  string `json:"project_id"`
-	Name       string `json:"name"`
-	Kind       string `json:"kind"`
-	Location   string `json:"location"`
-	Ref        string `json:"ref"`
-	Version    int64  `json:"version"`
-	Snapshot   string `json:"snapshot,omitempty"`
-	Files      int    `json:"files"`
-	Revision   int    `json:"revision"`
+	APIVersion    string `json:"api_version"`
+	ID            string `json:"id"`
+	ProjectID     string `json:"project_id"`
+	Name          string `json:"name"`
+	Kind          string `json:"kind"`
+	Location      string `json:"location"`
+	Ref           string `json:"ref"`
+	CredentialRef string `json:"credential_ref,omitempty"`
+	Version       int64  `json:"version"`
+	Snapshot      string `json:"snapshot,omitempty"`
+	Files         int    `json:"files"`
+	Revision      int    `json:"revision"`
 }
 
 type SourceSnapshot struct {

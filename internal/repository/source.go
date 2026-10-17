@@ -17,6 +17,8 @@ import (
 
 // Source is a user-supplied repository location plus the revision to pin.
 type Source struct {
+	ProjectID     string
+	CredentialRef string
 	// KindDir explicitly reads current directory contents, even inside Git.
 	// Empty preserves the legacy automatic source detection.
 	Kind Kind
@@ -64,8 +66,9 @@ var (
 
 // Resolved is the outcome of resolving a Source before any hashing happens.
 type Resolved struct {
-	Source Source
-	Kind   Kind
+	gitEnvironment []string
+	Source         Source
+	Kind           Kind
 	// Path is the local path used for reading: the directory itself for KindDir
 	// and KindLocalGit, or the clone cache location for KindRemoteGit.
 	Path string
@@ -115,8 +118,20 @@ func (m *Manager) Resolve(ctx context.Context, src Source) (*Resolved, error) {
 	if src.Raw == "" {
 		return nil, errors.New("repository: empty source")
 	}
-	if src.Kind != "" && src.Kind != KindDir {
+	if src.Kind != "" && src.Kind != KindDir && src.Kind != KindRemoteGit {
 		return nil, errors.New("repository: unsupported explicit source kind")
+	}
+	if src.Kind == KindRemoteGit && IsLocalPath(src.Raw) {
+		return nil, errors.New("repository: remote Git mode requires a repository URL")
+	}
+	var remoteEnvironment []string
+	if src.Kind == KindRemoteGit {
+		var err error
+		remoteEnvironment, err = m.gitSourceEnvironment(src)
+		if err != nil {
+			return nil, err
+		}
+		ctx = withGitEnvironment(ctx, remoteEnvironment)
 	}
 	if src.Kind == KindDir && (src.Ref != "" || !IsLocalPath(src.Raw)) {
 		return nil, errors.New("repository: directory mode requires a local path without a Git revision")
@@ -165,9 +180,12 @@ func (m *Manager) Resolve(ctx context.Context, src Source) (*Resolved, error) {
 	}
 	clonePath, err := m.ensureCloneCache(ctx, src.Raw)
 	if err != nil {
+		if src.Kind == KindRemoteGit {
+			return nil, gitTransportError(ctx, err)
+		}
 		return nil, err
 	}
-	return &Resolved{Source: src, Kind: KindRemoteGit, Path: clonePath, Identity: Identity{Kind: "git", Name: name}}, nil
+	return &Resolved{Source: src, Kind: KindRemoteGit, Path: clonePath, Identity: Identity{Kind: "git", Name: name}, gitEnvironment: remoteEnvironment}, nil
 }
 
 // digestPrefix is the domain separator for directory content hashes.

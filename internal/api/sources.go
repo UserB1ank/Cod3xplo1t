@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/jsonschema-go/jsonschema"
 	contracts "github.com/open-mcp-ai/Codexploit/contracts/v1"
@@ -73,29 +75,15 @@ func (s *Server) handleCaptureSource(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusPreconditionFailed, "precondition_failed", errors.New("source definition has changed"))
 		return
 	}
-	if request.Ref != "" || source.Kind != "local_folder" {
-		writeError(w, http.StatusBadRequest, "invalid_request", errors.New("folder captures do not accept a Git ref"))
+	if request.Ref != "" && (source.Kind == "local_folder" || request.Ref != source.Ref) {
+		writeError(w, http.StatusBadRequest, "invalid_request", errors.New("capture must use the registered source revision"))
 		return
 	}
-	rootPath := s.LocalSourceRoot
-	if rootPath == "" {
-		rootPath = "/repos"
-	}
-	root, err := os.OpenRoot(rootPath)
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+	defer cancel()
+	snapshot, err := s.captureSourceSnapshot(ctx, source)
 	if err != nil {
-		writeError(w, http.StatusServiceUnavailable, "source_mount_unavailable", errors.New("the source mount is unavailable"))
-		return
-	}
-	defer root.Close()
-	directory, err := root.OpenRoot(strings.TrimPrefix(source.Location, "/repos/"))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_source_path", errors.New("source directory is missing or outside the registered mount"))
-		return
-	}
-	defer directory.Close()
-	snapshot, err := s.Manager.Create(r.Context(), repository.Source{Raw: source.Location, Kind: repository.KindDir, Files: directory.FS(), NameOverride: fmt.Sprintf("projects/%s/sources/%s/v%d", source.ProjectID, source.ID, source.Version)})
-	if err != nil {
-		writeStorageError(w, err)
+		s.writeSourceError(w, err)
 		return
 	}
 	if err := repo.RegisterSourceSnapshot(r.Context(), source, snapshot); err != nil {
@@ -146,6 +134,55 @@ func (s *Server) handleCaptureSource(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, response)
 }
 
+var errSourceMount = errors.New("the source mount is unavailable")
+var errSourcePath = errors.New("source directory is missing or outside the registered mount")
+
+func (s *Server) writeSourceError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, errSourceMount):
+		writeError(w, http.StatusServiceUnavailable, "source_mount_unavailable", errSourceMount)
+	case errors.Is(err, errSourcePath):
+		writeError(w, http.StatusBadRequest, "invalid_source_path", errSourcePath)
+	case errors.Is(err, repository.ErrInvalidGitSource):
+		writeError(w, http.StatusBadRequest, "invalid_request", repository.ErrInvalidGitSource)
+	case errors.Is(err, repository.ErrGitCredential):
+		writeError(w, http.StatusBadRequest, "credential_unavailable", repository.ErrGitCredential)
+	case errors.Is(err, repository.ErrGitAccessDenied):
+		writeError(w, http.StatusForbidden, "git_access_denied", repository.ErrGitAccessDenied)
+	case errors.Is(err, repository.ErrGitRevisionNotFound):
+		writeError(w, http.StatusNotFound, "git_revision_not_found", repository.ErrGitRevisionNotFound)
+	case errors.Is(err, repository.ErrGitUnavailable):
+		writeError(w, http.StatusServiceUnavailable, "git_fetch_failed", repository.ErrGitUnavailable)
+	default:
+		writeStorageError(w, err)
+	}
+}
+
+func (s *Server) captureSourceSnapshot(ctx context.Context, source storage.SourceDefinition) (*repository.Snapshot, error) {
+	input := repository.Source{Raw: source.Location, NameOverride: fmt.Sprintf("projects/%s/sources/%s/v%d", source.ProjectID, source.ID, source.Version)}
+	if source.Kind == "git_repository" {
+		input.Kind, input.Ref = repository.KindRemoteGit, source.Ref
+		input.ProjectID, input.CredentialRef = source.ProjectID, source.CredentialRef
+		return s.Manager.Create(ctx, input)
+	}
+	rootPath := s.LocalSourceRoot
+	if rootPath == "" {
+		rootPath = "/repos"
+	}
+	root, err := os.OpenRoot(rootPath)
+	if err != nil {
+		return nil, errSourceMount
+	}
+	defer root.Close()
+	directory, err := root.OpenRoot(strings.TrimPrefix(source.Location, "/repos/"))
+	if err != nil {
+		return nil, errSourcePath
+	}
+	defer directory.Close()
+	input.Kind, input.Files = repository.KindDir, directory.FS()
+	return s.Manager.Create(ctx, input)
+}
+
 var localSourceSchema = sync.OnceValues(func() (*jsonschema.Resolved, error) {
 	raw, err := contracts.Files.ReadFile("source.schema.json")
 	if err != nil {
@@ -159,13 +196,14 @@ var localSourceSchema = sync.OnceValues(func() (*jsonschema.Resolved, error) {
 })
 
 type createSourceRequest struct {
-	APIVersion string `json:"api_version"`
-	ID         string `json:"id"`
-	ProjectID  string `json:"project_id"`
-	Name       string `json:"name"`
-	Kind       string `json:"kind"`
-	Location   string `json:"location"`
-	Ref        string `json:"ref"`
+	APIVersion    string `json:"api_version"`
+	ID            string `json:"id"`
+	ProjectID     string `json:"project_id"`
+	Name          string `json:"name"`
+	Kind          string `json:"kind"`
+	Location      string `json:"location"`
+	Ref           string `json:"ref"`
+	CredentialRef string `json:"credential_ref,omitempty"`
 }
 
 func sourceETag(source storage.SourceDefinition) string {
@@ -214,11 +252,16 @@ func (s *Server) handleCreateSource(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request", err)
 		return
 	}
-	if request.Kind != "local_folder" {
-		writeError(w, http.StatusNotImplemented, "unsupported_source", errors.New("only local_folder sources are implemented"))
+	if request.Kind == "git_repository" {
+		if err := s.Manager.ValidateGitSource(repository.Source{Raw: request.Location, Ref: request.Ref, ProjectID: project, CredentialRef: request.CredentialRef}); err != nil {
+			s.writeSourceError(w, err)
+			return
+		}
+	} else if request.CredentialRef != "" {
+		writeError(w, http.StatusBadRequest, "invalid_request", errors.New("folder sources do not accept credentials"))
 		return
 	}
-	source := storage.SourceDefinition{APIVersion: request.APIVersion, ID: request.ID, ProjectID: project, Name: request.Name, Kind: request.Kind, Location: request.Location, Ref: request.Ref, Version: 1}
+	source := storage.SourceDefinition{APIVersion: request.APIVersion, ID: request.ID, ProjectID: project, Name: request.Name, Kind: request.Kind, Location: request.Location, Ref: request.Ref, CredentialRef: request.CredentialRef, Version: 1}
 	if err := repo.CreateSource(r.Context(), source); err != nil {
 		writeStorageError(w, err)
 		return

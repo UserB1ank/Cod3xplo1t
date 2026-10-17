@@ -200,6 +200,42 @@ captures changed content; it does not edit the definition. Source records and
 task bindings use the existing persistent SQLite database. PostgreSQL and
 external artifact storage remain separate implementation work.
 
+### Git credentials
+
+The same **代码源** page accepts **Git 仓库**. Supply a credential-free HTTPS/SSH
+URL and a branch, tag or commit. Snapshot detail displays the requested ref and
+resolved commit. Private credentials are deployment-owned references; the UI
+accepts only their IDs, and LLM settings remain configured in the application.
+
+Enable `--allow-network` (or `CODEXPLOIT_ALLOW_NETWORK=true` in Compose). For a
+private repository, mount a secret document read-only and append
+`--git-credential-file repository-access=/run/secrets/repository-access` to the
+server command. The application runtime user must be able to read it. Keep the
+document outside the repository. Its structure for HTTPS is:
+
+```json
+{"origin":"https://forge.example.invalid","project_ids":["PROJECT_ID"],"authorization":"<Basic or Bearer authorization value>"}
+```
+
+The origin must exactly match scheme/host/port; project IDs are an explicit
+allowlist. A new project can be created before configuring its private credential
+and adding a source on its **代码源** page. Failed initial capture retains the
+project and source so it can be retried after correcting deployment access.
+
+For SSH, use the same `origin` and `project_ids`, omit `authorization`, and provide
+`ssh_user`, `ssh_identity_file` and `ssh_known_hosts_file` (absolute container paths).
+Mount the key and known_hosts read-only outside the image. SSH uses batch mode,
+strict host checking and only this identity; it does not fall back to the local
+user's agent or SSH configuration. Encrypted interactive keys are unsupported.
+The image includes the OpenSSH client. A custom HTTPS trust bundle can be mounted
+and selected with `--git-ca-file /run/secrets/repository-ca.crt`.
+
+Credential references are validated again on each capture so revocation or
+rotation takes effect without modifying the immutable source definition. Neither
+the authorization value nor private-key contents belong in Compose, source URLs,
+source definitions or logs. The page distinguishes unavailable credentials,
+denied access, network policy, missing commits and transport failures.
+
 The image includes the server, the HTTP model adapter, Git and CA certificates.
 External CLI agents and evidence-verification executables are deployment-specific
 and are **not automatically supplied**. Configure `--agent-runtime cli

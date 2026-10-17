@@ -28,6 +28,9 @@ type Manager struct {
 	AllowNetwork bool
 	// GitBin overrides the git executable (default "git").
 	GitBin string
+	// GitCAFile optionally adds a deployment-owned trust bundle for Git HTTPS.
+	GitCAFile          string
+	GitCredentialFiles map[string]string
 	// Freeze makes the snapshotted tree read-only once it is complete.
 	Freeze bool
 
@@ -52,6 +55,8 @@ func WithAllowNetwork(allow bool) Option { return func(m *Manager) { m.AllowNetw
 
 // WithGitBin overrides the git executable.
 func WithGitBin(bin string) Option { return func(m *Manager) { m.GitBin = bin } }
+
+func WithGitCAFile(path string) Option { return func(m *Manager) { m.GitCAFile = path } }
 
 // WithFreeze controls whether the snapshot tree is made read-only.
 func WithFreeze(freeze bool) Option { return func(m *Manager) { m.Freeze = freeze } }
@@ -139,6 +144,9 @@ func (m *Manager) Create(ctx context.Context, src Source) (*Snapshot, error) {
 	if err != nil {
 		return nil, err
 	}
+	if res.gitEnvironment != nil {
+		ctx = withGitEnvironment(ctx, res.gitEnvironment)
+	}
 	unlock := m.lock(res.Identity.Kind + ":" + res.Identity.Name)
 	defer unlock()
 
@@ -179,6 +187,12 @@ func (m *Manager) Create(ctx context.Context, src Source) (*Snapshot, error) {
 		snap.RequestedRef = ref
 		commit, cerr := m.resolveCommit(ctx, res.Path, res.Source.Ref)
 		if cerr != nil {
+			if res.Source.Kind == KindRemoteGit {
+				if ctx.Err() != nil {
+					return nil, ctx.Err()
+				}
+				return nil, ErrGitRevisionNotFound
+			}
 			return nil, cerr
 		}
 		snap.Commit = commit

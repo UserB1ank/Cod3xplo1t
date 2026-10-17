@@ -11,7 +11,7 @@
 
 ## Issue delivery workflow
 
-用户已授权本轮按 Issue 顺序持续交付：每完成并验收一个 Issue，更新本文件的完成记录，执行 commit，关闭对应 GitHub Issue，然后推进下一个未阻塞的 Issue。此授权覆盖这些 Issue 的 commit 和关闭操作，无需逐次重复确认；push 仍必须等待用户明确要求。
+用户已明确授权以下办事流程：每完成并验收一个 Issue，更新本文件的完成记录，执行 commit，关闭对应 GitHub Issue，然后推进下一个未阻塞的 Issue。此授权覆盖按该流程交付的 Issue 的 commit 和关闭操作，无需逐次重复确认；push 仍必须等待用户明确要求。
 
 - 使用 TDD，在已确认的公开边界逐个完成 red → green；新测试边界先按技能要求确认。
 - 交付包含真实后端、认证 API、正式 UI、持久化、文档与适当验收；失败不得退回演示成功。
@@ -20,7 +20,8 @@
 
 ### Completed issues
 
-- 2026-10-17 — #1 本地文件夹代码源生成真实快照并创建任务：支持项目多代码源、受控目录采集、当前文件内容、不可变快照与任务绑定、SQLite 重启恢复和旧 API 兼容。已通过 TDD red/green、三轮乱序竞态回归、`make lint`、前端测试/构建、Docker 构建及浏览器验收；提交后关闭。PostgreSQL 和 Git v1 provider 属于后续 Issue。
+- 2026-10-17 — #1 本地文件夹代码源生成真实快照并创建任务：支持项目多代码源、受控目录采集、当前文件内容、不可变快照与任务绑定、SQLite 重启恢复和旧 API 兼容。已通过 TDD red/green、三轮乱序竞态回归、`make lint`、前端测试/构建、Docker 构建及浏览器验收；提交 `5816c0c`，Issue 已关闭。PostgreSQL 和 Git v1 provider 属于后续 Issue。
+- 2026-10-17 — #2 Git 仓库固定提交并创建可复现任务：正式代码源页面支持 HTTPS / SSH、分支 / 标签 / 提交、固定快照与任务绑定；凭据引用校验项目与 origin，SSH 固定身份与 known_hosts；分支及默认 HEAD 移动不影响旧快照。已通过 TDD red/green、三轮完整乱序竞态回归、`make lint`、前端测试/构建、Docker 构建，以及合成 HTTPS / 真实 SSH 远端的页面验收。按交付流程提交并关闭；未 push。
 
 ## Agent skills
 

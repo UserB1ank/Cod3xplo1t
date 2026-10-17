@@ -6,7 +6,7 @@
 
 | 目标接口 | 现有入口 | 需要补充 |
 |---|---|---|
-| SourceProvider | repository.Source / Manager.Resolve、SourceRepository；本地文件夹、多代码源、受控根目录及快照绑定已接线 | 远程 Git provider、凭据引用、Probe / Resolve / Release 协议 |
+| SourceProvider | repository.Source / Manager.Resolve、SourceRepository；本地文件夹、Git 固定提交、多代码源、受控根目录、凭据引用及快照绑定已接线 | 独立 Probe / Resolve / Release 协议与 TTL |
 | SnapshotService / ArtifactStore | repository.Snapshot、lifecycle.Snapshots | 统一引用、外部产物存储与跨服务发布恢复 |
 | Parser / Analyzer | scg.Frontend、analysis.Detector | 包装为类型化产物与通用插件能力 |
 | Normalizer | ASG、路径和验证各自领域逻辑 | 原始工具格式适配、公共结果与局部 ID 映射 |
@@ -34,7 +34,9 @@
 
 Issue #1 已在正式 `/` 工作区接通：创建独立项目 → 添加本地文件夹代码源 → 真实快照及 SCG/ASG → 从固定快照创建任务。项目可登记多个代码源；任务可按来源选择快照。文件夹内容变化后重新采集，旧任务仍使用原快照。Memory / SQLite 存储、SQLite 重启读取、项目隔离、采集期间变化、挂载越界和删除后重新采集均有公开 API 或 Manager 入口测试。
 
-此切片不代表全部目标接口已实现：定义编辑、远程 Git v1 provider、统一 ArtifactRef、通用插件和工作流执行、PostgreSQL 均留在各自后续 issue。旧项目默认源通过独立兼容区域保留，不重算既有 ID。
+Issue #2 已补充 Git 代码源 → 固定提交快照及图谱 → 独立任务；界面显示请求版本与实际提交，并区分网络、凭据、提交和获取错误。凭据由部署侧文件引用解析并检查项目 / origin 归属。合成 HTTPS 远端测试覆盖分支移动、首次标签、提交重用、默认 HEAD 更新、真实授权和持久化；SSH 策略要求固定身份和 known_hosts，并已在独立 Docker OpenSSH 远端完成真实获取的页面验收。
+
+这些切片不代表全部目标接口已实现：定义编辑、统一 ArtifactRef、通用插件和工作流执行、PostgreSQL 均留在后续 issue。旧项目默认源通过独立兼容区域保留，不重算既有 ID。
 
 ## 实施顺序
 

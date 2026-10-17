@@ -9,9 +9,10 @@ export interface CodeSource {
   id: string;
   project_id: string;
   name: string;
-  kind: "local_folder";
+  kind: "local_folder" | "git_repository";
   location: string;
   ref: string;
+  credential_ref?: string;
   version: number;
   snapshot?: string;
   files: number;
@@ -40,15 +41,25 @@ export async function readSources(
   return result;
 }
 
-export function sourceInput(project: string, name: string, location: string) {
+export function sourceInput(
+  project: string,
+  name: string,
+  location: string,
+  kind: CodeSource["kind"] = "local_folder",
+  ref = "",
+  credentialRef = "",
+) {
   return {
     api_version: "codexploit/v1",
     id: `src-${crypto.randomUUID()}`,
     project_id: project,
     name,
-    kind: "local_folder",
+    kind,
     location,
-    ref: "",
+    ref: kind === "local_folder" ? "" : ref,
+    ...(kind === "git_repository" && credentialRef
+      ? { credential_ref: credentialRef }
+      : {}),
   };
 }
 
@@ -60,10 +71,21 @@ interface SnapshotDetails {
   skipped_total: number;
   limitations: string[];
   commit: string;
+  requested_ref?: string;
 }
 
 function message(error: unknown) {
   if (error instanceof ApiError) {
+    const gitErrors: Record<string, string> = {
+      network_disabled: "服务端尚未启用 Git 网络访问，请配置 --allow-network。",
+      credential_unavailable:
+        "凭据引用不存在、文件不可读或配置不完整；SSH 还需登记身份文件和 known_hosts。",
+      git_access_denied:
+        "仓库拒绝访问，或凭据引用不属于当前项目和站点。请检查授权与主机密钥。",
+      git_revision_not_found: "分支、标签或提交不存在，无法固定代码版本。",
+      git_fetch_failed: "仓库获取失败，请检查地址、证书和服务是否可达。",
+    };
+    if (gitErrors[error.code]) return gitErrors[error.code];
     if (error.code === "source_mount_unavailable")
       return "源码挂载不可用，请检查容器的 /repos 挂载或服务的 --local-source-root 设置。";
     if (error.code === "invalid_source_path")
@@ -97,6 +119,7 @@ export function Sources({
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [adding, setAdding] = useState(false);
+  const [kind, setKind] = useState<CodeSource["kind"]>("local_folder");
   const [selected, setSelected] = useState<string>();
   const [details, setDetails] = useState<SnapshotDetails>();
   useEffect(() => {
@@ -154,7 +177,7 @@ export function Sources({
         </div>
       )}
       <Panel
-        title="本地文件夹"
+        title="项目代码源"
         eyebrow="PROJECT CODE SOURCES"
         action={
           <button
@@ -169,7 +192,8 @@ export function Sources({
       >
         <div className="source-description">
           <Hint>
-            文件夹模式读取当前文件内容，包括未提交修改。每次更新生成不可变快照，已有任务继续绑定原版本。
+            文件夹读取当前文件；Git
+            按分支、标签或提交固定版本。每次更新生成不可变快照，已有任务继续使用原版本。
           </Hint>
         </div>
         {loading ? (
@@ -177,8 +201,8 @@ export function Sources({
             正在读取代码源…
           </p>
         ) : !sources.length ? (
-          <EmptyState title="尚未添加本地代码源">
-            添加已挂载到 /repos 下的目录；同一项目可管理多个代码源。
+          <EmptyState title="尚未添加代码源">
+            添加 /repos 下的目录或 Git 仓库；同一项目可管理多个代码源。
           </EmptyState>
         ) : (
           <div className="table-scroll">
@@ -186,7 +210,7 @@ export function Sources({
               <thead>
                 <tr>
                   <th>代码源</th>
-                  <th>读取方式 / 目录</th>
+                  <th>读取方式 / 位置</th>
                   <th>最新快照</th>
                   <th>操作</th>
                 </tr>
@@ -200,15 +224,29 @@ export function Sources({
                     </td>
                     <td>
                       <span className="source-kind">
-                        <FolderOpen size={14} />
-                        本地文件夹
+                        {source.kind === "git_repository" ? (
+                          <GitBranch size={14} />
+                        ) : (
+                          <FolderOpen size={14} />
+                        )}
+                        {source.kind === "git_repository"
+                          ? "Git 仓库"
+                          : "本地文件夹"}
                       </span>
                       <code className="source-secondary">
                         {source.location}
                       </code>
                       <small className="source-secondary">
-                        定义 v{source.version} · 内容寻址
+                        定义 v{source.version} ·{" "}
+                        {source.kind === "git_repository"
+                          ? `请求 ${source.ref}`
+                          : "内容寻址"}
                       </small>
+                      {source.credential_ref && (
+                        <small className="source-secondary">
+                          凭据引用：{source.credential_ref}
+                        </small>
+                      )}
                     </td>
                     <td>
                       {source.snapshot ? (
@@ -308,7 +346,7 @@ export function Sources({
         onClose={() => {
           if (!busy) setAdding(false);
         }}
-        title="添加本地代码源"
+        title="添加代码源"
       >
         <form
           onSubmit={(event) => {
@@ -322,6 +360,9 @@ export function Sources({
                   project.id,
                   String(data.get("name")),
                   String(data.get("location")),
+                  kind,
+                  String(data.get("ref") || ""),
+                  String(data.get("credential_ref") || ""),
                 ),
               );
               form.reset();
@@ -340,17 +381,58 @@ export function Sources({
             />
           </label>
           <label>
-            容器内目录
+            代码源类型
+            <select
+              value={kind}
+              onChange={(event) =>
+                setKind(event.target.value as CodeSource["kind"])
+              }
+            >
+              <option value="local_folder">本地文件夹</option>
+              <option value="git_repository">Git 仓库</option>
+            </select>
+          </label>
+          <label>
+            {kind === "local_folder" ? "容器内目录" : "Git 仓库 URL"}
             <input
               name="location"
               required
-              pattern="/repos/.+"
-              placeholder="/repos/service"
+              pattern={
+                kind === "local_folder" ? "/repos/.+" : "(https|ssh)://.+"
+              }
+              placeholder={
+                kind === "local_folder"
+                  ? "/repos/service"
+                  : "https://forge.example.invalid/team/service.git"
+              }
             />
           </label>
+          {kind === "git_repository" && (
+            <>
+              <label>
+                分支、标签或提交
+                <input
+                  name="ref"
+                  required
+                  defaultValue="main"
+                  maxLength={256}
+                />
+              </label>
+              <label>
+                凭据引用（可选）
+                <input
+                  name="credential_ref"
+                  maxLength={160}
+                  placeholder="已在服务端登记的引用 ID"
+                />
+              </label>
+            </>
+          )}
           <Hint>
-            先把目录只读挂载到 /repos 下。目录内的 .git
-            不会改变文件夹读取方式；不会运行目标代码。
+            {kind === "local_folder"
+              ? "先把目录只读挂载到 /repos 下。目录内的 .git 不会改变读取方式。"
+              : "仓库 URL 不能包含账号、密钥或查询参数。网络与凭据权限由服务端校验；SSH 需凭据引用。"}{" "}
+            不会运行目标仓库代码。
           </Hint>
           {error && (
             <div role="alert" className="error-message">
@@ -387,6 +469,8 @@ export function Sources({
               <dd>
                 <code>{details.commit}</code>
               </dd>
+              <dt>请求版本</dt>
+              <dd>{details.requested_ref || "当前文件内容"}</dd>
               <dt>覆盖范围</dt>
               <dd>
                 {details.files} 个文件 · 省略 {details.skipped_total} 项

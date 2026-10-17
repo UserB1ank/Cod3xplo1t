@@ -45,6 +45,7 @@ func (r *repeatedFlag) Set(value string) error {
 
 func run() error {
 	var apiTokens repeatedFlag
+	var gitCredentials repeatedFlag
 	var agentCommand, agentEnv repeatedFlag
 	var verifyCommand, verifyEnv repeatedFlag
 	var (
@@ -53,6 +54,7 @@ func run() error {
 		dbPath          = flag.String("db", "", "SQLite database file (default <workspace>/codexploit.db, \"memory\" for an in-process store)")
 		allowNetwork    = flag.Bool("allow-network", false, "permit cloning remote git URLs")
 		gitBin          = flag.String("git", "git", "git executable")
+		gitCAFile       = flag.String("git-ca-file", "", "deployment-owned HTTPS CA bundle for Git")
 		logLevel        = flag.String("log-level", "info", "debug, info, warn or error")
 		anonymous       = flag.Bool("insecure-anonymous", false, "serve without authentication (local development only)")
 		webAuth         = flag.Bool("web-auth", false, "enable administrator account setup and password login in the WebUI")
@@ -92,11 +94,23 @@ func run() error {
 	var schedulerAudits repeatedFlag
 	flag.Var(&schedulerAudits, "scheduler-audit", "audit id the scheduler serves, repeatable; empty serves every audit with due work")
 	flag.Var(&apiTokens, "api-token", "token as name:role:secret, repeatable; role is reader, writer or admin")
+	flag.Var(&gitCredentials, "git-credential-file", "deployment-owned Git credential reference as id=absolute-file-path, repeatable")
 	flag.Var(&agentCommand, "agent-command", "agent command argv, repeatable; the binary plus its arguments")
 	flag.Var(&agentEnv, "agent-env", "environment entry for the agent process as KEY=VALUE, repeatable")
 	flag.Var(&verifyCommand, "verify-command", "verification command argv, repeatable; the binary plus its arguments")
 	flag.Var(&verifyEnv, "verify-env", "environment entry for a verification step as KEY=VALUE, repeatable")
 	flag.Parse()
+	credentialFiles := make(map[string]string, len(gitCredentials))
+	for _, value := range gitCredentials {
+		ref, file, ok := strings.Cut(value, "=")
+		if !ok || ref == "" || !filepath.IsAbs(file) {
+			return errors.New("--git-credential-file requires id=absolute-file-path")
+		}
+		if _, exists := credentialFiles[ref]; exists {
+			return errors.New("duplicate Git credential reference")
+		}
+		credentialFiles[ref] = file
+	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: parseLevel(*logLevel)}))
 	slog.SetDefault(logger)
@@ -140,10 +154,12 @@ func run() error {
 	}
 
 	rt, err := app.Build(ctx, app.Config{
-		Workspace:    absWorkspace,
-		DBPath:       path,
-		AllowNetwork: *allowNetwork,
-		GitBin:       *gitBin,
+		Workspace:          absWorkspace,
+		DBPath:             path,
+		AllowNetwork:       *allowNetwork,
+		GitBin:             *gitBin,
+		GitCAFile:          *gitCAFile,
+		GitCredentialFiles: credentialFiles,
 		Agent: app.AgentConfig{
 			ModelSettings:      modelSettings,
 			Enabled:            !strings.EqualFold(strings.TrimSpace(*agentRuntime), app.AgentRuntimeDisabled),

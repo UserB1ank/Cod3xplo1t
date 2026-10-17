@@ -15,7 +15,7 @@ COPY --from=frontend /src/web/dist ./web/dist
 RUN CGO_ENABLED=0 go build -trimpath -tags embedui -ldflags="-s -w" -o /out/server ./cmd/server
 
 FROM debian:bookworm-slim AS runtime
-RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates curl && rm -rf /var/lib/apt/lists/* \
+RUN apt-get update && apt-get install -y --no-install-recommends git openssh-client ca-certificates curl && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10001 codexploit && useradd --uid 10001 --gid 10001 --no-create-home codexploit \
     && mkdir -p /data /repos && chown 10001:10001 /data /repos
 WORKDIR /app

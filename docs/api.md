@@ -99,7 +99,7 @@ project does.
 
 ## Projects and snapshots
 
-### Explicit local sources (implemented v1 subset)
+### Explicit project sources (implemented v1 subset)
 
 `POST /api/v1/projects` accepts `{"api_version":"codexploit/v1","name":"Service audit"}`
 and creates an independent project without a legacy default source. Existing
@@ -107,7 +107,7 @@ and creates an independent project without a legacy default source. Existing
 
 | Method and path | Result |
 |---|---|
-| `POST /api/v1/projects/{id}/sources` | register a local-folder definition; `201` and source `ETag` |
+| `POST /api/v1/projects/{id}/sources` | register a local-folder or Git definition; `201` and source `ETag` |
 | `GET /api/v1/projects/{id}/sources?cursor=&limit=50` | `{sources,next_cursor,legacy_source}`; stable ID cursor, maximum 200 per page |
 | `POST /api/v1/sources/{id}/snapshots` | materialize current files, optionally build manifest/SCG/ASG; `201` |
 
@@ -118,7 +118,7 @@ Source registration uses this body (see [source schema](../contracts/v1/source.s
 ```
 
 Definitions are immutable in this implementation and start at `version: 1`.
-The returned `snapshot`, `files` and `revision` describe the latest published
+The returned `snapshot`, `files` and `revision` describe the latest captured
 content, independently of definition `version`. A new distinct snapshot increments
 `revision`; recapturing the same snapshot does not. A project may own several
 sources. `legacy_source` is the existing project's default input, not a v1 source.
@@ -148,8 +148,38 @@ in SQLite and are removed consistently with snapshot deletion.
 Scope mismatches return `400 invalid_scope`, a stale definition version returns
 `412 precondition_failed`, a missing mount returns `503 source_mount_unavailable`,
 and an invalid or escaping directory returns `400 invalid_source_path`.
-This subset does not implement the target Git provider, source editing,
+This subset does not implement source editing, the standalone
 Probe/Resolve/Release protocol or canonical ArtifactRef response yet.
+
+For Git, register `kind: "git_repository"`, an HTTPS or SSH `location`, a required
+branch/tag/full commit in `ref`, and an optional `credential_ref`. URLs cannot
+contain user information, query strings, fragments, invalid ports or control
+characters. The same capture endpoint pins the resolved commit; its response
+and snapshot detail include `requested_ref` and the exact `commit`. Capture may
+omit `ref` or repeat the definition's ref; another ref requires a new definition.
+Moving a branch or the remote default `HEAD` produces a new snapshot while old
+tasks retain their fixed snapshots. Unchanged commits reuse their snapshot ID.
+
+Git transport requires `--allow-network`. HTTPS verifies certificates and refuses
+redirects. A deployment CA bundle may be set with `--git-ca-file`. Credential
+references are registered with repeatable `--git-credential-file id=/run/secrets/file`;
+the file's exact origin and `project_ids` allowlist are checked at registration
+and capture. SSH requires a registered identity and pinned known_hosts. See
+[deployment](webui.md#git-credentials). Secrets and secret file paths are not
+stored in source definitions or returned by the API. Target hooks, builds and
+scripts are not executed; snapshots come from the Git object database/archive.
+
+| Git failure | HTTP / code |
+|---|---|
+| network disabled | `403 network_disabled` |
+| unknown/unreadable credential reference | `400 credential_unavailable` |
+| credential project/origin mismatch, authentication or SSH host-key failure | `403 git_access_denied` |
+| revision does not resolve to a commit | `404 git_revision_not_found` |
+| fetch/address/transport failure (including a concealed private repository) | `503 git_fetch_failed` |
+
+Errors omit raw Git diagnostics; providers that conceal authorization failures
+as an absent repository may appear as `git_fetch_failed`. A request has a two-minute
+capture deadline. Local-folder behavior and legacy project APIs remain compatible.
 
 ### `POST /api/projects`
 

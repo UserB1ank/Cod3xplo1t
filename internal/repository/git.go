@@ -28,8 +28,15 @@ const dirtyPathSample = 50
 // gitEnv returns a hardened environment: no prompts, no credential helpers, no
 // system or global git configuration, no hooks, no index refresh side effects
 // and no automatic LFS download.
-func (m *Manager) gitEnv() []string {
-	env := append([]string{}, os.Environ()...)
+func (m *Manager) gitEnv(ctx context.Context) []string {
+	transport, explicit := ctx.Value(gitEnvironmentKey{}).([]string)
+	var env []string
+	for _, value := range os.Environ() {
+		if explicit && (strings.HasPrefix(value, "GIT_") || strings.HasPrefix(value, "SSH_") || strings.HasPrefix(value, "GCM_")) {
+			continue
+		}
+		env = append(env, value)
+	}
 	env = append(env,
 		"GIT_TERMINAL_PROMPT=0",
 		"GIT_ASKPASS=",
@@ -40,16 +47,27 @@ func (m *Manager) gitEnv() []string {
 		"GCM_INTERACTIVE=never",
 		"LC_ALL=C",
 	)
+	if m.GitCAFile != "" {
+		env = append(env, "GIT_SSL_CAINFO="+m.GitCAFile)
+	}
+	if explicit {
+		env = append(env, transport...)
+	}
 	return env
 }
 
 // gitArgs prepends the safety flags shared by every git invocation.
 func gitArgs(args ...string) []string {
 	base := []string{
-		"-c", "core.hooksPath=",
+		"-c", "core.hooksPath=" + os.DevNull,
 		"-c", "credential.helper=",
 		"-c", "advice.detachedHead=false",
 		"-c", "protocol.version=2",
+		"-c", "http.followRedirects=false",
+		"-c", "http.sslVerify=true",
+		"-c", "core.fsmonitor=false",
+		"-c", "gc.auto=0",
+		"-c", "maintenance.auto=false",
 	}
 	return append(base, args...)
 }
@@ -64,7 +82,7 @@ func (m *Manager) git(ctx context.Context, dir string, args ...string) (string, 
 func (m *Manager) gitRaw(ctx context.Context, dir string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, m.gitBin(), gitArgs(args...)...)
 	cmd.Dir = dir
-	cmd.Env = m.gitEnv()
+	cmd.Env = m.gitEnv(ctx)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -212,11 +230,31 @@ func (m *Manager) worktreeStatus(ctx context.Context, repoPath string) (bool, []
 // The cache is shared per repository identity, so repeated snapshots of the same
 // repository do not re-download everything.
 func (m *Manager) ensureCloneCache(ctx context.Context, url string) (string, error) {
-	sum := sha256.Sum256([]byte(NormalizeRepoName(url)))
+	_, explicit := ctx.Value(gitEnvironmentKey{}).([]string)
+	cacheIdentity := NormalizeRepoName(url)
+	if explicit {
+		cacheIdentity = url
+	}
+	sum := sha256.Sum256([]byte(cacheIdentity))
 	dir := filepath.Join(m.Root, filepath.FromSlash(gitCacheDirName), hex.EncodeToString(sum[:8]))
+	unlock := m.lock("git-cache:" + dir)
+	defer unlock()
 	if _, err := os.Stat(filepath.Join(dir, "HEAD")); err == nil {
-		if _, err := m.git(ctx, dir, "fetch", "--prune", "--no-tags", "origin", "+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*"); err != nil {
+		remote := "origin"
+		if explicit {
+			remote = url
+		}
+		args := []string{"fetch", "--prune", "--no-tags", "--", remote, "+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*"}
+		if explicit {
+			args = append(args, "+HEAD:refs/codexploit/remote-head")
+		}
+		if _, err := m.git(ctx, dir, args...); err != nil {
 			return "", err
+		}
+		if explicit {
+			if _, err := m.git(ctx, dir, "symbolic-ref", "HEAD", "refs/codexploit/remote-head"); err != nil {
+				return "", err
+			}
 		}
 		return dir, nil
 	}
@@ -229,8 +267,11 @@ func (m *Manager) ensureCloneCache(ctx context.Context, url string) (string, err
 	}
 	// A blob-less partial clone keeps the initial download small; not every
 	// server supports it, so a plain bare clone is the fallback.
-	if _, err := m.git(ctx, "", "clone", "--bare", "--no-tags", "--filter=blob:none", "--", url, tmp); err != nil {
-		if _, err2 := m.git(ctx, "", "clone", "--bare", "--no-tags", "--", url, tmp); err2 != nil {
+	if _, err := m.git(ctx, "", "clone", "--bare", "--tags", "--filter=blob:none", "--", url, tmp); err != nil {
+		if removeErr := os.RemoveAll(tmp); removeErr != nil {
+			return "", removeErr
+		}
+		if _, err2 := m.git(ctx, "", "clone", "--bare", "--tags", "--", url, tmp); err2 != nil {
 			os.RemoveAll(tmp)
 			return "", errors.Join(err, err2)
 		}
@@ -257,7 +298,7 @@ func (m *Manager) extractCommitTree(ctx context.Context, repoPath, commit, dst s
 	}
 	cmd := exec.CommandContext(ctx, m.gitBin(), gitArgs("archive", "--format=tar", commit)...)
 	cmd.Dir = repoPath
-	cmd.Env = m.gitEnv()
+	cmd.Env = m.gitEnv(ctx)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, err

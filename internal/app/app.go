@@ -47,7 +47,9 @@ type Config struct {
 	// AllowNetwork permits cloning remote git URLs.
 	AllowNetwork bool
 	// GitBin overrides the git executable.
-	GitBin string
+	GitBin             string
+	GitCAFile          string
+	GitCredentialFiles map[string]string
 	// Freeze makes snapshot trees read-only (default true).
 	Freeze *bool
 	// Limits overrides the snapshot limits.
@@ -229,6 +231,8 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 		repository.WithLimits(cfg.Limits),
 		repository.WithAllowNetwork(cfg.AllowNetwork),
 		repository.WithGitBin(cfg.GitBin),
+		repository.WithGitCAFile(cfg.GitCAFile),
+		repository.WithGitCredentialFiles(cfg.GitCredentialFiles),
 		repository.WithFreeze(freeze),
 	)
 	if err != nil {
