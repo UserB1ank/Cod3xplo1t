@@ -131,7 +131,6 @@
         "plugin_id",
         "plugin_version",
         "invocation_id",
-        "task_id",
         "config_digest"
       ],
       "additionalProperties": false
@@ -248,7 +247,6 @@
             "plugin_id",
             "plugin_version",
             "invocation_id",
-            "task_id",
             "config_digest"
           ],
           "additionalProperties": false

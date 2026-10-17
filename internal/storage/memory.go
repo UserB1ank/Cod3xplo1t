@@ -10,6 +10,7 @@ import (
 
 	"github.com/open-mcp-ai/Codexploit/internal/agent"
 	"github.com/open-mcp-ai/Codexploit/internal/analysis"
+	"github.com/open-mcp-ai/Codexploit/internal/artifact"
 	"github.com/open-mcp-ai/Codexploit/internal/asg"
 	"github.com/open-mcp-ai/Codexploit/internal/repository"
 	"github.com/open-mcp-ai/Codexploit/internal/verify"
@@ -26,6 +27,7 @@ type Memory struct {
 	sources         map[string]SourceDefinition
 	sourceSnapshots map[string]SourceSnapshot
 	taskCategories  map[string]TaskCategories
+	artifacts       map[string]artifact.Ref
 	snapshots       map[string]memorySnapshot
 	manifests       map[string][]byte
 	analyses        map[string]string // analysis_id -> analysis document
@@ -249,6 +251,11 @@ func (m *Memory) DeleteSnapshot(_ context.Context, id string) error {
 		return fmt.Errorf("%w: snapshot %s", ErrNotFound, id)
 	}
 	delete(m.snapshots, id)
+	for key, ref := range m.artifacts {
+		if ref.Scope.SnapshotID == id {
+			delete(m.artifacts, key)
+		}
+	}
 	if binding, exists := m.sourceSnapshots[id]; exists {
 		if source, ok := m.sources[binding.SourceID]; ok && source.Snapshot == id {
 			source.Snapshot, source.Files = "", 0

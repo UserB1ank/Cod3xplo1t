@@ -15,6 +15,7 @@ import {
   ChevronRight,
   Code2,
   FileCode2,
+  FileText,
   FolderGit2,
   GitBranch,
   Layers,
@@ -36,6 +37,7 @@ import { ApiClient } from "./api";
 import { LLMSettings } from "./LLMSettings";
 import { Sources, sourceInput, readSources, type CodeSource } from "./Sources";
 import { ProjectTasks } from "./TaskList";
+import { Artifacts } from "./Artifacts";
 import {
   Badge,
   CodeBlock,
@@ -259,6 +261,7 @@ export default function App() {
     { id: "sources", label: "代码源", icon: FolderGit2 },
     { id: "knowledge", label: "共享知识图谱", icon: Network },
     { id: "findings", label: "项目漏洞库", icon: ShieldCheck },
+    { id: "artifacts", label: "产物与证据", icon: FileText },
     { id: "settings", label: "项目设置", icon: Settings2 },
   ];
   return (
@@ -476,11 +479,13 @@ export default function App() {
                       ? "为每一次挖掘设定目标，复用项目已积累的知识。"
                       : route.view === "knowledge"
                         ? "项目级代码事实与攻击面，供所有任务共同查询。"
-                        : route.view === "findings"
-                          ? "汇总任务发现，按证据结论与漏洞严重度查看。"
-                          : route.view === "sources"
-                            ? "管理文件夹与 Git 仓库，固定源码版本，再选择代码基线创建任务。"
-                            : project.source || "项目代码源独立管理。"}
+                        : route.view === "artifacts"
+                          ? "查看固定快照的输入产物、内容摘要和来源，核对后下载。"
+                          : route.view === "findings"
+                            ? "汇总任务发现，按证据结论与漏洞严重度查看。"
+                            : route.view === "sources"
+                              ? "管理文件夹与 Git 仓库，固定源码版本，再选择代码基线创建任务。"
+                              : project.source || "项目代码源独立管理。"}
                   </p>
                 </div>
                 <div className="heading-actions">
@@ -516,10 +521,27 @@ export default function App() {
                   canWrite={canWrite && !busy}
                   onRefresh={() => refresh((n) => n + 1)}
                   onLegacySnapshot={() => setDialog("snapshot")}
+                  onArtifacts={(snapshot) =>
+                    navigate({
+                      project: project.id,
+                      view: "artifacts",
+                      snapshot,
+                    })
+                  }
                   onTask={(snapshot) => {
                     setTaskSnapshot(snapshot);
                     setDialog("task");
                   }}
+                />
+              ) : route.view === "artifacts" ? (
+                <Artifacts
+                  key={`${project.id}:${route.snapshot || ""}`}
+                  api={api}
+                  projectID={project.id}
+                  snapshots={snapshots.data || []}
+                  preferredSnapshot={route.snapshot}
+                  revision={revision}
+                  canWrite={canWrite}
                 />
               ) : route.view === "knowledge" ? (
                 <Knowledge
@@ -1217,6 +1239,7 @@ function TaskWorkbench({
     { id: "exploration", label: "探索链路" },
     { id: "findings", label: "漏洞发现" },
     { id: "report", label: "报告" },
+    { id: "artifacts", label: "产物与证据" },
   ];
   const current = task.data;
   if (!current && task.loading) return <Loading />;
@@ -1336,7 +1359,15 @@ function TaskWorkbench({
       </div>
       {paths.error && <Failure message={paths.error} />}
       {runs.error && <Failure message={runs.error} />}
-      {route.view === "process" ? (
+      {route.view === "artifacts" ? (
+        <Artifacts
+          api={api}
+          projectID={route.project!}
+          fixedSnapshot={current.snapshot_id}
+          revision={revision}
+          canWrite={canWrite}
+        />
+      ) : route.view === "process" ? (
         <>
           <Panel
             title="Agent 运行"

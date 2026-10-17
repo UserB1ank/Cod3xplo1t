@@ -41,6 +41,6 @@ ArtifactRef 包含 id、kind、Scope、sha256、bytes、media_type、schema_id �
 
 ArtifactStore 可实现为独立文件服务或 S3 兼容后端。更换后端不改变 ArtifactRef 的逻辑身份，迁移服务负责核对摘要后切换物理索引。
 
-当前 `repository.Snapshot`、`WriteArtifact`、`internal/lifecycle` 已有本地不可变产物与恢复删除基础；远程产物接口、对象存储、统一 ArtifactRef 属于后续接线。
+Issue #4 已实现规范 ArtifactRef、本地 `artifact.Store`、Memory / SQLite 索引和认证目录/校验/下载接口，并在项目、快照详情及任务固定输入页面接线。共享采集输入早于任务产生，Producer 的 `task_id` 为可选；保留调用 ID 和配置摘要。实际端口、限额、错误及恢复语义见 [本地产物接口](../../../artifacts.md)。远程产物容器、对象存储、自动回收和分析/证据产物的统一登记留给后续 Issue。
 
 验收：大文件流式限额、摘要不匹配、重复写入、发布中断、任务引用中的快照删除、跨平台只读目录清理均有明确行为。

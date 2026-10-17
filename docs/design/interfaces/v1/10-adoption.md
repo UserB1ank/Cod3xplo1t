@@ -7,7 +7,7 @@
 | 目标接口 | 现有入口 | 需要补充 |
 |---|---|---|
 | SourceProvider | repository.Source / Manager.Resolve、SourceRepository；本地文件夹、Git 固定提交、多代码源、受控根目录、凭据引用及快照绑定已接线 | 独立 Probe / Resolve / Release 协议与 TTL |
-| SnapshotService / ArtifactStore | repository.Snapshot、lifecycle.Snapshots | 统一引用、外部产物存储与跨服务发布恢复 |
+| SnapshotService / ArtifactStore | repository.Snapshot、lifecycle.Snapshots、artifact.Store 本地适配器、规范引用与 SQLite 索引 | 外部产物存储、跨服务恢复与分析产物接线 |
 | Parser / Analyzer | scg.Frontend、analysis.Detector | 包装为类型化产物与通用插件能力 |
 | Normalizer | ASG、路径和验证各自领域逻辑 | 原始工具格式适配、公共结果与局部 ID 映射 |
 | KnowledgeReader / Publisher | graph.Service、ASGService、GraphStore | 多层固定视图、观察账本、增量批次 CAS |
@@ -36,11 +36,13 @@ Issue #1 已在正式 `/` 工作区接通：创建独立项目 → 添加本地�
 
 Issue #2 已补充 Git 代码源 → 固定提交快照及图谱 → 独立任务；界面显示请求版本与实际提交，并区分网络、凭据、提交和获取错误。凭据由部署侧文件引用解析并检查项目 / origin 归属。合成 HTTPS 远端测试覆盖分支移动、首次标签、提交重用、默认 HEAD 更新、真实授权和持久化；SSH 策略要求固定身份和 known_hosts，并已在独立 Docker OpenSSH 远端完成真实获取的页面验收。
 
-这些切片不代表全部目标接口已实现：定义编辑、统一 ArtifactRef、通用插件和工作流执行、PostgreSQL 均留在后续 issue。旧项目默认源通过独立兼容区域保留，不重算既有 ID。
+这些切片不代表全部目标接口已实现：定义编辑、外部产物容器、通用插件和工作流执行、PostgreSQL 均留在后续 issue。旧项目默认源通过独立兼容区域保留，不重算既有 ID。
 
 Issue #3 的正式任务表已接通项目分类目录、置顶、归档/恢复和已有暂停/继续操作。搜索、状态、分类及归档过滤在服务端完成后稳定分页；状态和进度读取实时路径记录。任务与分类目录均使用 ETag / 版本 CAS，拒绝陈旧写入和跨项目任务更新；归档需先暂停并等待活动路径和未结束运行完成，保留原任务与所有引用。Memory / SQLite 公开 HTTP 用例覆盖重启恢复、并发编辑、分页边界和实时状态。
 
 ## 实施顺序
+
+Issue #4 已接通正式产物目录、完整引用、预算校验、清单预览与认证下载。新代码源快照自动登记逐文件清单和冻结源码 tar，既有快照可显式登记。ArtifactStore 与认证 HTTP API 的测试覆盖不可变发布、冲突、读取取消、预算、损坏/丢失、项目与来源隔离、分页、退役拒绝和 SQLite 重启；外部容器存储另由 #19 接入。
 
 1. **契约基线**：冻结 DTO/错误/作用域与版本；跑 Schema 和负面用例；为每个新适配器使用同一套契约测试。
 2. **代码源垂直切片**：显式 source kind → 真实快照 → 页面展示与任务绑定；保留旧项目默认代码源。

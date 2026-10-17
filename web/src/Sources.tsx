@@ -104,6 +104,7 @@ export function Sources({
   onRefresh,
   onTask,
   onLegacySnapshot,
+  onArtifacts,
 }: {
   api: ApiClient;
   project: Project;
@@ -112,6 +113,7 @@ export function Sources({
   onRefresh: () => void;
   onTask: (snapshot: string) => void;
   onLegacySnapshot: () => void;
+  onArtifacts: (snapshot: string) => void;
 }) {
   const [sources, setSources] = useState<CodeSource[]>([]);
   const [loading, setLoading] = useState(true);
@@ -486,6 +488,15 @@ export function Sources({
               ))}
             </ul>
             <div className="form-footer">
+              <button
+                className="button secondary"
+                onClick={() => {
+                  setSelected(undefined);
+                  onArtifacts(details.snapshot_id);
+                }}
+              >
+                查看此快照产物
+              </button>
               <button
                 className="button primary"
                 disabled={!canWrite}

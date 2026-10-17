@@ -335,6 +335,17 @@ capability checks. Unknown API routes never receive HTML. Missing assets return
 assets use a same-origin content security policy and load no third-party fonts
 or scripts.
 
+## Snapshot artifacts
+
+The formal **产物与证据** page lists the fixed snapshot's source-file inventory
+and source tar with canonical scope, producer, size and SHA-256. Open it from the
+project navigation, a source snapshot's details, or a task's fixed input tab.
+Verify, bounded JSON preview and authenticated downloads report real errors.
+The browser checks downloaded size and digest before saving. Existing retained
+snapshots can explicitly register inputs; new source captures register them.
+See [the artifact interface and recovery contract](artifacts.md) for routes,
+limits, local volume layout and the external storage extension point.
+
 ## Validation
 
 ```bash

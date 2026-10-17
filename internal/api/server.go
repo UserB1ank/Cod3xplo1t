@@ -29,6 +29,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -36,6 +37,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/access"
 	"github.com/open-mcp-ai/Codexploit/internal/agent"
 	"github.com/open-mcp-ai/Codexploit/internal/analysis"
+	"github.com/open-mcp-ai/Codexploit/internal/artifact"
 	"github.com/open-mcp-ai/Codexploit/internal/asg"
 	"github.com/open-mcp-ai/Codexploit/internal/graph"
 	"github.com/open-mcp-ai/Codexploit/internal/lifecycle"
@@ -57,6 +59,7 @@ type Server struct {
 	Store     storage.FullStore
 	Manager   *repository.Manager
 	Analyzer  *analysis.Analyzer
+	Artifacts artifact.Store
 	Graph     *graph.Service
 	Builder   *scg.Builder
 	// ASG and ASGBuilder are the attack-surface read and build paths. They are
@@ -149,6 +152,9 @@ func NewServer(store storage.FullStore, mgr *repository.Manager, analyzer *analy
 	}
 	if s.Manager != nil {
 		s.AllowNetwork = s.Manager.AllowNetwork
+		if index, ok := store.(artifact.Index); ok {
+			s.Artifacts, _ = artifact.NewLocal(filepath.Join(s.Manager.Root, "artifacts"), index)
+		}
 	}
 	s.snapshots = lifecycle.Snapshots{Store: s.Store, Manager: s.Manager}
 	s.handler = s.routes()
@@ -173,6 +179,10 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/me", s.handleMe)
 	mux.HandleFunc("POST /api/v1/projects", s.withIdempotency(s.handleCreateSourceProject))
 	mux.HandleFunc("GET /api/v1/projects/{id}/sources", s.handleListSources)
+	mux.HandleFunc("GET /api/v1/projects/{projectID}/snapshots/{snapshotID}/artifacts", s.handleSnapshotArtifacts)
+	mux.HandleFunc("POST /api/v1/projects/{projectID}/snapshots/{snapshotID}/artifacts", s.handleSnapshotArtifacts)
+	mux.HandleFunc("GET /api/v1/projects/{projectID}/snapshots/{snapshotID}/artifacts/{artifactID}", s.handleReadArtifact)
+	mux.HandleFunc("GET /api/v1/projects/{projectID}/snapshots/{snapshotID}/artifacts/{artifactID}/content", s.handleReadArtifact)
 	mux.HandleFunc("POST /api/v1/projects/{id}/sources", s.withIdempotency(s.handleCreateSource))
 	mux.HandleFunc("POST /api/v1/sources/{id}/snapshots", s.withIdempotency(s.handleCaptureSource))
 	mux.HandleFunc("GET /api/settings/llm", s.handleLLMSettings)

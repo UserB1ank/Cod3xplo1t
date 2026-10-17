@@ -41,6 +41,7 @@ export interface FindingPage {
 export interface Route {
   project?: string;
   task?: string;
+  snapshot?: string;
   view: string;
 }
 export function readRoute(hash: string): Route {
@@ -51,6 +52,12 @@ export function readRoute(hash: string): Route {
       .map(decodeURIComponent);
     if (root === "settings") return { view: "settings" };
     if (root !== "projects" || !project) return { view: "projects" };
+    if (page === "artifacts")
+      return {
+        project,
+        view: "artifacts",
+        ...(task ? { snapshot: task } : {}),
+      };
     if (page === "tasks" && task)
       return { project, task, view: view || "overview" };
     return {
@@ -60,6 +67,7 @@ export function readRoute(hash: string): Route {
         "sources",
         "knowledge",
         "findings",
+        "artifacts",
         "settings",
       ].includes(page)
         ? page
@@ -75,7 +83,7 @@ export function routeHash(route: Route): string {
   const project = encodeURIComponent(route.project);
   return route.task
     ? `#/projects/${project}/tasks/${encodeURIComponent(route.task)}/${route.view}`
-    : `#/projects/${project}/${route.view}`;
+    : `#/projects/${project}/${route.view}${route.view === "artifacts" && route.snapshot ? `/${encodeURIComponent(route.snapshot)}` : ""}`;
 }
 export function taskState(task: Task) {
   if (task.archived) return "ARCHIVED";

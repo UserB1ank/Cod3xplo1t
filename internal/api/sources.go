@@ -90,6 +90,10 @@ func (s *Server) handleCaptureSource(w http.ResponseWriter, r *http.Request) {
 		writeStorageError(w, err)
 		return
 	}
+	if err := s.publishSourceArtifacts(r.Context(), source.ProjectID, snapshot); err != nil {
+		writeArtifactError(w, err)
+		return
+	}
 	response := snapshotResponse{Snapshot: summaryOf(snapshot, source.ProjectID)}
 	response.Snapshot.SourceSnapshot = storage.SourceSnapshot{SourceID: source.ID, SourceVersion: source.Version}
 	if !request.SkipAnalysis {
