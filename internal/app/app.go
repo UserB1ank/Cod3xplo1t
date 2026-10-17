@@ -19,6 +19,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/analysis"
 	"github.com/open-mcp-ai/Codexploit/internal/artifact"
 	"github.com/open-mcp-ai/Codexploit/internal/asg"
+	"github.com/open-mcp-ai/Codexploit/internal/builtinanalysis"
 	"github.com/open-mcp-ai/Codexploit/internal/graph"
 	"github.com/open-mcp-ai/Codexploit/internal/lifecycle"
 	"github.com/open-mcp-ai/Codexploit/internal/llm"
@@ -335,7 +336,7 @@ func (r *Runtime) wirePlugins() error {
 	if err != nil {
 		return err
 	}
-	r.Plugins, err = plugin.NewHost(plugin.Deps{Catalog: r.PluginCatalog, Repository: repo, Artifacts: objects, Scopes: index})
+	r.Plugins, err = plugin.NewHost(plugin.Deps{Catalog: r.PluginCatalog, Repository: repo, Artifacts: objects, Scopes: index, Executors: builtinanalysis.Executors()})
 	if err != nil {
 		return err
 	}

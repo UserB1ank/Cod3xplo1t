@@ -57,7 +57,11 @@ type CatalogRepository interface {
 	ListPlugins(context.Context, string, int) ([]Record, error)
 }
 
-type Catalog struct{ Repository CatalogRepository }
+type Catalog struct {
+	Repository CatalogRepository
+	mu         sync.RWMutex
+	installed  map[string]string
+}
 
 var manifestSchema = sync.OnceValues(func() (*jsonschema.Resolved, error) {
 	raw, err := contracts.Files.ReadFile("plugin.schema.json")
@@ -124,7 +128,9 @@ func (c *Catalog) Register(ctx context.Context, raw json.RawMessage, packageDige
 }
 
 func (c *Catalog) availability(record Record) Record {
-	record.Executable = record.Manifest.ID == BuiltinID && record.Manifest.Version == BuiltinVersion && record.ManifestDigest == BuiltinManifestDigest() && record.PackageDigest == BuiltinPackageDigest()
+	c.mu.RLock()
+	record.Executable = c.installed[record.Manifest.ID+"@"+record.Manifest.Version] == record.ManifestDigest+":"+record.PackageDigest
+	c.mu.RUnlock()
 	if record.Executable {
 		record.Reason = ""
 	} else {
@@ -155,7 +161,18 @@ func (c *Catalog) List(ctx context.Context, cursor string, limit int) ([]Record,
 }
 
 func NewCatalog(ctx context.Context, repo CatalogRepository) (*Catalog, error) {
-	c := &Catalog{Repository: repo}
-	_, err := c.Register(ctx, BuiltinManifest(), BuiltinPackageDigest(), "compiled builtin")
+	c := &Catalog{Repository: repo, installed: map[string]string{}}
+	err := c.install(ctx, BuiltinManifest(), BuiltinPackageDigest())
 	return c, err
+}
+
+func (c *Catalog) install(ctx context.Context, manifest json.RawMessage, packageDigest string) error {
+	record, err := c.Register(ctx, manifest, packageDigest, "compiled builtin")
+	if err != nil {
+		return err
+	}
+	c.mu.Lock()
+	c.installed[record.Manifest.ID+"@"+record.Manifest.Version] = record.ManifestDigest + ":" + record.PackageDigest
+	c.mu.Unlock()
+	return nil
 }

@@ -197,6 +197,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/v1/projects/{projectID}/snapshots/{snapshotID}/plugin-invocations", s.withIdempotency(s.handleExecutePlugin))
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/snapshots/{snapshotID}/plugin-invocations", s.handleListInvocations)
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/snapshots/{snapshotID}/plugin-invocations/{invocationID}", s.handleGetInvocation)
+	mux.HandleFunc("GET /api/v1/projects/{projectID}/snapshots/{snapshotID}/plugin-invocations/{invocationID}/result", s.handlePluginResult)
 	mux.HandleFunc("POST /api/v1/projects/{projectID}/snapshots/{snapshotID}/plugin-invocations/{invocationID}/cancel", s.handleCancelInvocation)
 	mux.HandleFunc("POST /api/v1/plugins", s.handleRegisterPlugin)
 	mux.HandleFunc("GET /api/auth/status", s.handleAuthStatus)

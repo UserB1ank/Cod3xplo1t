@@ -107,7 +107,7 @@ func (s *SQL) SaveInvocation(ctx context.Context, inv plugin.Invocation, expecte
 			return plugin.ErrConflict
 		}
 		for _, ref := range inv.Outputs {
-			if inv.Status != "SUCCEEDED" && inv.Status != "PARTIAL" {
+			if !plugin.PublishableOutput(inv, ref) {
 				return plugin.ErrConflict
 			}
 			if ref.Scope != inv.Request.Scope || ref.Producer.InvocationID != inv.ID || ref.Validate() != nil {

@@ -46,5 +46,9 @@
   {
     "file": "examples/plugin-runtime.json",
     "schema": "plugin-runtime.schema.json"
+  },
+  {
+    "file": "examples/discovery.json",
+    "schema": "discovery.schema.json"
   }
 ]

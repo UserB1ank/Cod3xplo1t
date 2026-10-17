@@ -1,6 +1,6 @@
 # 版本化插件与内置 Go 解析器
 
-Issue #6 将插件目录、内置执行器和正式插件中心接到真实存储。插件目录在工作区共享，调用与产物严格限定 project / source / snapshot。当前安装 `builtin.go-parser@1.0.0`，从已经登记的源码 tar 读取输入，生成 `code.ast` 与 `code.facts`，不运行目标项目的 build、test、hook 或依赖安装。
+Issue #6 将插件目录、内置执行器和正式插件中心接到真实存储。插件目录在工作区共享，调用与产物严格限定 project / source / snapshot。当前安装 `builtin.go-parser@1.1.0`，从已经登记的源码 tar 读取输入，生成 `code.ast` 与 `code.facts`，不运行目标项目的 build、test、hook 或依赖安装。
 
 ## 标准接口
 
@@ -23,7 +23,7 @@ Go 端口在 `internal/plugin`：
 
 ## 执行请求和结果
 
-请求固定 `api_version=codexploit/v1`、`invocation_id`、`plugin_id`、`plugin_version`、`package_digest`、完整 `scope`、单个输入 ArtifactRef、`config` 和 `budget`。输入必须是当前 Scope 的 `source.snapshot` tar，引用全部字段与权威索引一致；不接受路径或可执行命令。省略 invocation_id 由宿主生成；自定义 ID 限 120 个字母、数字、短横线或下划线，首字符为字母或数字。
+请求固定 `api_version=codexploit/v1`、`invocation_id`、`plugin_id`、`plugin_version`、`package_digest`、完整 `scope`、有序输入 ArtifactRef 列表、`config` 和 `budget`。解析输入必须是当前 Scope 的 `source.snapshot` tar，引用全部字段与权威索引一致；不接受路径或可执行命令。省略 invocation_id 由宿主生成；自定义 ID 限 120 个字母、数字、短横线或下划线，首字符为字母或数字。
 
 内置参数为 `{ "include_comments": false }`，字段可省略；多余字段和非布尔值拒绝。配置会规范化并保存 SHA-256。记录保留规范化请求、请求摘要、实际版本/包、输入和输出引用、独立覆盖计数、有限错误码、局限、UTC 时间和单调版本。
 
@@ -55,6 +55,8 @@ Go 端口在 `internal/plugin`：
 
 输出 Producer 保存插件 ID、版本、invocation_id 和配置摘要。手动项目解析早于任务运行，因此不伪造 task_id。此切片不替换共享图谱发布版本，也不写入已确认漏洞。
 
+Issue #7 已接通内置语义和路径分析、Normalizer、AnalysisResult 与只读候选详情。后两类插件使用两个显式上游输入。格式、失败保留和接口见 [内置分析](builtin-analysis.md)。
+
 ## 认证 HTTP API
 
 | 路径 | 权限 / 行为 |
@@ -69,6 +71,7 @@ Go 端口在 `internal/plugin`：
 | `POST` | writer；上述 Request，返回 202 与调用记录；支持持久化 Idempotency-Key |
 | `GET` | reader；按排他调用 ID 游标分页，最多 100 条 |
 | `GET /{invocationID}` | reader；返回调用及 ETag |
+| `GET /{invocationID}/result` | reader；已成功规范化的标准结果，默认 2 MiB / 最大 64 MiB |
 | `POST /{invocationID}/cancel` | writer；If-Match 必需，取消后返回新记录及 ETag |
 
 请求非法为 400，未认证 401，权限不足 403，错误 Scope/记录 404，相同版本/ID 冲突 409，未安装版本 409 `plugin_unsupported`，取消的陈旧版本 412，预算/容量 413，缺少 If-Match 428，能力未配置 501，存储故障 503。损坏或缺失输入沿用 ArtifactStore 的公开错误。失败状态和有限 error_code 如实保存，不返回隐藏推理或真实密钥。

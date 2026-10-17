@@ -1,0 +1,242 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codexploit.invalid/contracts/v1/discovery.schema.json",
+  "title": "Normalized static analysis observations",
+  "type": "object",
+  "properties": {
+    "api_version": {
+      "const": "codexploit/v1"
+    },
+    "kind": {
+      "enum": ["security.facts", "discovery.paths"]
+    },
+    "scope": {
+      "$ref": "common.schema.json#/$defs/Scope"
+    },
+    "producer": {
+      "$ref": "common.schema.json#/$defs/Producer"
+    },
+    "inputs": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 2,
+      "items": {
+        "$ref": "common.schema.json#/$defs/ArtifactRef"
+      }
+    },
+    "native_artifact": {
+      "$ref": "common.schema.json#/$defs/ArtifactRef"
+    },
+    "canonical_ids": {
+      "type": "array",
+      "items": {
+        "$ref": "common.schema.json#/$defs/ID"
+      }
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "evidence_status": {
+            "enum": ["observed", "inferred"]
+          },
+          "snapshot_id": {
+            "$ref": "common.schema.json#/$defs/ID"
+          },
+          "scg_refs": {
+            "type": "array",
+            "items": {
+              "$ref": "common.schema.json#/$defs/ID"
+            }
+          }
+        },
+        "required": [
+          "node_id",
+          "snapshot_id",
+          "kind",
+          "scg_refs",
+          "evidence_status"
+        ]
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "evidence_status": {
+            "enum": ["observed", "inferred"]
+          },
+          "snapshot_id": {
+            "$ref": "common.schema.json#/$defs/ID"
+          },
+          "scg_refs": {
+            "type": "array",
+            "items": {
+              "$ref": "common.schema.json#/$defs/ID"
+            }
+          }
+        },
+        "required": [
+          "edge_id",
+          "snapshot_id",
+          "kind",
+          "scg_refs",
+          "evidence_status"
+        ]
+      }
+    },
+    "paths": {
+      "type": "array",
+      "maxItems": 500,
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "common.schema.json#/$defs/ID"
+          },
+          "path_kind": {
+            "enum": ["call_reachability", "hypothesis"]
+          },
+          "completeness": {
+            "enum": ["complete", "partial", "unknown"]
+          },
+          "evidence_class": {
+            "enum": ["candidate", "statically_supported", "unresolved"]
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "layer": {
+                  "enum": ["scg", "asg"]
+                }
+              },
+              "required": ["layer", "from", "to", "kind"]
+            }
+          },
+          "scg_refs": {
+            "type": "array",
+            "items": {
+              "$ref": "common.schema.json#/$defs/ID"
+            }
+          },
+          "asg_refs": {
+            "type": "array",
+            "items": {
+              "$ref": "common.schema.json#/$defs/ID"
+            }
+          },
+          "evidence_refs": {
+            "type": "array",
+            "items": {
+              "$ref": "common.schema.json#/$defs/ID"
+            }
+          },
+          "limitations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "path_kind",
+          "completeness",
+          "evidence_class",
+          "steps",
+          "scg_refs",
+          "asg_refs",
+          "evidence_refs",
+          "limitations"
+        ]
+      }
+    },
+    "candidates": {
+      "type": "array",
+      "maxItems": 500,
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "common.schema.json#/$defs/ID"
+          },
+          "status": {
+            "const": "candidate"
+          },
+          "title": {
+            "type": "string"
+          },
+          "severity_hint": {
+            "enum": ["high", "medium", "low"]
+          },
+          "path_refs": {
+            "type": "array",
+            "items": {
+              "$ref": "common.schema.json#/$defs/ID"
+            }
+          },
+          "evidence_refs": {
+            "type": "array",
+            "items": {
+              "$ref": "common.schema.json#/$defs/ID"
+            }
+          },
+          "file": {
+            "type": "string"
+          },
+          "line": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limitations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "status",
+          "title",
+          "path_refs",
+          "evidence_refs",
+          "file",
+          "line",
+          "limitations"
+        ]
+      }
+    },
+    "coverage": {
+      "$ref": "plugin-runtime.schema.json#/$defs/Invocation/properties/coverage"
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "api_version",
+    "kind",
+    "scope",
+    "producer",
+    "inputs",
+    "native_artifact",
+    "canonical_ids",
+    "nodes",
+    "edges",
+    "paths",
+    "candidates",
+    "coverage",
+    "limitations"
+  ]
+}

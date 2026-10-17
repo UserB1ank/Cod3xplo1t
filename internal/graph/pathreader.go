@@ -65,6 +65,7 @@ func (p *PathFacts) ASGFacts(ctx context.Context, snapshotID string) (*path.ASGF
 		if err != nil {
 			return nil, err
 		}
+		total = page.Total
 		for _, node := range page.Nodes {
 			facts.Nodes[node.ID] = path.ASGNode{
 				ID: node.ID, Kind: string(node.Kind), Subject: node.Subject, Label: node.Label,

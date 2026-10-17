@@ -8,8 +8,8 @@
 |---|---|---|
 | SourceProvider | repository.Source / Manager.Resolve、SourceRepository；本地文件夹、Git 固定提交、多代码源、受控根目录、凭据引用及快照绑定已接线 | 独立 Probe / Resolve / Release 协议与 TTL |
 | SnapshotService / ArtifactStore | repository.Snapshot、lifecycle.Snapshots、artifact.Store 本地适配器、规范引用与 SQLite 索引 | 外部产物存储、跨服务恢复与分析产物接线 |
-| Parser / Analyzer | scg.Frontend、analysis.Detector；Go frontend 已接为内置版本化解析插件，输出 AST / facts | 语义和路径插件、Normalizer 接线 |
-| Normalizer | ASG、路径和验证各自领域逻辑 | 原始工具格式适配、公共结果与局部 ID 映射 |
+| Parser / Analyzer | 内置 Go 解析、ASG 语义和路径插件，固定上游产物、实际版本与覆盖范围 | 第三方工具执行器 |
+| Normalizer | plugin.Normalizer；公共 AnalysisResult、标准语义 / 路径候选、原始报告与 canonical ID 绑定 | 第三方工具格式适配和跨工具观察账本 |
 | KnowledgeReader / Publisher | graph.Service、ASGService、GraphStore、knowledge.Reader 固定视图 | 观察账本、增量批次 CAS 与外部图数据库 |
 | PluginHost | plugin.Catalog / Host、内置 Go 执行、持久化调用与原子产物发布 | 外部握手、安装与 process / worker 执行器 |
 | WorkflowRunner | schedule.Scheduler、path.Service | DAG 编译、节点状态、产物绑定、栅栏与恢复 |

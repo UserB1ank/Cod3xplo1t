@@ -1,0 +1,75 @@
+{
+  "api_version": "codexploit/v1",
+  "kind": "security.facts",
+  "scope": {
+    "project_id": "proj-example",
+    "source_id": "src-example",
+    "snapshot_id": "snap-example"
+  },
+  "producer": {
+    "plugin_id": "team.scanner.example",
+    "plugin_version": "1.0.0",
+    "invocation_id": "invoke-example",
+    "task_id": "task-example",
+    "config_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "inputs": [
+    {
+      "id": "artifact-example",
+      "kind": "code.facts",
+      "scope": {
+        "project_id": "proj-example",
+        "source_id": "src-example",
+        "snapshot_id": "snap-example"
+      },
+      "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "bytes": 128,
+      "media_type": "application/vnd.codexploit.snapshot+tar",
+      "schema_id": "https://codexploit.invalid/contracts/v1/knowledge.schema.json",
+      "producer": {
+        "plugin_id": "team.scanner.example",
+        "plugin_version": "1.0.0",
+        "invocation_id": "invoke-example",
+        "task_id": "task-example",
+        "config_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    }
+  ],
+  "native_artifact": {
+    "id": "artifact-example",
+    "kind": "report.document",
+    "scope": {
+      "project_id": "proj-example",
+      "source_id": "src-example",
+      "snapshot_id": "snap-example"
+    },
+    "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "bytes": 128,
+    "media_type": "application/vnd.codexploit.snapshot+tar",
+    "schema_id": "https://codexploit.invalid/contracts/v1/knowledge.schema.json",
+    "producer": {
+      "plugin_id": "team.scanner.example",
+      "plugin_version": "1.0.0",
+      "invocation_id": "invoke-example",
+      "task_id": "task-example",
+      "config_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  },
+  "canonical_ids": [],
+  "nodes": [],
+  "edges": [],
+  "paths": [],
+  "candidates": [],
+  "coverage": {
+    "descriptor_files": 1,
+    "input_files": 1,
+    "parsed_files": 0,
+    "partial_files": 0,
+    "unparsed_files": 0,
+    "unhandled_files": 0,
+    "input_bytes": 24
+  },
+  "limitations": [
+    "Synthetic shape example; not an execution claim."
+  ]
+}

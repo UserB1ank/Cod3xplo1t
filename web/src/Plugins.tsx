@@ -55,6 +55,42 @@ interface Invocation {
   limitations: string[];
   created_at: string;
 }
+interface DiscoveryResult {
+  kind: string;
+  nodes: object[];
+  edges: object[];
+  native_artifact: ArtifactRef;
+  limitations: string[];
+  paths: {
+    id: string;
+    path_kind: string;
+    completeness: string;
+    evidence_class: string;
+    steps: {
+      layer: string;
+      from: string;
+      to: string;
+      kind: string;
+      file?: string;
+      line?: number;
+    }[];
+    scg_refs: string[];
+    asg_refs: string[];
+    evidence_refs: string[];
+    limitations: string[];
+  }[];
+  candidates: {
+    id: string;
+    title: string;
+    status: "candidate";
+    severity_hint?: "high" | "medium" | "low";
+    file: string;
+    line: number;
+    path_refs: string[];
+    evidence_refs: string[];
+    limitations: string[];
+  }[];
+}
 const terminal = (state: string) =>
   [
     "SUCCEEDED",
@@ -66,7 +102,7 @@ const terminal = (state: string) =>
   ].includes(state);
 const labels: Record<string, string> = {
   CREATED: "等待执行",
-  RUNNING: "解析中",
+  RUNNING: "分析中",
   SUCCEEDED: "已完成",
   PARTIAL: "部分覆盖",
   FAILED: "失败",
@@ -113,6 +149,9 @@ export function Plugins({
   const [nextRun, setNextRun] = useState("");
   const [selectedRun, setSelectedRun] = useState("");
   const [detail, setDetail] = useState<Invocation>();
+  const [upstream, setUpstream] = useState("");
+  const [discovery, setDiscovery] = useState<DiscoveryResult>();
+  const [resultError, setResultError] = useState("");
   const [etag, setETag] = useState("");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -124,7 +163,41 @@ export function Plugins({
   const chosen =
     catalog.find(
       (p) => `${p.manifest.id}@${p.manifest.version}` === selected,
-    ) || catalog[0];
+    ) ||
+    catalog.find(
+      (p) => p.manifest.id === "builtin.go-parser" && p.executable,
+    ) ||
+    catalog[0];
+  const upstreamPlugin =
+    chosen?.manifest.id === "builtin.security-semantics"
+      ? "builtin.go-parser"
+      : chosen?.manifest.id === "builtin.discovery-paths"
+        ? "builtin.security-semantics"
+        : "";
+  const eligible = runs.filter(
+    (run) =>
+      run.request.plugin_id === upstreamPlugin &&
+      ["SUCCEEDED", "PARTIAL"].includes(run.status) &&
+      (upstreamPlugin !== "builtin.go-parser" ||
+        run.request.inputs[0]?.id === input?.id),
+  );
+  const upstreamRun =
+    eligible.find((run) => run.invocation_id === upstream) || eligible[0];
+  const executionInputs: ArtifactRef[] =
+    chosen?.manifest.id === "builtin.security-semantics"
+      ? [
+          input,
+          upstreamRun?.outputs.find((ref) => ref.kind === "code.facts"),
+        ].filter((ref): ref is ArtifactRef => !!ref)
+      : chosen?.manifest.id === "builtin.discovery-paths"
+        ? [
+            upstreamRun?.outputs.find((ref) => ref.kind === "security.facts"),
+            upstreamRun?.outputs.find((ref) => ref.kind === "report.document"),
+          ].filter((ref): ref is ArtifactRef => !!ref)
+        : input
+          ? [input]
+          : [];
+  const inputsReady = executionInputs.length === (upstreamPlugin ? 2 : 1);
   const prefix = `/v1/projects/${encodeURIComponent(projectID)}/snapshots/${encodeURIComponent(snapshot)}`;
   const cursor = catalogCursor[catalogCursor.length - 1];
   const runCursor = runCursors[runCursors.length - 1];
@@ -227,6 +300,27 @@ export function Plugins({
       });
     return () => controller.abort();
   }, [api, prefix, selectedRun, runTick]);
+  useEffect(() => {
+    setDiscovery(undefined);
+    setResultError("");
+    if (
+      !detail ||
+      !["SUCCEEDED", "PARTIAL"].includes(detail.status) ||
+      !detail.outputs.some((ref) => ref.schema_id === "codexploit/discovery/v1")
+    )
+      return;
+    const controller = new AbortController();
+    api
+      .get<DiscoveryResult>(
+        `${prefix}/plugin-invocations/${encodeURIComponent(detail.invocation_id)}/result`,
+        controller.signal,
+      )
+      .then(setDiscovery)
+      .catch((error) => {
+        if (!controller.signal.aborted) setResultError(errorText(error));
+      });
+    return () => controller.abort();
+  }, [api, prefix, detail?.invocation_id, detail?.status]);
   useEffect(() => {
     if (
       !runs.some((run) => !terminal(run.status)) &&
@@ -362,7 +456,11 @@ export function Plugins({
           </button>
         </div>
       </Panel>
-      <Panel title="执行固定版本解析">
+      <Panel title="执行固定版本分析">
+        <Hint>
+          1. Go 解析生成代码事实 → 2. 语义分析识别安全语义 → 3.
+          路径分析生成候选。每一步显式选择固定的上游调用，调用可达与假设分别展示。
+        </Hint>
         <div className="plugin-run-form">
           <label>
             代码快照
@@ -389,6 +487,7 @@ export function Plugins({
               onChange={(event) => {
                 setSelected(event.target.value);
                 setConfig("{}");
+                setUpstream("");
               }}
             >
               {catalog.map((p) => (
@@ -402,6 +501,29 @@ export function Plugins({
               ))}
             </select>
           </label>
+          {upstreamPlugin && (
+            <label>
+              上游调用（当前记录页）
+              <select
+                aria-label="上游分析调用"
+                value={upstreamRun?.invocation_id || ""}
+                onChange={(event) => setUpstream(event.target.value)}
+              >
+                <option value="" disabled>
+                  先执行
+                  {upstreamPlugin === "builtin.go-parser"
+                    ? "Go 解析"
+                    : "语义分析"}
+                </option>
+                {eligible.map((run) => (
+                  <option key={run.invocation_id} value={run.invocation_id}>
+                    {run.invocation_id} · {run.request.plugin_version} ·{" "}
+                    {labels[run.status]}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <label>
             参数 JSON
             <textarea
@@ -465,7 +587,7 @@ export function Plugins({
               !canWrite ||
               !!busy ||
               !chosen?.executable ||
-              !input ||
+              !inputsReady ||
               !Number.isInteger(maxFiles) ||
               maxFiles < 1 ||
               maxFiles > 20000 ||
@@ -474,7 +596,7 @@ export function Plugins({
               timeout > 120
             }
             onClick={() =>
-              work("开始解析", async () => {
+              work("开始分析", async () => {
                 const parsed = JSON.parse(config);
                 const result = await api.post<{ invocation: Invocation }>(
                   `${prefix}/plugin-invocations`,
@@ -484,8 +606,8 @@ export function Plugins({
                     plugin_id: chosen!.manifest.id,
                     plugin_version: chosen!.manifest.version,
                     package_digest: chosen!.package_digest,
-                    scope: input!.scope,
-                    inputs: [input],
+                    scope: executionInputs[0].scope,
+                    inputs: executionInputs,
                     config: parsed,
                     budget: { max_files: maxFiles, timeout_seconds: timeout },
                   },
@@ -493,17 +615,21 @@ export function Plugins({
                 setSelectedRun(result.invocation.invocation_id);
                 setDetail(result.invocation);
                 updateRuns((n) => n + 1);
-                setNotice("解析调用已创建，输入与插件版本已固定。");
+                setNotice("分析调用已创建，输入与插件版本已固定。");
               })
             }
           >
             <Play size={14} />
-            {busy || "开始解析"}
+            {busy || "开始分析"}
           </button>
         </div>
         <Hint>
-          内置解析读取源码归档并生成 AST
-          和代码事实。未解析、语法错误和其他语言分别计入覆盖范围，不会自动产生已确认漏洞。
+          {executionInputs.map((ref) => (
+            <p className="mono" key={ref.id}>
+              固定输入：{ref.kind} · {ref.id} · SHA-256 {ref.sha256}
+            </p>
+          ))}
+          工具只生成候选和分级建议。调用可达不等于污点流；规则命中不代表控制有效或漏洞可利用，已有裁定不会被工具覆盖。
         </Hint>
       </Panel>
       <Panel
@@ -559,8 +685,8 @@ export function Plugins({
             </table>
           </div>
         ) : (
-          <EmptyState title="还没有解析调用">
-            选择已安装插件与快照后开始解析。
+          <EmptyState title="还没有分析调用">
+            先运行 Go 解析，再选择上游调用执行语义和路径分析。
           </EmptyState>
         )}
         <div className="pager">
@@ -619,22 +745,27 @@ export function Plugins({
             {detail.error_code && (
               <p role="alert">执行结果：{detail.error_code}</p>
             )}
-            <ul>
-              {detail.limitations.map((note, index) => (
-                <li key={index}>{note}</li>
-              ))}
-            </ul>
-            <pre className="artifact-preview">
-              {JSON.stringify(
-                {
-                  config: detail.request.config,
-                  budget: detail.request.budget,
-                  coverage: detail.coverage,
-                },
-                null,
-                2,
-              )}
-            </pre>
+            <details>
+              <summary>
+                覆盖范围、预算与局限（{detail.limitations.length} 项）
+              </summary>
+              <ul>
+                {detail.limitations.map((note, index) => (
+                  <li key={index}>{note}</li>
+                ))}
+              </ul>
+              <pre className="artifact-preview">
+                {JSON.stringify(
+                  {
+                    config: detail.request.config,
+                    budget: detail.request.budget,
+                    coverage: detail.coverage,
+                  },
+                  null,
+                  2,
+                )}
+              </pre>
+            </details>
             {detail.outputs.map((ref) => (
               <p className="mono" key={ref.id}>
                 {ref.kind} · {ref.id} · {ref.bytes} bytes
@@ -647,6 +778,106 @@ export function Plugins({
               查看 / 下载产物
             </button>
           </div>
+        </Panel>
+      )}
+      {resultError && (
+        <div className="error-message" role="alert">
+          标准结果暂不可读取：{resultError}。可到产物页面核对或下载。
+        </div>
+      )}
+      {discovery && (
+        <Panel
+          title={
+            discovery.kind === "security.facts"
+              ? "安全语义事实"
+              : "候选观察与分析路径"
+          }
+        >
+          <Hint>
+            {discovery.nodes.length} 个安全语义节点 · {discovery.edges.length}{" "}
+            条关系 · {discovery.paths.length} 条路径 ·{" "}
+            {discovery.candidates.length}{" "}
+            个候选。严重性建议与确认状态独立，工具没有裁定权限。
+          </Hint>
+          {discovery.candidates.length ? (
+            discovery.candidates.map((candidate) => {
+              const paths = discovery.paths.filter((path) =>
+                candidate.path_refs.includes(path.id),
+              );
+              const grades = { high: "高", medium: "中", low: "低" };
+              return (
+                <details className="source-description" key={candidate.id}>
+                  <summary>
+                    {candidate.title} · 候选 ·{" "}
+                    {candidate.severity_hint
+                      ? `${grades[candidate.severity_hint]}危建议`
+                      : "待评估"}
+                  </summary>
+                  <p className="mono">
+                    观察：{candidate.id} · {candidate.file}:{candidate.line}
+                  </p>
+                  <p>
+                    证据：{candidate.evidence_refs.join(", ")} · 原始报告
+                    SHA-256：{discovery.native_artifact.sha256}
+                  </p>
+                  {paths.map((path) => (
+                    <div key={path.id}>
+                      <p>
+                        {path.path_kind === "call_reachability"
+                          ? "调用可达"
+                          : "假设"}{" "}
+                        ·{" "}
+                        {path.completeness === "complete"
+                          ? "调用步骤完整"
+                          : "部分 / 未解析"}{" "}
+                        · {path.evidence_class}
+                      </p>
+                      <ol>
+                        {path.steps.map((step, index) => (
+                          <li key={index}>
+                            <code>
+                              {step.layer} · {step.kind} · {step.from} →{" "}
+                              {step.to}
+                            </code>
+                            {step.file && (
+                              <span>
+                                {" "}
+                                · {step.file}:{step.line}
+                              </span>
+                            )}
+                          </li>
+                        ))}
+                      </ol>
+                      <p className="mono">
+                        canonical SCG：{path.scg_refs.join(", ")}
+                        <br />
+                        canonical ASG：{path.asg_refs.join(", ")}
+                      </p>
+                    </div>
+                  ))}
+                  <ul>
+                    {candidate.limitations.map((note, index) => (
+                      <li key={index}>{note}</li>
+                    ))}
+                  </ul>
+                </details>
+              );
+            })
+          ) : (
+            <p className="source-description">
+              {discovery.kind === "security.facts"
+                ? "语义产物已生成，选择此上游调用继续路径分析。"
+                : "本次范围未生成候选；这不代表不存在漏洞。"}
+            </p>
+          )}
+          <details className="source-description">
+            <summary>分析覆盖与局限</summary>
+            <ul>
+              {discovery.limitations.map((note, index) => (
+                <li key={index}>{note}</li>
+              ))}
+            </ul>
+          </details>
         </Panel>
       )}
       <Modal

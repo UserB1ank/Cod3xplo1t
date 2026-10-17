@@ -309,9 +309,17 @@ export function Artifacts({
                             ? "Go 语法树"
                             : ref.kind === "code.facts"
                               ? "代码事实"
-                              : ref.schema_id === "codexploit/source-files/v1"
-                                ? "源码文件清单"
-                                : ref.kind}
+                              : ref.kind === "security.facts"
+                                ? "安全语义事实"
+                                : ref.kind === "discovery.paths"
+                                  ? "候选分析路径"
+                                  : ref.schema_id ===
+                                      "codexploit/builtin-native/v1"
+                                    ? "原始分析报告"
+                                    : ref.schema_id ===
+                                        "codexploit/source-files/v1"
+                                      ? "源码文件清单"
+                                      : ref.kind}
                       </strong>
                       <div className="cell-subtitle mono">{ref.id}</div>
                       <p className="mono">

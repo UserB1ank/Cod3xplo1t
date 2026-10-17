@@ -2,6 +2,8 @@
 
 接口：`Parser`、`Analyzer`、`Normalizer`。Schema：[analysis.schema.json](../../../../contracts/v1/analysis.schema.json)。示例：[analysis.json](../../../../contracts/v1/examples/analysis.json)。
 
+Issue #7 的运行接口见 [内置语义与路径插件](../../../builtin-analysis.md)：`plugin.Executor` 在组合根注册编译适配器，`plugin.Normalizer.Normalize` 绑定原始报告、canonical ID 与宿主来源。标准结果使用 `discovery.schema.json`，候选不写入裁定存储；共享图层发布由 #8 接入。
+
 ## 标准方法
 
 | 接口方法 | 输入 | 输出 | 特殊约束 |

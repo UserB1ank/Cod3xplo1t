@@ -21,3 +21,8 @@ interface browser and contract export. Versioned objects reject unknown fields.
 `plugin-runtime.schema.json` validates the formal catalog and invocation responses;
 manifests still use `plugin.schema.json`. This does not declare external plugins
 installed or authorize execution of audited source code.
+
+`discovery.schema.json` defines normalized semantic facts and path observations.
+Candidates have an immutable `candidate` status and an optional high/medium/low
+severity hint. Invocation `analysis` follows `analysis.schema.json`; observed
+call reachability does not establish taint flow or a vulnerability verdict.

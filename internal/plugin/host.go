@@ -61,6 +61,7 @@ type Request struct {
 	Budget        Budget          `json:"budget"`
 }
 type Coverage struct {
+	Truncated       bool  `json:"truncated,omitempty"`
 	DescriptorFiles int   `json:"descriptor_files"`
 	InputFiles      int   `json:"input_files"`
 	ParsedFiles     int   `json:"parsed_files"`
@@ -70,18 +71,19 @@ type Coverage struct {
 	InputBytes      int64 `json:"input_bytes"`
 }
 type Invocation struct {
-	ID            string         `json:"invocation_id"`
-	Request       Request        `json:"request"`
-	RequestDigest string         `json:"request_digest"`
-	ConfigDigest  string         `json:"config_digest"`
-	Status        string         `json:"status"`
-	Version       int64          `json:"version"`
-	Outputs       []artifact.Ref `json:"outputs"`
-	Coverage      Coverage       `json:"coverage"`
-	Limitations   []string       `json:"limitations"`
-	ErrorCode     string         `json:"error_code,omitempty"`
-	CreatedAt     string         `json:"created_at"`
-	UpdatedAt     string         `json:"updated_at"`
+	Analysis      *AnalysisResult `json:"analysis,omitempty"`
+	ID            string          `json:"invocation_id"`
+	Request       Request         `json:"request"`
+	RequestDigest string          `json:"request_digest"`
+	ConfigDigest  string          `json:"config_digest"`
+	Status        string          `json:"status"`
+	Version       int64           `json:"version"`
+	Outputs       []artifact.Ref  `json:"outputs"`
+	Coverage      Coverage        `json:"coverage"`
+	Limitations   []string        `json:"limitations"`
+	ErrorCode     string          `json:"error_code,omitempty"`
+	CreatedAt     string          `json:"created_at"`
+	UpdatedAt     string          `json:"updated_at"`
 }
 
 func Terminal(status string) bool {
@@ -110,20 +112,34 @@ type Deps struct {
 	Repository Repository
 	Artifacts  ArtifactStore
 	Scopes     Scopes
+	Executors  []Executor
 }
 type Host struct {
-	deps   Deps
-	ctx    context.Context
-	cancel context.CancelFunc
-	mu     sync.Mutex
-	active map[string]context.CancelFunc
-	wg     sync.WaitGroup
-	closed bool
+	executors map[string]Executor
+	deps      Deps
+	ctx       context.Context
+	cancel    context.CancelFunc
+	mu        sync.Mutex
+	active    map[string]context.CancelFunc
+	wg        sync.WaitGroup
+	closed    bool
 }
 
 func NewHost(deps Deps) (*Host, error) {
 	if deps.Catalog == nil || deps.Repository == nil || deps.Artifacts == nil || deps.Scopes == nil {
 		return nil, ErrInvalid
+	}
+	executors := map[string]Executor{}
+	for _, executor := range deps.Executors {
+		if executor.Run == nil || len(executor.InputSchemas) == 0 {
+			return nil, ErrInvalid
+		}
+		if err := deps.Catalog.install(context.Background(), executor.Manifest, executor.PackageDigest); err != nil {
+			return nil, err
+		}
+		var manifest Manifest
+		_ = json.Unmarshal(executor.Manifest, &manifest)
+		executors[manifest.ID+"@"+manifest.Version] = executor
 	}
 	recoverCtx, done := context.WithTimeout(context.Background(), 15*time.Second)
 	defer done()
@@ -131,7 +147,7 @@ func NewHost(deps Deps) (*Host, error) {
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Host{deps: deps, ctx: ctx, cancel: cancel, active: map[string]context.CancelFunc{}}, nil
+	return &Host{deps: deps, executors: executors, ctx: ctx, cancel: cancel, active: map[string]context.CancelFunc{}}, nil
 }
 
 func (h *Host) Execute(ctx context.Context, request Request) (Invocation, error) {
@@ -171,15 +187,8 @@ func (h *Host) Execute(ctx context.Context, request Request) (Invocation, error)
 		return Invocation{}, ErrInvalid
 	}
 	request.Config, _ = json.Marshal(config)
-	if len(request.Inputs) != 1 || request.Inputs[0].SchemaID != "codexploit/source-tar/v1" || request.Inputs[0].Scope != scope {
-		return Invocation{}, ErrInvalid
-	}
-	input, err := h.deps.Artifacts.Stat(ctx, scope, request.Inputs[0].ID, request.Budget.MaxInputBytes)
-	if err != nil {
+	if err := h.validateInputs(ctx, request); err != nil {
 		return Invocation{}, err
-	}
-	if input != request.Inputs[0] {
-		return Invocation{}, ErrConflict
 	}
 	if request.ID == "" {
 		request.ID = "inv-" + rand.Text()
@@ -204,6 +213,9 @@ func (h *Host) Execute(ctx context.Context, request Request) (Invocation, error)
 	request = detached
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	inv := Invocation{ID: request.ID, Request: request, RequestDigest: digest(raw), ConfigDigest: digest(request.Config), Status: "CREATED", Version: 1, Outputs: []artifact.Ref{}, Limitations: []string{"Go syntax only; no type checking, dependency execution or vulnerability verdicts"}, CreatedAt: now, UpdatedAt: now}
+	if request.PluginID != BuiltinID {
+		inv.Limitations = []string{"Static analysis observations are candidates; no taint flow or exploitability is established"}
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.closed {
@@ -246,11 +258,19 @@ func (h *Host) run(ctx context.Context, cancel context.CancelFunc, inv Invocatio
 	if h.deps.Repository.SaveInvocation(ctx, inv, 1) != nil {
 		return
 	}
-	outputs, coverage, limitations, err := h.parse(ctx, inv)
+	var outputs []artifact.Ref
+	var coverage Coverage
+	var limitations []string
+	var err error
+	if inv.Request.PluginID == BuiltinID {
+		outputs, coverage, limitations, err = h.parse(ctx, inv)
+	} else {
+		outputs, coverage, limitations, err = h.analyze(ctx, inv)
+	}
 	inv.Coverage = coverage
 	inv.Limitations = append(inv.Limitations, limitations...)
 	inv.Status = "SUCCEEDED"
-	if coverage.PartialFiles+coverage.UnparsedFiles+coverage.UnhandledFiles > 0 {
+	if coverage.Truncated || coverage.PartialFiles+coverage.UnparsedFiles+coverage.UnhandledFiles > 0 {
 		inv.Status = "PARTIAL"
 	}
 	if err == nil {
@@ -272,6 +292,14 @@ func (h *Host) run(ctx context.Context, cancel context.CancelFunc, inv Invocatio
 			inv.ErrorCode = "invalid_input"
 		}
 		inv.Outputs = []artifact.Ref{}
+		if errors.Is(err, ErrNormalization) || errors.Is(err, ErrReportVersion) {
+			inv.Outputs = outputs
+			inv.ErrorCode = "normalization_failed"
+			if errors.Is(err, ErrReportVersion) {
+				inv.Status = "UNSUPPORTED"
+				inv.ErrorCode = "unsupported_report_version"
+			}
+		}
 	} else if coverage.ParsedFiles+coverage.PartialFiles+coverage.UnparsedFiles == 0 {
 		inv.Status = "UNSUPPORTED"
 		inv.ErrorCode = "no_supported_files"
@@ -282,8 +310,20 @@ func (h *Host) run(ctx context.Context, cancel context.CancelFunc, inv Invocatio
 	inv.Version++
 	inv.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	commitCtx, done := context.WithTimeout(context.Background(), 5*time.Second)
+	if inv.Request.PluginID != BuiltinID {
+		inv.Analysis = analysisResult(inv)
+	}
 	defer done()
 	_ = h.deps.Repository.SaveInvocation(commitCtx, inv, 2)
+}
+
+// PublishableOutput permits failed normalization to retain only its raw report.
+// Budget failures, cancellation and interrupted invocations publish no outputs.
+func PublishableOutput(inv Invocation, ref artifact.Ref) bool {
+	if inv.Status == "SUCCEEDED" || inv.Status == "PARTIAL" {
+		return true
+	}
+	return ((inv.Status == "FAILED" && inv.ErrorCode == "normalization_failed") || (inv.Status == "UNSUPPORTED" && inv.ErrorCode == "unsupported_report_version")) && ref.Kind == "report.document" && ref.SchemaID == "codexploit/builtin-native/v1"
 }
 
 func (h *Host) GetStatus(ctx context.Context, scope artifact.Scope, id string) (Invocation, error) {

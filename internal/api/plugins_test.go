@@ -187,7 +187,7 @@ func TestRegisteredPluginVersionsSurviveRestartWithoutBecomingInstalled(t *testi
 		} `json:"plugins"`
 	}
 	r.decode(t, &page)
-	if r.status != 200 || len(page.Plugins) != 2 {
+	if r.status != 200 || len(page.Plugins) != 4 {
 		t.Fatalf("persisted catalog: %d %s", r.status, r.body)
 	}
 	for _, entry := range page.Plugins {
@@ -210,7 +210,13 @@ func TestPluginCatalogListsTheInstalledGoParser(t *testing.T) {
 		} `json:"plugins"`
 	}
 	read.decode(t, &page)
-	if read.status != 200 || len(page.Plugins) != 1 || page.Plugins[0].Manifest.ID != "builtin.go-parser" || page.Plugins[0].Manifest.Version != "1.0.0" || !page.Plugins[0].Executable || len(page.Plugins[0].PackageDigest) != 64 {
+	var installed bool
+	for _, entry := range page.Plugins {
+		if entry.Manifest.ID == plugin.BuiltinID && entry.Manifest.Version == plugin.BuiltinVersion && entry.Executable && len(entry.PackageDigest) == 64 {
+			installed = true
+		}
+	}
+	if read.status != 200 || len(page.Plugins) != 3 || !installed {
 		t.Fatalf("installed catalog: %d %s", read.status, read.body)
 	}
 }

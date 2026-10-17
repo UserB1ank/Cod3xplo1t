@@ -69,6 +69,27 @@ func (s *Server) handleGetInvocation(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("ETag", invocationETag(inv))
 	writePluginJSON(w, 200, map[string]any{"api_version": "codexploit/v1", "invocation": inv})
 }
+func (s *Server) handlePluginResult(w http.ResponseWriter, r *http.Request) {
+	scope, ok := s.invocationScope(w, r)
+	if !ok {
+		return
+	}
+	budget := int64(2 << 20)
+	if raw := r.URL.Query().Get("max_bytes"); raw != "" {
+		value, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || value < 1 || value > 64<<20 {
+			writePluginError(w, plugin.ErrInvalid)
+			return
+		}
+		budget = value
+	}
+	document, err := s.Plugins.Result(r.Context(), scope, r.PathValue("invocationID"), budget)
+	if err != nil {
+		writePluginError(w, err)
+		return
+	}
+	writeJSON(w, 200, document)
+}
 func (s *Server) handleCancelInvocation(w http.ResponseWriter, r *http.Request) {
 	scope, ok := s.invocationScope(w, r)
 	if !ok {

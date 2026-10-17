@@ -373,6 +373,13 @@ plugin version, validate configuration/budgets, start/cancel calls and inspect
 persistent coverage and outputs. AST/fact artifacts use the existing preview and
 download page. See [Plugin interfaces](plugins.md) for the complete contract.
 
+The same formal page now runs builtin security-semantics and candidate-path
+analysis. Select a completed parser invocation for semantics, then a completed
+semantic invocation for paths. Candidate details show severity hints, call
+reachability versus hypotheses, ordered steps, canonical IDs, raw evidence and
+coverage limitations. These observations cannot change existing verdicts. See
+[Builtin analysis](builtin-analysis.md) for formats and limits.
+
 ```bash
 make test-web
 npm --prefix web run build
