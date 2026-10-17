@@ -193,6 +193,8 @@ func serveTestEnv(t *testing.T, rt *app.Runtime, allowNetwork bool) *testEnv {
 	srv := NewServer(rt.Store, rt.Manager, rt.Analyzer,
 		WithWorkflows(rt.Workflows),
 		WithWorkflowCompiler(rt.WorkflowCompiler),
+		WithWorkflowRunner(rt.WorkflowRunner),
+		WithLLMSettings(rt.AgentConfig.ModelSettings),
 		WithPluginCatalog(rt.PluginCatalog),
 		WithPlugins(rt.Plugins),
 		WithAllowNetwork(allowNetwork),

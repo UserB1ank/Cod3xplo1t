@@ -1,6 +1,6 @@
 # 工作流版本与编译计划
 
-正式工作区的“工作流”页支持图形和 JSON 编辑同一份 WorkflowSpec，保存项目内不可变版本，导入 / 导出定义，校验并编译固定计划。编译不会调用插件、启动扫描或生成模拟运行状态。流程执行、暂停和恢复由后续 WorkflowRunner 接入。
+正式工作区的“工作流”页支持图形和 JSON 编辑同一份 WorkflowSpec，保存项目内不可变版本，导入 / 导出定义，校验并编译固定计划。编译不会调用插件、启动扫描或生成模拟运行状态。任务选择固定计划后通过 WorkflowRunner 执行真实 DAG，见[固定工作流执行](workflow-execution.md)；暂停、重试和崩溃恢复由后续 Issue 接入。
 
 ## 用户操作
 
@@ -27,6 +27,7 @@
 | POST `/workflows/validate` | reader | `{api_version,spec}` → `{api_version,valid,diagnostics,nodes}` |
 | POST `/workflows/{id}/versions/{version}/compile` | writer | 编译请求 → plan |
 | GET `/workflow-plans/{planID}` | reader | 不可变 plan；ETag 为计划摘要 |
+| GET `/workflow-plans?snapshot_id=...&limit=50&cursor=...` | reader | 固定计划目录、next_cursor；按 plan_id 排序 |
 
 目录 limit 为 1–100（默认 50），cursor 为上一页最后一条 `id@version`，按该键稳定升序，不能将字典序当作版本新旧。head_digest 指向同一工作流的当前版本。版本按三段非负十进制数比较，不受整数溢出影响；新版本必须严格递增。
 

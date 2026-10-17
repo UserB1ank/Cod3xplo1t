@@ -21,6 +21,8 @@ func writeWorkflowError(w http.ResponseWriter, err error) {
 		return
 	}
 	switch {
+	case errors.Is(err, workflow.ErrRuntimeUnavailable):
+		writeError(w, 503, "candidate_runtime_unavailable", err)
 	case errors.Is(err, workflow.ErrInvalid):
 		writeError(w, 400, "invalid_workflow", err)
 	case errors.Is(err, workflow.ErrConflict):
@@ -161,4 +163,30 @@ func (s *Server) handleValidateWorkflow(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeWorkflowJSON(w, 200, map[string]any{"api_version": "codexploit/v1", "valid": result.Valid, "diagnostics": result.Diagnostics, "nodes": result.Nodes})
+}
+
+func (s *Server) handleListWorkflowPlans(w http.ResponseWriter, r *http.Request) {
+	if s.WorkflowCompiler == nil {
+		writeWorkflowError(w, errors.New("unavailable"))
+		return
+	}
+	limit := 50
+	if value := r.URL.Query().Get("limit"); value != "" {
+		n, err := strconv.Atoi(value)
+		if err != nil {
+			writeWorkflowError(w, workflow.ErrInvalid)
+			return
+		}
+		limit = n
+	}
+	plans, err := s.WorkflowCompiler.ListPlans(r.Context(), r.PathValue("projectID"), r.URL.Query().Get("snapshot_id"), r.URL.Query().Get("cursor"), limit)
+	if err != nil {
+		writeWorkflowError(w, err)
+		return
+	}
+	next := ""
+	if len(plans) == limit {
+		next = plans[len(plans)-1].ID
+	}
+	writeWorkflowJSON(w, 200, map[string]any{"api_version": "codexploit/v1", "plans": plans, "next_cursor": next})
 }

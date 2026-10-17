@@ -1,0 +1,317 @@
+{
+  "type": "object",
+  "properties": {
+    "api_version": {
+      "const": "codexploit/v1"
+    },
+    "run": {
+      "$ref": "#/$defs/Run"
+    },
+    "events": {
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "$ref": "#/$defs/Event"
+      }
+    },
+    "next_seq": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "api_version"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codexploit.invalid/contracts/v1/workflow-run.schema.json",
+  "title": "Workflow execution records and append-only events",
+  "oneOf": [
+    {
+      "required": [
+        "run"
+      ]
+    },
+    {
+      "required": [
+        "events",
+        "next_seq"
+      ]
+    }
+  ],
+  "$defs": {
+    "Run": {
+      "type": "object",
+      "properties": {
+        "workflow_run_id": {
+          "$ref": "common.schema.json#/$defs/ID"
+        },
+        "task_id": {
+          "$ref": "common.schema.json#/$defs/ID"
+        },
+        "scope": {
+          "$ref": "common.schema.json#/$defs/Scope"
+        },
+        "plan_id": {
+          "$ref": "common.schema.json#/$defs/ID"
+        },
+        "plan_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "status": {
+          "enum": [
+            "PENDING",
+            "CREATED",
+            "RUNNING",
+            "SUCCEEDED",
+            "PARTIAL",
+            "FAILED",
+            "CANCELLED",
+            "TIMED_OUT",
+            "SKIPPED"
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "nodes": {
+          "type": "array",
+          "maxItems": 34,
+          "items": {
+            "$ref": "#/$defs/NodeRun"
+          }
+        },
+        "events": {
+          "type": "array",
+          "maxItems": 200,
+          "items": {
+            "$ref": "#/$defs/Event"
+          }
+        },
+        "model": {
+          "$ref": "#/$defs/ModelPin"
+        },
+        "accept_partial_nodes": {
+          "type": "array",
+          "maxItems": 34,
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "runner_version": {
+          "$ref": "common.schema.json#/$defs/Version"
+        },
+        "task": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "objective": {
+              "type": "string"
+            },
+            "scope": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "budget": {
+              "type": "object"
+            },
+            "limits": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "name",
+            "objective",
+            "scope",
+            "budget",
+            "limits"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "workflow_run_id",
+        "task_id",
+        "scope",
+        "plan_id",
+        "plan_digest",
+        "status",
+        "version",
+        "nodes",
+        "events",
+        "model",
+        "accept_partial_nodes",
+        "created_at",
+        "updated_at",
+        "runner_version",
+        "task"
+      ],
+      "additionalProperties": false
+    },
+    "NodeRun": {
+      "type": "object",
+      "properties": {
+        "node_run_id": {
+          "$ref": "common.schema.json#/$defs/ID"
+        },
+        "node_id": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "plugin",
+            "knowledge_publish",
+            "candidate_analysis"
+          ]
+        },
+        "status": {
+          "enum": [
+            "PENDING",
+            "CREATED",
+            "RUNNING",
+            "SUCCEEDED",
+            "PARTIAL",
+            "FAILED",
+            "CANCELLED",
+            "TIMED_OUT",
+            "SKIPPED"
+          ]
+        },
+        "invocation_id": {
+          "type": "string"
+        },
+        "inputs": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "common.schema.json#/$defs/ArtifactRef"
+          }
+        },
+        "outputs": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "common.schema.json#/$defs/ArtifactRef"
+          }
+        },
+        "error_code": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        },
+        "knowledge": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "workflow-runtime.schema.json#/$defs/Plan/properties/knowledge"
+          }
+        },
+        "agent_run_ids": {
+          "type": "array",
+          "maxItems": 10,
+          "items": {
+            "$ref": "common.schema.json#/$defs/ID"
+          }
+        },
+        "started_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "finished_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "node_run_id",
+        "node_id",
+        "kind",
+        "status",
+        "inputs",
+        "outputs"
+      ],
+      "additionalProperties": false
+    },
+    "Event": {
+      "type": "object",
+      "properties": {
+        "seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "type": {
+          "type": "string"
+        },
+        "node_id": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "PENDING",
+            "CREATED",
+            "RUNNING",
+            "SUCCEEDED",
+            "PARTIAL",
+            "FAILED",
+            "CANCELLED",
+            "TIMED_OUT",
+            "SKIPPED"
+          ]
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "seq",
+        "type",
+        "status",
+        "created_at"
+      ],
+      "additionalProperties": false
+    },
+    "ModelPin": {
+      "type": "object",
+      "properties": {
+        "runtime": {
+          "type": "string"
+        },
+        "runtime_version": {
+          "type": "string"
+        },
+        "config_version": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "runtime",
+        "runtime_version",
+        "config_version"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

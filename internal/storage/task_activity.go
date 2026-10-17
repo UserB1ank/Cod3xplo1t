@@ -3,14 +3,19 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 
 	"github.com/open-mcp-ai/Codexploit/internal/path"
+	"github.com/open-mcp-ai/Codexploit/internal/workflow"
 )
 
 type TaskActivity struct {
-	Counts     map[string]int
-	ActiveRuns bool
+	WorkflowRunID  string
+	WorkflowPlanID string
+	WorkflowStatus string
+	Counts         map[string]int
+	ActiveRuns     bool
 }
 
 type TaskActivityReader interface {
@@ -32,6 +37,17 @@ func (m *Memory) taskActivityLocked(id string) TaskActivity {
 	for _, run := range m.verificationRuns {
 		if run.AuditID == id && !run.Status.Terminal() {
 			activity.ActiveRuns = true
+		}
+	}
+	for _, raw := range m.workflowRuns {
+		var run workflow.Run
+		if json.Unmarshal(raw, &run) == nil && run.TaskID == id {
+			activity.WorkflowRunID = run.ID
+			activity.WorkflowPlanID = run.PlanID
+			activity.WorkflowStatus = run.Status
+			if !workflow.RunTerminal(run.Status) {
+				activity.ActiveRuns = true
+			}
 		}
 	}
 	return activity
@@ -94,13 +110,37 @@ func (s *SQL) TaskActivities(ctx context.Context, ids []string) (map[string]Task
 		activity.ActiveRuns = true
 		result[id] = activity
 	}
-	return result, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	workflowRows, err := s.db.QueryContext(ctx, s.rebind("SELECT task_id,run_id,plan_id,status FROM workflow_runs WHERE task_id IN ("+placeholders(len(ids))+")"), args[:len(ids)]...)
+	if err != nil {
+		return nil, err
+	}
+	defer workflowRows.Close()
+	for workflowRows.Next() {
+		var task, id, plan, status string
+		if err := workflowRows.Scan(&task, &id, &plan, &status); err != nil {
+			return nil, err
+		}
+		activity := result[task]
+		activity.WorkflowRunID = id
+		activity.WorkflowPlanID = plan
+		activity.WorkflowStatus = status
+		if !workflow.RunTerminal(status) {
+			activity.ActiveRuns = true
+		}
+		result[task] = activity
+	}
+	return result, workflowRows.Err()
 }
 
 func (s *SQL) taskHasRunsTx(ctx context.Context, tx *sql.Tx, id string) (bool, error) {
 	var count int
 	query := "SELECT (SELECT COUNT(*) FROM agent_runs WHERE audit_id = ? AND status NOT IN (" + terminalAgentStates + ")) + (SELECT COUNT(*) FROM verification_runs WHERE audit_id = ? AND status NOT IN (" + terminalVerificationStates + "))"
-	err := tx.QueryRowContext(ctx, s.rebind(query), id, id).Scan(&count)
+	query += " + (SELECT COUNT(*) FROM workflow_runs WHERE task_id=? AND status IN ('CREATED','RUNNING'))"
+	err := tx.QueryRowContext(ctx, s.rebind(query), id, id, id).Scan(&count)
 	return count > 0, err
 }
 
@@ -120,4 +160,17 @@ func (s *SQL) taskRunAllowedTx(ctx context.Context, tx *sql.Tx, id string) error
 		return path.ErrTaskArchived
 	}
 	return nil
+}
+
+func workflowTaskState(status string) string {
+	switch status {
+	case "CREATED", "RUNNING":
+		return "RUNNING"
+	case "SUCCEEDED":
+		return "CONCLUDED"
+	case "PARTIAL":
+		return "BLOCKED"
+	default:
+		return "FAILED"
+	}
 }

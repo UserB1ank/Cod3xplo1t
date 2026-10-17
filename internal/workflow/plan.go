@@ -42,6 +42,7 @@ type Plan struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 type PlanRepository interface {
+	ListWorkflowPlans(context.Context, string, string, string, int) ([]Plan, error)
 	PutWorkflowPlan(context.Context, Plan) (Plan, error)
 	GetWorkflowPlan(context.Context, string, string) (Plan, error)
 }
@@ -183,4 +184,14 @@ func (c *Compiler) Compile(ctx context.Context, project, id, version string, req
 }
 func (c *Compiler) Get(ctx context.Context, project, id string) (Plan, error) {
 	return c.Plans.GetWorkflowPlan(ctx, project, id)
+}
+
+func (c *Compiler) ListPlans(ctx context.Context, project, snapshot, cursor string, limit int) ([]Plan, error) {
+	if limit < 1 || limit > 100 || len(cursor) > 100 {
+		return nil, ErrInvalid
+	}
+	if _, err := c.Scopes.ArtifactScope(ctx, project, snapshot); err != nil {
+		return nil, ErrNotFound
+	}
+	return c.Plans.ListWorkflowPlans(ctx, project, snapshot, cursor, limit)
 }

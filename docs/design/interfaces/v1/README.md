@@ -20,7 +20,7 @@
 | L9 | [持久化与 Docker](09-persistence.md) | PostgreSQL 独立容器及其他存储适配器 |
 | 接线 | [兼容性与实施步骤](10-adoption.md) | 现有代码映射、差距、验收条件 |
 
-机器可读的契约位于 [contracts/v1](../../../../contracts/v1/README.md)，包含十四份 JSON Schema 与十四个完整示例。原型的“接口规范”页面可查看并导出同一套 Schema。
+机器可读的契约位于 [contracts/v1](../../../../contracts/v1/README.md)，包含十六份 JSON Schema 与十六个完整示例。原型的“接口规范”页面可查看并导出同一套 Schema。
 
 ## 数据流
 

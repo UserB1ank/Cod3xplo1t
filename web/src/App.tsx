@@ -39,7 +39,8 @@ import { Sources, sourceInput, readSources, type CodeSource } from "./Sources";
 import { ProjectTasks } from "./TaskList";
 import { Artifacts } from "./Artifacts";
 import { Plugins } from "./Plugins";
-import { Workflows } from "./Workflows";
+import { Workflows, type Plan } from "./Workflows";
+import { WorkflowRun, flowStatus } from "./WorkflowRun";
 import { Knowledge } from "./Knowledge";
 import {
   Badge,
@@ -749,6 +750,7 @@ export default function App() {
           api={api}
           projectID={project?.id}
           preferredSnapshot={taskSnapshot}
+          canAnalyze={identity.features.agent}
           snapshots={snapshots.data || []}
           busy={!!busy}
           onSubmit={(values) =>
@@ -1305,11 +1307,13 @@ function TaskWorkbench({
             <Badge
               status={taskState(current)}
               label={
-                current.archived
-                  ? "已归档"
-                  : taskState(current) === "EMPTY"
-                    ? "无候选路径"
-                    : undefined
+                current.workflow_status
+                  ? flowStatus[current.workflow_status]
+                  : current.archived
+                    ? "已归档"
+                    : taskState(current) === "EMPTY"
+                      ? "无候选路径"
+                      : undefined
               }
             />
           </div>
@@ -1335,7 +1339,12 @@ function TaskWorkbench({
         <div className="heading-actions">
           <button
             className="button secondary"
-            disabled={!canWrite || !!busy || current.archived}
+            disabled={
+              !canWrite ||
+              !!busy ||
+              current.archived ||
+              ["CREATED", "RUNNING"].includes(current.workflow_status || "")
+            }
             onClick={changeScheduling}
           >
             {current.paused ? <Play size={15} /> : <Pause size={15} />}
@@ -1349,6 +1358,8 @@ function TaskWorkbench({
               current.paused ||
               current.archived ||
               !identity.features.agent ||
+              current.workflow_status === "RUNNING" ||
+              current.workflow_status === "CREATED" ||
               !(current.counts_by_status.QUEUED > 0)
             }
             onClick={() =>
@@ -1391,6 +1402,21 @@ function TaskWorkbench({
           </button>
         ))}
       </div>
+      {current.workflow_run_id &&
+        ["overview", "process"].includes(route.view) && (
+          <WorkflowRun
+            key={current.workflow_run_id}
+            api={api}
+            projectID={route.project!}
+            runID={current.workflow_run_id}
+            revision={revision + tick}
+            onArtifacts={() => onTab("artifacts")}
+            onAgentRun={(id) => {
+              setSelectedRun(id);
+              onTab("process");
+            }}
+          />
+        )}
       {paths.error && <Failure message={paths.error} />}
       {runs.error && <Failure message={runs.error} />}
       {route.view === "artifacts" ? (
@@ -2432,6 +2458,7 @@ function TaskForm({
   api,
   projectID,
   preferredSnapshot,
+  canAnalyze,
   snapshots,
   busy,
   onSubmit,
@@ -2439,6 +2466,7 @@ function TaskForm({
   api: ApiClient;
   projectID?: string;
   preferredSnapshot?: string;
+  canAnalyze: boolean;
   snapshots: Snapshot[];
   busy: boolean;
   onSubmit: (values: unknown) => void;
@@ -2458,12 +2486,50 @@ function TaskForm({
   const current =
     available.find((snapshot) => snapshot.snapshot_id === selectedSnapshot) ||
     latestSnapshot(available);
+  const [planCursors, setPlanCursors] = useState([""]);
+  const [selectedPlan, setSelectedPlan] = useState<Plan>();
+  const planDirectory = useResource(
+    async (signal) =>
+      current && projectID
+        ? api.get<{ plans: Plan[]; next_cursor: string }>(
+            `/v1/projects/${encodeURIComponent(projectID)}/workflow-plans?snapshot_id=${encodeURIComponent(current.snapshot_id)}&limit=50&cursor=${encodeURIComponent(planCursors.at(-1) || "")}`,
+            signal,
+          )
+        : { plans: [], next_cursor: "" },
+    [api, projectID, current?.snapshot_id, planCursors.at(-1)],
+  );
+  useEffect(() => {
+    setPlanCursors([""]);
+    setSelectedPlan(undefined);
+    const id =
+      projectID && sessionStorage.getItem(`workflow-plan:${projectID}`);
+    if (!id || !current) return;
+    const controller = new AbortController();
+    api
+      .get<{ plan: Plan }>(
+        `/v1/projects/${encodeURIComponent(projectID!)}/workflow-plans/${encodeURIComponent(id)}`,
+        controller.signal,
+      )
+      .then((value) => {
+        if (value.plan.scope.snapshot_id === current.snapshot_id)
+          setSelectedPlan(value.plan);
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [api, projectID, current?.snapshot_id]);
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
         const form = new FormData(e.currentTarget);
         onSubmit({
+          workflow_plan_id: selectedPlan?.plan_id || "",
+          analyze_candidates:
+            !!selectedPlan && form.get("workflowAnalyze") === "on",
+          accept_partial_nodes:
+            selectedPlan && form.get("workflowPartial") === "on"
+              ? [...selectedPlan.nodes.map((n) => n.id), "$publish", "$analyze"]
+              : [],
           name: form.get("name"),
           objective: form.get("objective"),
           snapshot_id: form.get("snapshot"),
@@ -2543,6 +2609,91 @@ function TaskForm({
           ))}
         </select>
       </label>
+      <label>
+        执行方式 / 固定计划
+        <select
+          aria-label="任务工作流计划"
+          value={selectedPlan?.plan_id || ""}
+          onChange={(e) =>
+            setSelectedPlan(
+              planDirectory.data?.plans.find(
+                (p) => p.plan_id === e.target.value,
+              ),
+            )
+          }
+        >
+          <option value="">原有路径任务（需先构建图谱）</option>
+          {selectedPlan &&
+            !planDirectory.data?.plans.some(
+              (p) => p.plan_id === selectedPlan.plan_id,
+            ) && (
+              <option value={selectedPlan.plan_id}>
+                {selectedPlan.workflow.spec.name}@
+                {selectedPlan.workflow.spec.version} · {selectedPlan.plan_id}
+              </option>
+            )}
+          {planDirectory.data?.plans.map((p) => (
+            <option key={p.plan_id} value={p.plan_id}>
+              {p.workflow.spec.name}@{p.workflow.spec.version} · {p.plan_id}
+            </option>
+          ))}
+        </select>
+      </label>
+      {planDirectory.error && <Failure message={planDirectory.error} />}
+      <div className="workflow-pagination">
+        <button
+          type="button"
+          className="text-button"
+          disabled={planCursors.length === 1}
+          onClick={() => setPlanCursors((c) => c.slice(0, -1))}
+        >
+          上一页计划
+        </button>
+        <span>第 {planCursors.length} 页</span>
+        <button
+          type="button"
+          className="text-button"
+          disabled={!planDirectory.data?.next_cursor}
+          onClick={() =>
+            setPlanCursors((c) => [...c, planDirectory.data!.next_cursor])
+          }
+        >
+          下一页计划
+        </button>
+      </div>
+      {selectedPlan && (
+        <>
+          <Hint>
+            已固定 {selectedPlan.workflow.spec.id}@
+            {selectedPlan.workflow.spec.version} · {selectedPlan.nodes.length}{" "}
+            个分析节点。创建后自动执行，复用已校验输入与知识版本。
+          </Hint>
+          <p className="workflow-task-digest">
+            计划 SHA-256 {selectedPlan.digest}
+          </p>
+          <label className="workflow-task-option">
+            <input
+              type="checkbox"
+              name="workflowAnalyze"
+              disabled={!canAnalyze}
+            />
+            在静态分析和知识发布后调用已配置模型分析候选
+          </label>
+          {!canAnalyze && (
+            <small>
+              模型分析不可用，请先在程序的模型设置中配置
+              LLM；静态工作流可以独立运行。
+            </small>
+          )}
+          <label className="workflow-task-option">
+            <input type="checkbox" name="workflowPartial" />
+            明确接受所有已选节点的部分覆盖结果与候选分析预算截断
+          </label>
+          <small>
+            默认遇到部分覆盖即停止下游；接受后保留 PARTIAL 标记和覆盖说明。
+          </small>
+        </>
+      )}
       <label>
         入口 / 敏感操作目录（可选）
         <textarea

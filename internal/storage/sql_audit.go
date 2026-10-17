@@ -477,7 +477,7 @@ func (s *SQL) taskStateSQL() string {
 	count := func(status string) string {
 		return "(SELECT COUNT(*) FROM audit_paths activity WHERE activity.audit_id=audits.audit_id AND activity.status='" + status + "')"
 	}
-	return "CASE WHEN task_archived = 1 THEN 'ARCHIVED' WHEN status = 'FAILED' THEN 'FAILED' WHEN " + count("ANALYZING") + " + " + count("LOCAL_EXPLORING") + " + " + count("VERIFYING") + " > 0 THEN 'RUNNING' WHEN paused = 1 THEN 'PAUSED' WHEN path_count = 0 THEN 'EMPTY' WHEN " + count("QUEUED") + " > 0 THEN 'QUEUED' WHEN " + count("BLOCKED") + " + " + count("FAILED") + " + " + count("INTERRUPTED") + " > 0 THEN 'BLOCKED' ELSE 'CONCLUDED' END"
+	return "CASE WHEN task_archived = 1 THEN 'ARCHIVED' WHEN EXISTS(SELECT 1 FROM workflow_runs w WHERE w.task_id=audits.audit_id AND w.status IN ('CREATED','RUNNING')) THEN 'RUNNING' WHEN EXISTS(SELECT 1 FROM workflow_runs w WHERE w.task_id=audits.audit_id AND w.status='SUCCEEDED') THEN 'CONCLUDED' WHEN EXISTS(SELECT 1 FROM workflow_runs w WHERE w.task_id=audits.audit_id AND w.status='PARTIAL') THEN 'BLOCKED' WHEN status = 'FAILED' THEN 'FAILED' WHEN " + count("ANALYZING") + " + " + count("LOCAL_EXPLORING") + " + " + count("VERIFYING") + " > 0 THEN 'RUNNING' WHEN paused = 1 THEN 'PAUSED' WHEN path_count = 0 THEN 'EMPTY' WHEN " + count("QUEUED") + " > 0 THEN 'QUEUED' WHEN " + count("BLOCKED") + " + " + count("FAILED") + " + " + count("INTERRUPTED") + " > 0 THEN 'BLOCKED' ELSE 'CONCLUDED' END"
 }
 
 // UpdateAudit implements path.Store.
@@ -702,7 +702,7 @@ func (s *SQL) ListPaths(q path.PathQuery) ([]path.Path, int, error) {
 func (s *SQL) ListDuePaths(auditID, now string, limit int) ([]path.Path, error) {
 	ctx := context.Background()
 	query := "SELECT " + pathSelectColumns + " FROM audit_paths WHERE audit_id = ? AND status = ?" +
-		" AND (next_attempt_at = '' OR next_attempt_at <= ?) ORDER BY next_attempt_at, path_id LIMIT ?"
+		" AND NOT EXISTS(SELECT 1 FROM workflow_runs w WHERE w.task_id=audit_paths.audit_id) AND (next_attempt_at = '' OR next_attempt_at <= ?) ORDER BY next_attempt_at, path_id LIMIT ?"
 	rows, err := s.db.QueryContext(ctx, s.rebind(query), auditID, string(path.StatusQueued), now,
 		normaliseLimit(limit, 100, 1000))
 	if err != nil {

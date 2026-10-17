@@ -7,6 +7,9 @@ export const gradeNames: Record<Grade, string> = {
   low: "低危",
 };
 export interface Task extends Audit {
+  workflow_run_id?: string;
+  workflow_plan_id?: string;
+  workflow_status?: string;
   source_id?: string;
   source_version?: number;
   name?: string;
@@ -89,6 +92,14 @@ export function routeHash(route: Route): string {
 }
 export function taskState(task: Task) {
   if (task.archived) return "ARCHIVED";
+  if (task.workflow_status)
+    return ["CREATED", "RUNNING"].includes(task.workflow_status)
+      ? "RUNNING"
+      : task.workflow_status === "SUCCEEDED"
+        ? "CONCLUDED"
+        : task.workflow_status === "PARTIAL"
+          ? "BLOCKED"
+          : "FAILED";
   const counts = task.counts_by_status || {};
   if (task.status === "FAILED") return "FAILED";
   if (["ANALYZING", "LOCAL_EXPLORING", "VERIFYING"].some((s) => counts[s] > 0))

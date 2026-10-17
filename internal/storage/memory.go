@@ -34,6 +34,7 @@ type Memory struct {
 	// knowledge holds the immutable publication revisions of each project
 	// snapshot: the revision documents, their batch index and the outbox.
 	knowledge         map[string]*knowledgeScopeState
+	workflowRuns      map[string][]byte
 	workflowPlans     map[string][]byte
 	workflows         map[string][]byte
 	workflowHeads     map[string]workflowHead
@@ -262,6 +263,12 @@ func (m *Memory) DeleteSnapshot(_ context.Context, id string) error {
 		return fmt.Errorf("%w: snapshot %s", ErrNotFound, id)
 	}
 	delete(m.snapshots, id)
+	for key, raw := range m.workflowRuns {
+		var run workflow.Run
+		if json.Unmarshal(raw, &run) == nil && run.Scope.SnapshotID == id {
+			delete(m.workflowRuns, key)
+		}
+	}
 	for key, raw := range m.workflowPlans {
 		var plan workflow.Plan
 		if json.Unmarshal(raw, &plan) == nil && plan.Scope.SnapshotID == id {

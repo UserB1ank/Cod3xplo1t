@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { ApiClient, ApiError } from "./api";
 import { Badge, EmptyState, Hint, Modal, Panel } from "./components";
+import { flowStatus } from "./WorkflowRun";
 import { dateLabel, shortId } from "./domain";
 import {
   gradeNames,
@@ -370,11 +371,13 @@ export function ProjectTasks({
                         <Badge
                           status={taskState(task)}
                           label={
-                            task.archived
-                              ? "已归档"
-                              : taskState(task) === "EMPTY"
-                                ? "无候选路径"
-                                : undefined
+                            task.workflow_status
+                              ? flowStatus[task.workflow_status]
+                              : task.archived
+                                ? "已归档"
+                                : taskState(task) === "EMPTY"
+                                  ? "无候选路径"
+                                  : undefined
                           }
                         />
                       </td>
@@ -420,7 +423,14 @@ export function ProjectTasks({
                                   ? "恢复调度"
                                   : "暂停调度"
                             }
-                            disabled={!canWrite || busy || task.archived}
+                            disabled={
+                              !canWrite ||
+                              busy ||
+                              task.archived ||
+                              ["CREATED", "RUNNING"].includes(
+                                task.workflow_status || "",
+                              )
+                            }
                             onClick={() => scheduling(task)}
                           >
                             {task.paused ? (

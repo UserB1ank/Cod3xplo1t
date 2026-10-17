@@ -1055,3 +1055,5 @@ for automation and CLI clients.
 ## 工作流版本与编译计划
 
 正式工作流编辑、项目内版本 CAS、字段级校验、固定计划和导入导出接口见 [工作流 API](workflows.md)。新增 `/api/v1/projects/{projectID}/workflows` 与 `/workflow-plans/{planID}`，响应通过公共 workflow-runtime Schema；编译不启动插件执行。
+
+任务选择固定计划与真实 DAG、节点状态 / 事件、输入输出、知识发布和模型配置追踪见[固定工作流执行](workflow-execution.md)。运行读取使用 `/api/v1/projects/{projectID}/workflow-runs/{runID}` 与 `/events`，通过独立 workflow-run Schema 校验；未选择模型分析的任务不会被旧路径调度器自动接管。

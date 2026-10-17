@@ -258,3 +258,14 @@ func writeAtomic(name string, raw []byte) error {
 	}
 	return nil
 }
+
+// Snapshot atomically captures a configuration and its public version for one run.
+func (m *Manager) Snapshot() (Config, Public, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	c := m.cfg
+	if !c.Enabled || c.Model == "" {
+		return Config{}, Public{}, ErrNotConfigured
+	}
+	return c, Public{c.Enabled, c.Protocol, c.BaseURL, c.Model, c.APIKey != "", c.TimeoutSeconds, c.MaxOutputTokens, m.version}, nil
+}

@@ -60,6 +60,7 @@ const maxBodyBytes = 1 << 20
 // Server serves the REST API.
 type Server struct {
 	Workflows        *workflow.Catalog
+	WorkflowRunner   *workflow.Runner
 	WorkflowCompiler *workflow.Compiler
 	PluginCatalog    *plugin.Catalog
 	Plugins          *plugin.Host
@@ -203,10 +204,13 @@ func (s *Server) Handler() http.Handler {
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.handleHealth)
+	mux.HandleFunc("GET /api/v1/projects/{projectID}/workflow-runs/{runID}", s.handleGetWorkflowRun)
+	mux.HandleFunc("GET /api/v1/projects/{projectID}/workflow-runs/{runID}/events", s.handleWorkflowRunEvents)
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/workflows", s.handleListWorkflows)
 	mux.HandleFunc("POST /api/v1/projects/{projectID}/workflows/validate", s.handleValidateWorkflow)
 	mux.HandleFunc("POST /api/v1/projects/{projectID}/workflows", s.handleSaveWorkflow)
 	mux.HandleFunc("POST /api/v1/projects/{projectID}/workflows/{workflowID}/versions/{version}/compile", s.handleCompileWorkflow)
+	mux.HandleFunc("GET /api/v1/projects/{projectID}/workflow-plans", s.handleListWorkflowPlans)
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/workflow-plans/{planID}", s.handleGetWorkflowPlan)
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/workflows/{workflowID}/versions/{version}", s.handleGetWorkflow)
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/workflows/{workflowID}/versions/{version}/export", s.handleGetWorkflow)

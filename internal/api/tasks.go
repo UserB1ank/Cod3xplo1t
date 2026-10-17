@@ -14,6 +14,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/path"
 	"github.com/open-mcp-ai/Codexploit/internal/storage"
 	"github.com/open-mcp-ai/Codexploit/internal/verify"
+	"github.com/open-mcp-ai/Codexploit/internal/workflow"
 )
 
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
@@ -26,13 +27,16 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 }
 
 type taskRequest struct {
-	SourceID   string      `json:"source_id"`
-	Name       string      `json:"name"`
-	Objective  string      `json:"objective"`
-	SnapshotID string      `json:"snapshot_id"`
-	Scope      []string    `json:"scope"`
-	Budget     path.Budget `json:"budget"`
-	Limits     path.Limits `json:"limits"`
+	AcceptPartialNodes []string    `json:"accept_partial_nodes,omitempty"`
+	WorkflowPlanID     string      `json:"workflow_plan_id,omitempty"`
+	AnalyzeCandidates  bool        `json:"analyze_candidates"`
+	SourceID           string      `json:"source_id"`
+	Name               string      `json:"name"`
+	Objective          string      `json:"objective"`
+	SnapshotID         string      `json:"snapshot_id"`
+	Scope              []string    `json:"scope"`
+	Budget             path.Budget `json:"budget"`
+	Limits             path.Limits `json:"limits"`
 }
 
 func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
@@ -103,6 +107,25 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_source", errors.New("snapshot does not belong to the selected source"))
 		return
 	}
+	if req.WorkflowPlanID != "" {
+		if s.WorkflowRunner == nil {
+			writeWorkflowError(w, errors.New("runner unavailable"))
+			return
+		}
+		run, err := s.WorkflowRunner.Start(r.Context(), workflow.StartRequest{ProjectID: projectID, SnapshotID: req.SnapshotID, PlanID: req.WorkflowPlanID, Task: workflow.TaskDefinition{Name: req.Name, Objective: req.Objective, Scope: req.Scope, Budget: req.Budget, Limits: req.Limits}, AcceptPartialNodes: req.AcceptPartialNodes, AnalyzeCandidates: req.AnalyzeCandidates})
+		if err != nil {
+			writeWorkflowError(w, err)
+			return
+		}
+		task, err := s.Audit.Audit(run.TaskID)
+		if err != nil {
+			writeAuditError(w, err, req.SnapshotID)
+			return
+		}
+		w.Header().Set("ETag", taskETag(task))
+		writeJSON(w, 201, map[string]any{"task": sourceTask{Audit: *task, SourceSnapshot: binding}, "project_id": projectID, "workflow_run": run})
+		return
+	}
 	result, err := s.Audit.CreateAudit(r.Context(), path.CreateAuditRequest{TaskKey: rand.Text(), Name: req.Name, Objective: req.Objective, Scope: req.Scope, SnapshotID: req.SnapshotID, Budget: req.Budget, Limits: req.Limits})
 	if err != nil {
 		writeAuditError(w, err, req.SnapshotID)
@@ -113,6 +136,9 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 }
 
 type sourceTask struct {
+	WorkflowRunID  string `json:"workflow_run_id,omitempty"`
+	WorkflowPlanID string `json:"workflow_plan_id,omitempty"`
+	WorkflowStatus string `json:"workflow_status,omitempty"`
 	path.Audit
 	storage.SourceSnapshot
 	ETag               string `json:"etag,omitempty"`
@@ -143,7 +169,7 @@ func (s *Server) taskViews(ctx context.Context, tasks []path.Audit) ([]sourceTas
 		if known {
 			task.CountsByStatus = activity.Counts
 		}
-		view := sourceTask{Audit: task, SourceSnapshot: binding, ETag: taskETag(&task), CanArchive: known && task.Paused && !task.Archived}
+		view := sourceTask{WorkflowRunID: activity.WorkflowRunID, WorkflowPlanID: activity.WorkflowPlanID, WorkflowStatus: activity.WorkflowStatus, Audit: task, SourceSnapshot: binding, ETag: taskETag(&task), CanArchive: known && task.Paused && !task.Archived}
 		switch {
 		case !known:
 			view.ArchiveBlockReason = "Task activity is unavailable"
@@ -248,6 +274,18 @@ func (s *Server) handlePauseTask(paused bool) http.HandlerFunc {
 		if err != nil {
 			writeAuditError(w, err, "")
 			return
+		}
+		if reader, ok := s.Store.(storage.TaskActivityReader); ok {
+			activities, err := reader.TaskActivities(r.Context(), []string{task.ID})
+			if err != nil {
+				writeStorageError(w, err)
+				return
+			}
+			activity := activities[task.ID]
+			if activity.WorkflowRunID != "" && (activity.WorkflowStatus == "CREATED" || activity.WorkflowStatus == "RUNNING") {
+				writeError(w, 409, "workflow_managed", errors.New("active workflow tasks require workflow controls; legacy scheduling pause does not pause a workflow"))
+				return
+			}
 		}
 		if !requireEntityVersion(w, r, taskETag(task)) {
 			return

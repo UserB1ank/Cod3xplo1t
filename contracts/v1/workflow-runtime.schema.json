@@ -41,6 +41,13 @@
     },
     "code": {
       "const": "workflow_invalid"
+    },
+    "plans": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "$ref": "#/$defs/Plan"
+      }
     }
   },
   "required": [
@@ -79,6 +86,12 @@
         "error",
         "code",
         "diagnostics"
+      ]
+    },
+    {
+      "required": [
+        "plans",
+        "next_cursor"
       ]
     }
   ],

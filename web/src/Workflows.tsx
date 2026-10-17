@@ -59,7 +59,7 @@ type Validation = {
   diagnostics: Diagnostic[];
   nodes: CompiledNode[];
 };
-type Plan = {
+export type Plan = {
   plan_id: string;
   digest: string;
   compiler_version: string;

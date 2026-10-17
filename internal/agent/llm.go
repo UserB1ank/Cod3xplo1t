@@ -13,11 +13,18 @@ import (
 // ModelRuntime snapshots live settings per run. Saving new settings cannot
 // replace the credentials or model of an already running request.
 type ModelRuntime struct {
+	fixed            *llm.Config
 	Settings         *llm.Manager
 	ToolDescriptions []string
 }
 
-func (r *ModelRuntime) Ready() error { _, err := r.Settings.Current(); return err }
+func (r *ModelRuntime) Ready() error {
+	if r.fixed != nil {
+		return nil
+	}
+	_, err := r.Settings.Current()
+	return err
+}
 
 func (*ModelRuntime) Capabilities() RuntimeCapabilities {
 	return RuntimeCapabilities{Name: "llm", Version: "1", ToolCalls: true, TokenUsage: true, Notes: []string{"OpenAI-compatible Chat Completions or Responses; no hidden reasoning persisted; token ceilings require provider usage reporting"}}
@@ -28,6 +35,10 @@ func (r *ModelRuntime) Start(ctx context.Context, task Task) (*Handle, error) {
 		return nil, err
 	}
 	cfg, err := r.Settings.Current()
+	if r.fixed != nil {
+		cfg = *r.fixed
+		err = nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -142,4 +153,13 @@ func (r *ModelRuntime) runModel(ctx context.Context, cfg llm.Config, task Task, 
 		}
 	}
 	return nil, ErrBudgetExhausted
+}
+
+// Freeze captures credentials and model in memory; only public metadata leaves it.
+func (r *ModelRuntime) Freeze() (*ModelRuntime, llm.Public, error) {
+	cfg, metadata, err := r.Settings.Snapshot()
+	if err != nil {
+		return nil, metadata, err
+	}
+	return &ModelRuntime{Settings: r.Settings, ToolDescriptions: append([]string{}, r.ToolDescriptions...), fixed: &cfg}, metadata, nil
 }

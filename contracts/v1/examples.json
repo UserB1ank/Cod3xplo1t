@@ -58,5 +58,9 @@
   {
     "file": "examples/workflow-runtime.json",
     "schema": "workflow-runtime.schema.json"
+  },
+  {
+    "file": "examples/workflow-run.json",
+    "schema": "workflow-run.schema.json"
   }
 ]

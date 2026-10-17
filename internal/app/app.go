@@ -32,6 +32,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/storage"
 	"github.com/open-mcp-ai/Codexploit/internal/verify"
 	"github.com/open-mcp-ai/Codexploit/internal/workflow"
+	"github.com/open-mcp-ai/Codexploit/internal/workflowexec"
 	"github.com/open-mcp-ai/Codexploit/migrations"
 
 	_ "modernc.org/sqlite"
@@ -180,6 +181,7 @@ type AgentConfig struct {
 // Runtime bundles the wired components.
 type Runtime struct {
 	Workflows        *workflow.Catalog
+	WorkflowRunner   *workflow.Runner
 	WorkflowCompiler *workflow.Compiler
 	PluginCatalog    *plugin.Catalog
 	Plugins          *plugin.Host
@@ -281,6 +283,9 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 		if err := rt.wireVerification(rt.VerificationConfig); err != nil {
 			return nil, err
 		}
+		if err := rt.wireWorkflowRunner(); err != nil {
+			return nil, err
+		}
 		if err := rt.wireScheduler(rt.SchedulerConfig); err != nil {
 			return nil, err
 		}
@@ -316,6 +321,9 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 	}
 	if err := rt.wireVerification(rt.VerificationConfig); err != nil {
 		sqlStore.Close()
+		return nil, err
+	}
+	if err := rt.wireWorkflowRunner(); err != nil {
 		return nil, err
 	}
 	if err := rt.wireScheduler(rt.SchedulerConfig); err != nil {
@@ -795,4 +803,15 @@ func (r *Runtime) Close() error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+func (r *Runtime) wireWorkflowRunner() error {
+	repo, ok := r.Store.(workflow.RunRepository)
+	if !ok {
+		return workflow.ErrInvalid
+	}
+	r.WorkflowRunner = workflow.NewRunner(r.WorkflowCompiler, repo, workflow.PluginExecutor{Host: r.Plugins, Catalog: r.PluginCatalog}, r.WorkflowCompiler.Artifacts)
+	r.WorkflowRunner.Effects = &workflowexec.Effects{Store: r.Store, Host: r.Plugins, Artifacts: r.WorkflowCompiler.Artifacts, Manager: r.Manager, Agent: r.Agent}
+	r.closers = append([]func() error{r.WorkflowRunner.Close}, r.closers...)
+	return nil
 }

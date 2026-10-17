@@ -1,6 +1,6 @@
 # L6 工作流层
 
-已实现：`WorkflowCatalog`、`WorkflowCompiler`（版本、校验、不可变编译计划与正式页面，见 [工作流 API](../../../workflows.md)）。`WorkflowRunner` 的执行、暂停与恢复由后续 Issue 接入。
+已实现：`WorkflowCatalog`、`WorkflowCompiler`（版本、校验、不可变编译计划与正式页面，见 [工作流 API](../../../workflows.md)）及 `WorkflowRunner`（固定计划、真实 DAG、知识发布、可选模型分析、节点事件与正式任务详情，见[执行协议](../../../workflow-execution.md)）。Memory / SQLite 已接入；下文暂停、租约、重试和崩溃恢复仍为后续设计约束。
 
 接口：`WorkflowCompiler`、`WorkflowRunner`。Schema：[workflow.schema.json](../../../../contracts/v1/workflow.schema.json)。示例：[workflow.json](../../../../contracts/v1/examples/workflow.json)。
 
@@ -18,9 +18,9 @@ WorkflowSpec 包含 id、version、name、description、inputs 和 nodes。节�
 |---|---|---|
 | `Validate` | WorkflowSpec、固定插件目录 | 有字段路径的错误列表 |
 | `Compile` | WorkflowSpec、Scope、初始产物、固定视图、预算 | 不可变 ExecutionPlan 与摘要 |
-| `Start` | 计划摘要、CallContext、幂等键 | WorkflowRun |
-| `Pause / Resume / Cancel` | run_id、expected_version、原因 | 新状态版本 |
-| `ReadEvents` | run_id、after_seq、limit | 有序事件页与 cursor |
+| `Start` | project / snapshot / plan ID、TaskDefinition、部分接受策略、模型开关 | 原子创建任务与 WorkflowRun |
+| `Get / Events` | project_id、run_id、after_seq、limit | 执行记录 / 有序事件页 |
+| `Pause / Resume / Cancel`（后续） | run_id、expected_version、原因 | 新状态版本 |
 
 Compile 固定工作流字节、插件版本/包摘要、输入摘要、图谱视图、规则版本和参数摘要。后续编辑模板不修改正在运行的计划。
 
@@ -51,6 +51,6 @@ Pause 停止领取新节点，活动节点在边界完成后进入 PAUSED；Canc
                              项目知识发布 → Agent 分析 → 报告
 ```
 
-现有 P7 调度器面向 AuditPath；统一 DAG 不能仅重命名该队列。后续 WorkflowRunner 可在节点内部调用现有路径引擎，并分别保存流程运行、节点运行与 Agent 运行。
+现有 P7 调度器面向 AuditPath；统一 DAG 独立调度插件，分别保存流程运行、节点运行、插件调用与 Agent 运行。旧调度器排除工作流任务，避免重复领取或绕过模型开关。
 
 验收：环路、错误类型、缺失版本被拒；中断、重试、双 worker 抢占和崩溃恢复不重复提交；图谱发布节点与后续视图绑定一致。

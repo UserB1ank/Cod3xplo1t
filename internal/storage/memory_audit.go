@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/open-mcp-ai/Codexploit/internal/path"
+	"github.com/open-mcp-ai/Codexploit/internal/workflow"
 )
 
 // auditDocument is the in-memory aggregate of one audit: the audit row, its path
@@ -120,8 +121,13 @@ func (m *Memory) ListAudits(q path.AuditQuery) ([]path.Audit, int, error) {
 		}
 		if q.TaskState != "" {
 			live := doc.audit
-			live.CountsByStatus = m.taskActivityLocked(doc.audit.ID).Counts
-			if path.TaskState(live) != q.TaskState {
+			activity := m.taskActivityLocked(doc.audit.ID)
+			live.CountsByStatus = activity.Counts
+			state := path.TaskState(live)
+			if activity.WorkflowRunID != "" && !live.Archived {
+				state = workflowTaskState(activity.WorkflowStatus)
+			}
+			if state != q.TaskState {
 				continue
 			}
 		}
@@ -297,6 +303,12 @@ func (m *Memory) ListPaths(q path.PathQuery) ([]path.Path, int, error) {
 func (m *Memory) ListDuePaths(auditID, now string, limit int) ([]path.Path, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	for _, raw := range m.workflowRuns {
+		var run workflow.Run
+		if json.Unmarshal(raw, &run) == nil && run.TaskID == auditID {
+			return []path.Path{}, nil
+		}
+	}
 	var out []path.Path
 	for _, doc := range m.audits {
 		for _, p := range doc.paths {

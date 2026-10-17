@@ -262,3 +262,43 @@ func (s *SQL) ListWorkflows(ctx context.Context, project, cursor string, limit i
 	}
 	return result, rows.Err()
 }
+
+func (m *Memory) ListWorkflowPlans(_ context.Context, project, snapshot, cursor string, limit int) ([]workflow.Plan, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	result := []workflow.Plan{}
+	for _, raw := range m.workflowPlans {
+		var p workflow.Plan
+		if err := json.Unmarshal(raw, &p); err != nil {
+			return nil, err
+		}
+		if p.Scope.ProjectID == project && p.Scope.SnapshotID == snapshot && p.ID > cursor && m.artifactScopeLocked(p.Scope) {
+			result = append(result, p)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+	if len(result) > limit {
+		result = result[:limit]
+	}
+	return result, nil
+}
+func (s *SQL) ListWorkflowPlans(ctx context.Context, project, snapshot, cursor string, limit int) ([]workflow.Plan, error) {
+	rows, err := s.db.QueryContext(ctx, s.rebind(`SELECT document_json FROM workflow_plans p WHERE project_id=? AND snapshot_id=? AND plan_id>? AND NOT EXISTS(SELECT 1 FROM snapshot_deletions d WHERE d.snapshot_id=p.snapshot_id) ORDER BY plan_id LIMIT ?`), project, snapshot, cursor, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := []workflow.Plan{}
+	for rows.Next() {
+		var raw string
+		var p workflow.Plan
+		if err := rows.Scan(&raw); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(raw), &p); err != nil {
+			return nil, err
+		}
+		result = append(result, p)
+	}
+	return result, rows.Err()
+}
