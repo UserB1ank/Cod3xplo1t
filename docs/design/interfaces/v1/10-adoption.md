@@ -44,6 +44,8 @@ Issue #3 的正式任务表已接通项目分类目录、置顶、归档/恢复�
 
 Issue #6 的正式插件中心已接入 Schema 校验的不可变目录与内置 Go 解析器。调用固定输入、版本、包和参数摘要，保存覆盖、局限及 AST / facts 产物，支持 CAS 取消、预算与单宿主重启中断状态。外部清单仅登记，不显示为已安装执行器。实际接口、版本指纹和部署限制见 [插件接口](../../../plugins.md)。
 
+Issue #11 已把运行控制接到正式任务：`POST .../workflow-runs/{id}/pause|resume|cancel|retry`（writer）实现 PAUSING/PAUSED/CANCELLING 状态机与幂等控制，暂停只阻断新节点、活动节点到边界完成；只有可重试错误按退避与次数上限重试，取消不重试；节点写入租约与独立 attempt，迟到结果被拒；进程重启后 `Recover` 恢复非终态运行，已成功节点复用原产物不重复发布。运行并发与重试上限固定写入运行记录，事件游标保持 `after_seq` 语义。正式任务页新增暂停/继续/取消/重试与尝试次数、并发策略展示。
+
 Issue #8 已把插件标准结果接到不可变共享版本：新增 `POST .../knowledge/publications`（writer）与 `GET .../knowledge/revisions/{view}/facts`（reader），版本 CAS、幂等批次、scope / 孤立边校验、冲突观察保留和 outbox 同事务提交；同一事实的多工具来源保留为独立观察。正式图谱页的“共享知识版本”面板可选择任意已发布版本并展开来源。旧 `/api` 与 #5 的固定视图保持兼容；PostgreSQL 规范化索引仍属后续存储切片。
 
 Issue #5 已把正式“共享知识图谱”页面接到固定视图：`POST /api/v1/projects/{id}/knowledge/views` 记录快照的 SCG / ASG 版本与构建时间，`symbols`、`neighborhood`、`nodes`、`paths`、`code_slice`、`provenance` 都从该 pin 读取并带覆盖与截断说明。同快照的多个任务共享一组事实与路径，重建后旧视图显式返回 `view_superseded`。旧 `/api` 图谱接口保持兼容；增量发布仍属 #8。

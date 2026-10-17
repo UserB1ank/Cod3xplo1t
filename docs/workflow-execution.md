@@ -1,6 +1,6 @@
 # 固定工作流执行
 
-正式任务创建页可以选择当前快照的固定计划，执行真实的解析、语义和路径插件，发布项目共享知识，并按需调用程序中配置的模型分析候选。工作流定义与编译见[工作流 API](workflows.md)。执行记录保存在 Memory / SQLite；PostgreSQL 适配、暂停、重试及崩溃恢复由后续 Issue 接入。
+正式任务创建页可以选择当前快照的固定计划，执行真实的解析、语义和路径插件，发布项目共享知识，并按需调用程序中配置的模型分析候选。工作流定义与编译见[工作流 API](workflows.md)。执行记录保存在 Memory / SQLite；暂停、取消、重试与重启恢复见下节；PostgreSQL 适配由后续存储切片接入。
 
 ## 操作流程
 
@@ -11,6 +11,21 @@
 5. 在任务详情查看真实节点状态、输入输出、插件调用、共享知识版本、Agent 运行与有序事件。“产物与证据”页可校验、预览和下载对应内容。
 
 内置链路为 `parse → semantic → paths → $publish → $analyze`。最后两个是应用阶段，不能在 WorkflowSpec 中冒充插件：`$publish` 发布完成调用的标准结果并建立任务候选，`$analyze` 通过既有 Agent runtime 分析候选。未启用模型或没有候选时分析阶段明确 SKIPPED。
+
+## 流程控制与恢复
+
+| 方法与地址 | 角色 | 行为 |
+|---|---|---|
+| POST `/api/v1/projects/{projectID}/workflow-runs/{runID}/pause` | writer | RUNNING → PAUSING；活动节点到边界完成后 PAUSED；重复请求幂等 |
+| POST `.../resume` | writer | PAUSED（或仍在 PAUSING）→ RUNNING，从持久化状态继续 |
+| POST `.../cancel` | writer | → CANCELLING；执行器被取消、迟到结果丢弃，终态 CANCELLED；重复请求幂等 |
+| POST `.../retry` | writer | 仅 FAILED 可重试：创建新运行，已成功节点复用原调用与产物，不再重复发布 |
+
+状态机：`CREATED → RUNNING ⇄ PAUSING → PAUSED`，任一活动态可进入 `CANCELLING → CANCELLED`；终态为 `SUCCEEDED / PARTIAL / FAILED / CANCELLED`。每次转换追加一个有序事件（`run_pause_requested`、`run_paused`、`run_resumed`、`run_cancel_requested`、`run_finished`、`run_recovered` 等），事件流沿用 `after_seq` 游标恢复。
+
+**重试策略**：只有被标记为可重试的执行器错误与超时会重试；取消、非法输入和输出完整性失败不重试。单节点上限取任务 limits 的 `max_attempts`（默认 3，1–10），退避为 100ms 起指数增长、上限 3s；耗尽后节点以 `retry_exhausted` 失败。并发上限为 `max_active_leases`（默认 4，1–16），固定写入运行记录。
+
+**租约与恢复**：节点开跑前写入 `attempt`、`lease_owner`、`lease_expires_at`。迟到 worker 的结果（状态已取消、或租约不属于本进程）只记录 `node_result_rejected`，不覆盖现有节点。进程重启时 `Recover` 扫描非终态运行，把 RUNNING 节点回收为 PENDING 后重新调度，已 SUCCEEDED 的节点保留原调用与产物，因此不会重复发布。暂停中的运行不占用执行器；恢复时按当前应用设置重新绑定模型，运行记录仍保留原模型 pin。
 
 ## 认证 HTTP API
 

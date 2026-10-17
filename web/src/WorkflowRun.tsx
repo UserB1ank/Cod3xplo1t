@@ -9,6 +9,9 @@ export const flowStatus: { [key: string]: string } = {
   CREATED: "等待流程",
   PENDING: "未调度",
   RUNNING: "流程运行中",
+  PAUSING: "暂停中",
+  PAUSED: "已暂停",
+  CANCELLING: "取消中",
   SUCCEEDED: "流程完成",
   PARTIAL: "部分覆盖",
   FAILED: "流程失败",
@@ -28,6 +31,9 @@ interface NodeRun {
   node_id: string;
   kind: string;
   status: string;
+  attempt?: number;
+  next_attempt_at?: string;
+  last_error?: string;
   invocation_id?: string;
   inputs: ArtifactRef[];
   outputs: ArtifactRef[];
@@ -53,6 +59,9 @@ interface Execution {
     model?: string;
   };
   accept_partial_nodes: string[];
+  max_parallel?: number;
+  max_attempts?: number;
+  retry_of?: string;
   scope: ArtifactRef["scope"];
 }
 const kinds: { [key: string]: string } = {
@@ -82,6 +91,7 @@ export function WorkflowRun({
   const [cursors, setCursors] = useState([0]);
   const [events, setEvents] = useState<Event[]>([]);
   const [next, setNext] = useState(0);
+  const [busy, setBusy] = useState("");
   const endpoint = `/v1/projects/${encodeURIComponent(projectID)}/workflow-runs/${encodeURIComponent(runID)}`;
   const after = cursors.at(-1) || 0;
   useEffect(() => {
@@ -121,6 +131,25 @@ export function WorkflowRun({
       });
     return () => controller.abort();
   }, [api, endpoint, after, revision, tick]);
+  const control = async (action: string) => {
+    setBusy(action);
+    setError("");
+    try {
+      await api.post(`${endpoint}/${action}`, {});
+      refresh((t) => t + 1);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "流程控制失败");
+    } finally {
+      setBusy("");
+    }
+  };
+  const status = run?.status || "";
+  const can = {
+    pause: status === "CREATED" || status === "RUNNING",
+    resume: status === "PAUSED" || status === "PAUSING",
+    cancel: ["CREATED", "RUNNING", "PAUSING", "PAUSED"].includes(status),
+    retry: status === "FAILED",
+  };
   return (
     <Panel
       title="工作流执行"
@@ -153,6 +182,24 @@ export function WorkflowRun({
               <FileText size={14} />
               查看真实产物
             </button>
+          </div>
+          <div className="workflow-controls">
+            <button className="button secondary small" disabled={!can.pause || !!busy} onClick={() => control("pause")}>
+              暂停
+            </button>
+            <button className="button secondary small" disabled={!can.resume || !!busy} onClick={() => control("resume")}>
+              继续
+            </button>
+            <button className="button secondary small" disabled={!can.cancel || !!busy} onClick={() => control("cancel")}>
+              取消
+            </button>
+            <button className="button secondary small" disabled={!can.retry || !!busy} onClick={() => control("retry")}>
+              重试失败流程
+            </button>
+            <span className="muted">
+              并发 {run.max_parallel ?? 2} · 节点重试上限 {run.max_attempts ?? 3}
+              {run.retry_of ? ` · 重试自 ${run.retry_of}` : ""}
+            </span>
           </div>
           <dl className="workflow-pins">
             <dt>固定计划</dt>
@@ -329,7 +376,7 @@ export function WorkflowRun({
             </div>
           </div>
           <Hint>
-            流程状态与候选结论分别记录。暂停、取消、重试由后续流程控制接口接入；旧路径调度不会接管该任务。
+            流程状态与候选结论分别记录。暂停只阻断新节点，活动节点会在边界完成；取消等待执行器终态；重试仅对失败运行生效并复用已完成的节点产物。旧路径调度不会接管该任务。
           </Hint>
         </>
       )}

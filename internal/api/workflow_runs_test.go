@@ -250,7 +250,11 @@ func TestWorkflowPublishesSharedKnowledgeAndRunsConfiguredCandidateRuntime(t *te
 		time.Sleep(10 * time.Millisecond)
 	}
 	if bounded.Run.Status != "FAILED" || bounded.Run.Nodes[len(bounded.Run.Nodes)-2].Status != "PARTIAL" {
-		t.Fatalf("task path truncation was not explicit: status %s", bounded.Run.Status)
+		summary := []string{}
+		for _, n := range bounded.Run.Nodes {
+			summary = append(summary, n.NodeID+"="+n.Status+"/"+n.ErrorCode)
+		}
+		t.Fatalf("task path truncation was not explicit: status %s nodes %v", bounded.Run.Status, summary)
 	}
 	tick := do(t, env.ts, http.MethodPost, "/api/scheduler/tick", map[string]any{"concurrency": 1}, nil)
 	var scheduled struct {
@@ -360,7 +364,11 @@ func TestWorkflowRunPersistsAndFencesTaskAndSnapshotLifecycle(t *testing.T) {
 	}
 	for {
 		response := do(t, env.ts, http.MethodGet, endpoint, nil, nil)
-		response.decode(t, &before)
+		var current struct {
+			Run workflow.Run `json:"run"`
+		}
+		response.decode(t, &current)
+		before = current
 		if workflow.RunTerminal(before.Run.Status) {
 			break
 		}

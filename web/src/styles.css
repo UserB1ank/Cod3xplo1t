@@ -2107,3 +2107,5 @@ pre {
 .workflow-task-digest { overflow-wrap: anywhere; font-size: 11px; color: var(--muted); }
 .workflow-plan-table th, .workflow-plan-table td { padding: 14px 20px; text-align: left; border-top: 1px solid var(--border); }
 .workflow-plan-table th { color: var(--muted); background: var(--panel-raised); font-weight: 500; }
+.workflow-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 0 22px 14px; font-size: 11px; }
+.workflow-controls .button { padding: 5px 10px; }

@@ -36,25 +36,34 @@ type RunEvent struct {
 	CreatedAt string `json:"created_at"`
 }
 type NodeRun struct {
-	Knowledge    []KnowledgePin `json:"knowledge,omitempty"`
-	AgentRunIDs  []string       `json:"agent_run_ids,omitempty"`
-	Note         string         `json:"note,omitempty"`
-	ID           string         `json:"node_run_id"`
-	NodeID       string         `json:"node_id"`
-	Kind         string         `json:"kind"`
-	Status       string         `json:"status"`
-	InvocationID string         `json:"invocation_id,omitempty"`
-	Inputs       []artifact.Ref `json:"inputs"`
-	Outputs      []artifact.Ref `json:"outputs"`
-	ErrorCode    string         `json:"error_code,omitempty"`
-	StartedAt    string         `json:"started_at,omitempty"`
-	FinishedAt   string         `json:"finished_at,omitempty"`
+	Knowledge      []KnowledgePin `json:"knowledge,omitempty"`
+	AgentRunIDs    []string       `json:"agent_run_ids,omitempty"`
+	Note           string         `json:"note,omitempty"`
+	Attempt        int            `json:"attempt"`
+	NextAttemptAt  string         `json:"next_attempt_at,omitempty"`
+	LastError      string         `json:"last_error,omitempty"`
+	LeaseOwner     string         `json:"lease_owner,omitempty"`
+	LeaseExpiresAt string         `json:"lease_expires_at,omitempty"`
+	ID             string         `json:"node_run_id"`
+	NodeID         string         `json:"node_id"`
+	Kind           string         `json:"kind"`
+	Status         string         `json:"status"`
+	InvocationID   string         `json:"invocation_id,omitempty"`
+	Inputs         []artifact.Ref `json:"inputs"`
+	Outputs        []artifact.Ref `json:"outputs"`
+	ErrorCode      string         `json:"error_code,omitempty"`
+	StartedAt      string         `json:"started_at,omitempty"`
+	FinishedAt     string         `json:"finished_at,omitempty"`
 }
 
 const RunnerVersion = "1.0.0"
 
 type Run struct {
 	RunnerVersion      string         `json:"runner_version"`
+	MaxParallel        int            `json:"max_parallel"`
+	MaxAttempts        int            `json:"max_attempts"`
+	AnalyzeCandidates  bool           `json:"analyze_candidates"`
+	RetryOf            string         `json:"retry_of,omitempty"`
 	Task               TaskDefinition `json:"task"`
 	Model              ModelPin       `json:"model"`
 	AcceptPartialNodes []string       `json:"accept_partial_nodes"`
@@ -86,6 +95,9 @@ type RunRepository interface {
 	CreateWorkflowRun(context.Context, Run, TaskDefinition) error
 	SaveWorkflowRun(context.Context, Run, int64) error
 	GetWorkflowRun(context.Context, string, string) (Run, error)
+	// ListRecoverableWorkflowRuns returns runs that are not terminal, so a new
+	// host can resume them after a restart.
+	ListRecoverableWorkflowRuns(context.Context) ([]Run, error)
 }
 type ModelPin struct {
 	Runtime        string `json:"runtime"`
@@ -106,19 +118,82 @@ type Runner struct {
 	Repository RunRepository
 	Executor   NodeExecutor
 	Artifacts  artifact.Store
+	// Instance identifies this process in node leases, so a recovered run can
+	// tell a stale worker's output from its own.
+	InstanceID string
+	// Backoff is the retry delay of one attempt; it is injectable for tests.
+	Backoff    func(attempt int) time.Duration
 	mu         sync.Mutex
 	ctx        context.Context
 	cancel     context.CancelFunc
 	wg         sync.WaitGroup
 	closed     bool
+	executions map[string]*execution
 }
 
 func NewRunner(compiler *Compiler, repo RunRepository, executor NodeExecutor, objects artifact.Store) *Runner {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Runner{Compiler: compiler, Repository: repo, Executor: executor, Artifacts: objects, ctx: ctx, cancel: cancel}
+	return &Runner{Compiler: compiler, Repository: repo, Executor: executor, Artifacts: objects, InstanceID: "runner-" + rand.Text(), Backoff: defaultBackoff, ctx: ctx, cancel: cancel, executions: map[string]*execution{}}
 }
-func RunTerminal(status string) bool { return status != "CREATED" && status != "RUNNING" }
-func runNow() string                 { return time.Now().UTC().Format(time.RFC3339Nano) }
+
+func parallelFor(limits audit.Limits) int {
+	limits = limits.Normalize()
+	if limits.MaxActiveLeases < 1 {
+		return 1
+	}
+	if limits.MaxActiveLeases > 16 {
+		return 16
+	}
+	return limits.MaxActiveLeases
+}
+
+func attemptsFor(limits audit.Limits) int {
+	limits = limits.Normalize()
+	if limits.MaxAttempts < 1 {
+		return 1
+	}
+	if limits.MaxAttempts > 10 {
+		return 10
+	}
+	return limits.MaxAttempts
+}
+
+func defaultBackoff(attempt int) time.Duration {
+	if attempt < 1 {
+		attempt = 1
+	}
+	delay := 100 * time.Millisecond
+	for i := 1; i < attempt && delay < 3*time.Second; i++ {
+		delay *= 2
+	}
+	if delay > 3*time.Second {
+		delay = 3 * time.Second
+	}
+	return delay
+}
+
+// cloneRun deep-copies a run so the caller never shares the live slices the
+// execution goroutine keeps updating.
+func cloneRun(run Run) Run {
+	raw, err := json.Marshal(run)
+	if err != nil {
+		return run
+	}
+	var clone Run
+	if err := json.Unmarshal(raw, &clone); err != nil {
+		return run
+	}
+	return clone
+}
+
+func RunTerminal(status string) bool {
+	switch status {
+	case "CREATED", "RUNNING", "PAUSING", "PAUSED", "CANCELLING":
+		return false
+	}
+	return true
+}
+func runNow() string { return time.Now().UTC().Format(time.RFC3339Nano) }
 func (r *Runner) Start(ctx context.Context, req StartRequest) (Run, error) {
 	plan, err := r.Compiler.Get(ctx, req.ProjectID, req.PlanID)
 	if err != nil {
@@ -167,20 +242,23 @@ func (r *Runner) Start(ctx context.Context, req StartRequest) (Run, error) {
 	if effects != nil {
 		run.Nodes = append(run.Nodes, NodeRun{ID: run.ID + "-publish", NodeID: "$publish", Kind: "knowledge_publish", Status: "PENDING", Inputs: []artifact.Ref{}, Outputs: []artifact.Ref{}}, NodeRun{ID: run.ID + "-analyze", NodeID: "$analyze", Kind: "candidate_analysis", Status: "PENDING", Inputs: []artifact.Ref{}, Outputs: []artifact.Ref{}})
 	}
+	run.MaxParallel = parallelFor(req.Task.Limits)
+	run.MaxAttempts = attemptsFor(req.Task.Limits)
+	run.AnalyzeCandidates = req.AnalyzeCandidates
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	if r.closed {
+		r.mu.Unlock()
 		return Run{}, ErrInvalid
 	}
+	r.mu.Unlock()
 	if err := r.Repository.CreateWorkflowRun(ctx, run, req.Task); err != nil {
 		return Run{}, err
 	}
-	raw, _ := json.Marshal(run)
-	var detached Run
-	_ = json.Unmarshal(raw, &detached)
-	r.wg.Add(1)
-	go func() { defer r.wg.Done(); r.execute(detached, plan, effects) }()
-	return run, nil
+	exec := &execution{run: &run, plan: plan, effects: effects, signal: make(chan struct{}, 1)}
+	result := cloneRun(run)
+	r.register(exec)
+	r.startLoop(exec)
+	return result, nil
 }
 func (r *Runner) Get(ctx context.Context, project, id string) (Run, error) {
 	return r.Repository.GetWorkflowRun(ctx, project, id)
@@ -200,13 +278,6 @@ func (r *Runner) Events(ctx context.Context, project, id string, after int64, li
 		}
 	}
 	return events, nil
-}
-func (r *Runner) save(run *Run, kind, node, status string) error {
-	prior := run.Version
-	run.Version++
-	run.UpdatedAt = runNow()
-	run.Events = append(run.Events, RunEvent{Seq: int64(len(run.Events) + 1), Type: kind, NodeID: node, Status: status, CreatedAt: run.UpdatedAt})
-	return r.Repository.SaveWorkflowRun(context.Background(), *run, prior)
 }
 func bindNode(plan Plan, run Run, node CompiledNode) ([]artifact.Ref, error) {
 	inputs := []artifact.Ref{}
@@ -241,178 +312,6 @@ type nodeCompletion struct {
 	err    error
 }
 
-func (r *Runner) execute(run Run, plan Plan, effects Effects) {
-	ctx, cancel := context.WithCancel(r.ctx)
-	var workers sync.WaitGroup
-	defer func() { cancel(); workers.Wait() }()
-	run.Status = "RUNNING"
-	if r.save(&run, "run_started", "", run.Status) != nil {
-		return
-	}
-	completed := make(chan nodeCompletion, len(plan.Nodes))
-	active, finished := 0, 0
-	failed := false
-	for finished < len(plan.Nodes) {
-		if !failed {
-			for i, node := range plan.Nodes {
-				if active >= 2 {
-					break
-				}
-				if run.Nodes[i].Status != "PENDING" {
-					continue
-				}
-				ready := true
-				for _, need := range node.Needs {
-					found := false
-					for _, prior := range run.Nodes {
-						if prior.NodeID == need && (prior.Status == "SUCCEEDED" || (prior.Status == "PARTIAL" && acceptsPartial(run, prior.NodeID))) {
-							found = true
-						}
-					}
-					if !found {
-						ready = false
-					}
-				}
-				if !ready {
-					continue
-				}
-				inputs, err := bindNode(plan, run, node)
-				if err != nil {
-					run.Nodes[i].Status = "FAILED"
-					run.Nodes[i].ErrorCode = "input_binding"
-					run.Nodes[i].FinishedAt = runNow()
-					finished++
-					failed = true
-					cancel()
-					if r.save(&run, "node_finished", node.ID, "FAILED") != nil {
-						return
-					}
-					break
-				}
-				run.Nodes[i].Inputs = inputs
-				run.Nodes[i].InvocationID = "winv-" + rand.Text()
-				run.Nodes[i].Status = "RUNNING"
-				run.Nodes[i].StartedAt = runNow()
-				if r.save(&run, "node_started", node.ID, "RUNNING") != nil {
-					return
-				}
-				active++
-				workers.Add(1)
-				go func(index int, node CompiledNode, inputs []artifact.Ref, id string) {
-					defer workers.Done()
-					nodeCtx, done := context.WithTimeout(ctx, time.Duration(node.TimeoutSeconds)*time.Second)
-					defer done()
-					result, err := r.Executor.Execute(nodeCtx, node, plan.Scope, inputs, id)
-					completed <- nodeCompletion{index, result, err}
-				}(i, node, inputs, run.Nodes[i].InvocationID)
-			}
-		}
-		if active == 0 {
-			break
-		}
-		completion := <-completed
-		active--
-		finished++
-		nr := &run.Nodes[completion.index]
-		result, err := completion.result, completion.err
-		if (result.Status == "SUCCEEDED" || result.Status == "PARTIAL") && !r.validOutputs(ctx, plan, plan.Nodes[completion.index], nr.InvocationID, result) {
-			result.Status = "FAILED"
-			result.ErrorCode = "output_integrity"
-			result.Outputs = []artifact.Ref{}
-		}
-		nr.InvocationID = result.InvocationID
-		nr.Outputs = result.Outputs
-		if nr.Outputs == nil {
-			nr.Outputs = []artifact.Ref{}
-		}
-		nr.Status = result.Status
-		nr.ErrorCode = result.ErrorCode
-		nr.FinishedAt = runNow()
-		if err != nil || (nr.Status != "SUCCEEDED" && !(nr.Status == "PARTIAL" && acceptsPartial(run, nr.NodeID))) {
-			if nr.Status != "PARTIAL" {
-				nr.Status = "FAILED"
-			} else {
-				nr.ErrorCode = "partial_not_accepted"
-			}
-			if errors.Is(err, context.Canceled) {
-				nr.Status = "CANCELLED"
-			}
-			if errors.Is(err, context.DeadlineExceeded) {
-				nr.Status = "TIMED_OUT"
-			}
-			if nr.ErrorCode == "" {
-				nr.ErrorCode = "node_failed"
-			}
-			failed = true
-			cancel()
-		}
-		if r.save(&run, "node_finished", nr.NodeID, nr.Status) != nil {
-			return
-		}
-	}
-	if !failed && effects != nil {
-		for i := len(plan.Nodes); i < len(run.Nodes); i++ {
-			nr := &run.Nodes[i]
-			for j := 0; j < i; j++ {
-				nr.Inputs = append(nr.Inputs, run.Nodes[j].Outputs...)
-			}
-			nr.Status = "RUNNING"
-			nr.StartedAt = runNow()
-			if r.save(&run, "node_started", nr.NodeID, nr.Status) != nil {
-				return
-			}
-			result, err := effects.Execute(ctx, run, plan, *nr)
-			nr.Status = result.Status
-			nr.Outputs = result.Outputs
-			if nr.Outputs == nil {
-				nr.Outputs = []artifact.Ref{}
-			}
-			nr.Knowledge = result.Knowledge
-			nr.AgentRunIDs = result.AgentRunIDs
-			nr.Note = result.Note
-			nr.ErrorCode = result.ErrorCode
-			nr.FinishedAt = runNow()
-			if err != nil || (nr.Status != "SUCCEEDED" && nr.Status != "SKIPPED" && !(nr.Status == "PARTIAL" && acceptsPartial(run, nr.NodeID))) {
-				if nr.Status != "PARTIAL" {
-					nr.Status = "FAILED"
-				}
-				if nr.Status == "PARTIAL" && nr.ErrorCode == "" {
-					nr.ErrorCode = "partial_not_accepted"
-				}
-				if nr.ErrorCode == "" {
-					nr.ErrorCode = "effect_failed"
-				}
-				failed = true
-			}
-			if r.save(&run, "node_finished", nr.NodeID, nr.Status) != nil {
-				return
-			}
-			if failed {
-				break
-			}
-		}
-	}
-	for i := range run.Nodes {
-		if run.Nodes[i].Status == "PENDING" {
-			run.Nodes[i].Status = "SKIPPED"
-			run.Nodes[i].ErrorCode = "upstream_failed"
-			if r.save(&run, "node_skipped", run.Nodes[i].NodeID, "SKIPPED") != nil {
-				return
-			}
-			failed = true
-		}
-	}
-	run.Status = "SUCCEEDED"
-	for _, node := range run.Nodes {
-		if node.Status == "PARTIAL" {
-			run.Status = "PARTIAL"
-		}
-	}
-	if failed {
-		run.Status = "FAILED"
-	}
-	_ = r.save(&run, "run_finished", "", run.Status)
-}
 func (r *Runner) Close() error {
 	r.mu.Lock()
 	r.closed = true

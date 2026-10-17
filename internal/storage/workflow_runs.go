@@ -81,6 +81,25 @@ func (m *Memory) SaveWorkflowRun(ctx context.Context, run workflow.Run, expected
 	}
 	return nil
 }
+func (m *Memory) ListRecoverableWorkflowRuns(ctx context.Context) ([]workflow.Run, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	runs := []workflow.Run{}
+	for _, raw := range m.workflowRuns {
+		var run workflow.Run
+		if err := json.Unmarshal(raw, &run); err != nil {
+			continue
+		}
+		if workflow.RunTerminal(run.Status) || !m.artifactScopeLocked(run.Scope) {
+			continue
+		}
+		runs = append(runs, run)
+	}
+	return runs, nil
+}
 func (m *Memory) GetWorkflowRun(ctx context.Context, project, id string) (workflow.Run, error) {
 	if err := ctx.Err(); err != nil {
 		return workflow.Run{}, err
@@ -163,6 +182,28 @@ func (s *SQL) SaveWorkflowRun(ctx context.Context, run workflow.Run, expected in
 		return nil
 	})
 }
+func (s *SQL) ListRecoverableWorkflowRuns(ctx context.Context) ([]workflow.Run, error) {
+	rows, err := s.db.QueryContext(ctx, s.rebind(`SELECT r.document_json FROM workflow_runs r
+WHERE r.status IN ('CREATED','RUNNING','PAUSING','PAUSED','CANCELLING')
+  AND NOT EXISTS (SELECT 1 FROM snapshot_deletions d WHERE d.snapshot_id = r.snapshot_id)`))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	runs := []workflow.Run{}
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return nil, err
+		}
+		var run workflow.Run
+		if err := json.Unmarshal([]byte(raw), &run); err != nil {
+			return nil, err
+		}
+		runs = append(runs, run)
+	}
+	return runs, rows.Err()
+}
 func (s *SQL) GetWorkflowRun(ctx context.Context, project, id string) (workflow.Run, error) {
 	var raw string
 	var run workflow.Run
@@ -179,7 +220,7 @@ func (s *SQL) GetWorkflowRun(ctx context.Context, project, id string) (workflow.
 
 // Every state write extends the event history and preserves the fixed run identity.
 func validWorkflowUpdate(prior, next workflow.Run, expected int64) bool {
-	if prior.Version != expected || next.Version != expected+1 || workflow.RunTerminal(prior.Status) || prior.ID != next.ID || prior.Scope != next.Scope || prior.TaskID != next.TaskID || prior.PlanID != next.PlanID || prior.PlanDigest != next.PlanDigest || prior.CreatedAt != next.CreatedAt || prior.Model != next.Model || prior.RunnerVersion != next.RunnerVersion || len(prior.Nodes) != len(next.Nodes) || len(next.Events) != len(prior.Events)+1 {
+	if prior.Version != expected || next.Version != expected+1 || workflow.RunTerminal(prior.Status) || prior.ID != next.ID || prior.Scope != next.Scope || prior.TaskID != next.TaskID || prior.PlanID != next.PlanID || prior.PlanDigest != next.PlanDigest || prior.CreatedAt != next.CreatedAt || prior.Model != next.Model || prior.RunnerVersion != next.RunnerVersion || prior.MaxParallel != next.MaxParallel || prior.MaxAttempts != next.MaxAttempts || prior.RetryOf != next.RetryOf || prior.AnalyzeCandidates != next.AnalyzeCandidates || len(prior.Nodes) != len(next.Nodes) || len(next.Events) != len(prior.Events)+1 {
 		return false
 	}
 	oldTask, _ := json.Marshal(prior.Task)

@@ -812,6 +812,11 @@ func (r *Runtime) wireWorkflowRunner() error {
 	}
 	r.WorkflowRunner = workflow.NewRunner(r.WorkflowCompiler, repo, workflow.PluginExecutor{Host: r.Plugins, Catalog: r.PluginCatalog}, r.WorkflowCompiler.Artifacts)
 	r.WorkflowRunner.Effects = &workflowexec.Effects{Store: r.Store, Host: r.Plugins, Artifacts: r.WorkflowCompiler.Artifacts, Manager: r.Manager, Agent: r.Agent}
+	if resumed, err := r.WorkflowRunner.Recover(context.Background()); err != nil {
+		slog.Warn("workflow recovery failed", "error", err)
+	} else if len(resumed) > 0 {
+		slog.Info("resumed interrupted workflow runs", "count", len(resumed))
+	}
 	r.closers = append([]func() error{r.WorkflowRunner.Close}, r.closers...)
 	return nil
 }

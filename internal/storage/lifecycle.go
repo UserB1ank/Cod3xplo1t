@@ -203,7 +203,7 @@ VALUES (?, ?) ON CONFLICT(snapshot_id) DO UPDATE SET completed = 0`), id, format
 		return mapSQLError(err)
 	}
 	for _, query := range []string{
-		`SELECT COUNT(*) FROM workflow_runs WHERE snapshot_id=? AND status IN ('CREATED','RUNNING')`,
+		`SELECT COUNT(*) FROM workflow_runs WHERE snapshot_id=? AND status IN ('CREATED','RUNNING','PAUSING','PAUSED','CANCELLING')`,
 		`SELECT COUNT(*) FROM plugin_invocations WHERE snapshot_id = ? AND status IN ('CREATED', 'RUNNING')`,
 		`SELECT COUNT(*) FROM audit_paths WHERE snapshot_id = ? AND status IN ('ANALYZING','LOCAL_EXPLORING','VERIFYING')`,
 		`SELECT COUNT(*) FROM agent_runs WHERE snapshot_id = ? AND status NOT IN ('SUCCEEDED','FAILED','CANCELLED','TIMED_OUT','BUDGET_EXCEEDED','INVALID_OUTPUT')`,

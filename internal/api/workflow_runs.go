@@ -9,6 +9,37 @@ import (
 )
 
 func WithWorkflowRunner(r *workflow.Runner) Option { return func(s *Server) { s.WorkflowRunner = r } }
+
+// handleWorkflowControl applies one operator control to a run. Every control is
+// idempotent for the state it targets, so a retried request is safe.
+func (s *Server) handleWorkflowControl(kind string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if s.WorkflowRunner == nil {
+			writeWorkflowError(w, errors.New("unavailable"))
+			return
+		}
+		project, id := r.PathValue("projectID"), r.PathValue("runID")
+		status := http.StatusOK
+		var run workflow.Run
+		var err error
+		switch kind {
+		case "pause":
+			run, err = s.WorkflowRunner.Pause(r.Context(), project, id)
+		case "resume":
+			run, err = s.WorkflowRunner.Resume(r.Context(), project, id)
+		case "cancel":
+			run, err = s.WorkflowRunner.Cancel(r.Context(), project, id)
+		case "retry":
+			status = http.StatusCreated
+			run, err = s.WorkflowRunner.Retry(r.Context(), project, id)
+		}
+		if err != nil {
+			writeWorkflowError(w, err)
+			return
+		}
+		writeWorkflowRunJSON(w, status, map[string]any{"api_version": "codexploit/v1", "run": run})
+	}
+}
 func (s *Server) handleGetWorkflowRun(w http.ResponseWriter, r *http.Request) {
 	if s.WorkflowRunner == nil {
 		writeWorkflowError(w, errors.New("unavailable"))
