@@ -1,0 +1,31 @@
+services:
+  codexploit:
+    image: codexploit:local
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${CODEXPLOIT_PORT:-18080}:8080"
+    command:
+      - --addr=:8080
+      - --workspace=/data
+      - --db=/data/codexploit.db
+      - --web-auth
+      - --agent-runtime=llm
+      - --scheduler
+      - --allow-network=${CODEXPLOIT_ALLOW_NETWORK:-false}
+    volumes:
+      - codexploit-data:/data
+    init: true
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    stop_grace_period: 30s
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,size=256m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  codexploit-data:

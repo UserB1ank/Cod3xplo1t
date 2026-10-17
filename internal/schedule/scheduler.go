@@ -224,6 +224,11 @@ func (s *Scheduler) tick(ctx context.Context, audits []string, concurrency int) 
 	if s.Agent == nil {
 		return TickResult{}, errors.New("schedule: the scheduler has no dispatcher")
 	}
+	// Live adapters may be configured after startup. Waiting must not consume a
+	// queued path's attempts or leases before credentials have been supplied.
+	if ready, ok := s.Agent.(interface{ Ready() error }); ok && ready.Ready() != nil {
+		return TickResult{}, nil
+	}
 	now := s.now()
 	nowStr := path.NowString(now)
 	result := TickResult{}
@@ -275,6 +280,9 @@ func (s *Scheduler) tick(ctx context.Context, audits []string, concurrency int) 
 		// another worker may hold the rest.
 		auditMax := path.DefaultLimits().MaxActiveLeases
 		if audit, err := s.Paths.Store.GetAudit(auditID); err == nil {
+			if audit.Paused {
+				continue
+			}
 			auditMax = audit.Limits.Normalize().MaxActiveLeases
 		}
 		_, active, _ := s.queueShape(auditID, now)

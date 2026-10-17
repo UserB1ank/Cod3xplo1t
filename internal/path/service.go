@@ -41,6 +41,11 @@ func (s *Service) now() time.Time {
 
 // CreateAuditRequest is one audit request.
 type CreateAuditRequest struct {
+	// TaskKey isolates task execution while all tasks reuse the snapshot graph.
+	TaskKey     string
+	Name        string
+	Objective   string
+	Scope       []string
 	SnapshotID  string
 	Budget      Budget
 	Limits      Limits
@@ -92,6 +97,10 @@ func (s *Service) CreateAudit(ctx context.Context, req CreateAuditRequest) (*Aud
 	budget := req.Budget.Normalize()
 	limits := req.Limits.Normalize()
 	configHash := ConfigHash(req.SnapshotID, budget, limits, req.Sensitivity)
+	if req.TaskKey != "" {
+		digest := sha256.Sum256([]byte(configHash + "\x00" + req.TaskKey))
+		configHash = hex.EncodeToString(digest[:16])
+	}
 	auditID := AuditID(req.SnapshotID, configHash)
 
 	if existing, err := s.Store.GetAudit(auditID); err == nil && !req.Force {
@@ -120,6 +129,7 @@ func (s *Service) CreateAudit(ctx context.Context, req CreateAuditRequest) (*Aud
 
 	now := NowString(s.now())
 	audit := Audit{
+		Name: req.Name, Objective: req.Objective, Scope: append([]string(nil), req.Scope...),
 		ID: auditID, SnapshotID: req.SnapshotID, Status: AuditGenerating,
 		Budget: budget, Limits: limits, ScoreVersion: ScoreVersion, ConfigHash: configHash,
 		CountsByStatus: map[string]int{}, CountsByPathStatus: map[string]int{},
@@ -136,6 +146,7 @@ func (s *Service) CreateAudit(ctx context.Context, req CreateAuditRequest) (*Aud
 
 	result, err := s.Engine.Generate(ctx, req.SnapshotID, GenerateOptions{
 		AuditID: auditID, Budget: budget, Limits: limits, Sensitivity: req.Sensitivity, AlreadyCovered: alreadyCovered,
+		Scope: req.Scope,
 	})
 	if err != nil {
 		audit.Status = AuditFailed
@@ -161,6 +172,9 @@ func (s *Service) CreateAudit(ctx context.Context, req CreateAuditRequest) (*Aud
 	for _, candidate := range result.Paths {
 		candidate.AuditID = auditID
 		candidate.Status = StatusQueued
+		if req.Objective != "" {
+			candidate.Objectives = append([]string{req.Objective}, candidate.Objectives...)
+		}
 		scored = append(scored, ScorePath(candidate, ScoreInput{
 			Covered: covered, Sensitivity: req.Sensitivity, Now: now,
 		}))

@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codexploit.invalid/contracts/v1/application.schema.json",
+  "title": "Task creation specification",
+  "type": "object",
+  "properties": {
+    "api_version": {
+      "const": "codexploit/v1"
+    },
+    "project_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "source_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "snapshot_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "objective": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "workflow_ref": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "id",
+        "version",
+        "sha256"
+      ],
+      "additionalProperties": false
+    },
+    "scope_prefixes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1024,
+        "pattern": "^[^/\\\\].*$",
+        "allOf": [
+          {
+            "not": {
+              "pattern": "(^|/)\\.\\.?(/|$)"
+            }
+          },
+          {
+            "not": {
+              "pattern": "[\\\\\u0000]"
+            }
+          },
+          {
+            "not": {
+              "pattern": "//"
+            }
+          }
+        ]
+      },
+      "uniqueItems": true
+    },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    }
+  },
+  "required": [
+    "api_version",
+    "project_id",
+    "source_id",
+    "snapshot_id",
+    "name",
+    "objective",
+    "workflow_ref",
+    "scope_prefixes",
+    "idempotency_key"
+  ],
+  "additionalProperties": false
+}

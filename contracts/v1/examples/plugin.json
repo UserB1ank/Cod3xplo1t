@@ -1,0 +1,30 @@
+{
+  "api_version": "codexploit/v1",
+  "id": "team.scanner.example",
+  "version": "1.0.0",
+  "name": "Example scanner adapter",
+  "description": "Synthetic contract example.",
+  "kind": "analyzer",
+  "languages": [
+    "go"
+  ],
+  "runtime": {
+    "kind": "process",
+    "entrypoint": "bin/scanner-adapter"
+  },
+  "consumes": [
+    "source.snapshot"
+  ],
+  "produces": [
+    "scanner.alerts"
+  ],
+  "permissions": {
+    "network": "none",
+    "source_write": false
+  },
+  "config_schema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  }
+}

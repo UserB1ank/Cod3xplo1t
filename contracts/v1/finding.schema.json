@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codexploit.invalid/contracts/v1/finding.schema.json",
+  "title": "Finding with separate severity and confirmation",
+  "type": "object",
+  "properties": {
+    "api_version": {
+      "const": "codexploit/v1"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "scope": {
+      "$ref": "common.schema.json#/$defs/Scope"
+    },
+    "task_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "severity": {
+      "enum": [
+        "high",
+        "medium",
+        "low"
+      ]
+    },
+    "status": {
+      "enum": [
+        "candidate",
+        "confirmed",
+        "inconclusive",
+        "refuted",
+        "blocked"
+      ]
+    },
+    "location": {
+      "$ref": "common.schema.json#/$defs/Location"
+    },
+    "producer": {
+      "$ref": "common.schema.json#/$defs/Producer"
+    },
+    "path_refs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 160,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+      }
+    },
+    "supporting_evidence": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 160,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+      }
+    },
+    "contradicting_evidence": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 160,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+      }
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    }
+  },
+  "required": [
+    "api_version",
+    "id",
+    "scope",
+    "task_id",
+    "title",
+    "status",
+    "location",
+    "producer",
+    "path_refs",
+    "supporting_evidence",
+    "contradicting_evidence",
+    "limitations",
+    "version"
+  ],
+  "additionalProperties": false
+}

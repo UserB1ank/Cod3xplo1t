@@ -149,7 +149,7 @@ func (p *VerifyPlanner) EnsureFinding(ctx context.Context, hypothesisID string) 
 		AuditID:      firstNonEmpty(hypothesis.AuditID, p.auditIDOf(hypothesis.PathID)),
 		SnapshotID:   hypothesis.SnapshotID,
 		Title:        firstNonEmpty(hypothesis.Statement, findingID),
-		Severity:     hypothesis.SeverityHint,
+		Severity:     verify.NormalizeSeverity(hypothesis.SeverityHint),
 		Status:       verify.FindingCandidate,
 		Confidence:   hypothesis.Confidence,
 		// Every citation the hypothesis records is claim-time context, so it lands in

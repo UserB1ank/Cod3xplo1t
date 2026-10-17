@@ -106,18 +106,6 @@ func asgNodeOf(t *testing.T, doc *asg.Document, id string) asg.Node {
 	return asg.Node{}
 }
 
-// asgEdgeOf returns the fixture edge with the given id.
-func asgEdgeOf(t *testing.T, doc *asg.Document, id string) asg.Edge {
-	t.Helper()
-	for _, e := range doc.Edges {
-		if e.ID == id {
-			return e
-		}
-	}
-	t.Fatalf("fixture has no edge %s", id)
-	return asg.Edge{}
-}
-
 func asgNodeKinds(doc *asg.Document) map[string]int {
 	out := map[string]int{}
 	for _, n := range doc.Nodes {

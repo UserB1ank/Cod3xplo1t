@@ -388,7 +388,7 @@ func (s *Server) groupFindingEvidence(finding *verify.Finding) (findingEvidence,
 	group := func(ids []string) ([]verify.Evidence, error) {
 		out := make([]verify.Evidence, 0, len(ids))
 		for _, evidenceID := range ids {
-			item, err := s.Verifier.GetEvidence(evidenceID)
+			item, err := s.Store.GetEvidence(evidenceID)
 			if err != nil {
 				if isVerificationNotFound(err) {
 					continue

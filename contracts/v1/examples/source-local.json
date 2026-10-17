@@ -1,0 +1,9 @@
+{
+  "api_version": "codexploit/v1",
+  "id": "src-example",
+  "project_id": "proj-example",
+  "name": "Local source example",
+  "kind": "local_folder",
+  "location": "/repos/example",
+  "ref": ""
+}

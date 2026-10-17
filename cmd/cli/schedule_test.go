@@ -192,7 +192,7 @@ func TestSchedulerCLIRunReleasesAndStops(t *testing.T) {
 	}
 
 	// Nothing is left leased: the released path is claimable again.
-	out, err = captureStdout(t, func() error {
+	_, err = captureStdout(t, func() error {
 		return runAudit(context.Background(), []string{
 			"next", auditID, "--json", "--workspace", workspace, "--db", db,
 		})

@@ -23,7 +23,6 @@ type fakeStore struct {
 	features map[string][]FeatureRecord
 	events   []Event
 	seq      map[string]int64
-	failNext error
 }
 
 func newFakeStore() *fakeStore {

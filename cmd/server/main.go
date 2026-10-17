@@ -17,10 +17,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/open-mcp-ai/Codexploit/internal/access"
 	"github.com/open-mcp-ai/Codexploit/internal/api"
 	"github.com/open-mcp-ai/Codexploit/internal/app"
 	"github.com/open-mcp-ai/Codexploit/internal/graph"
+	"github.com/open-mcp-ai/Codexploit/internal/llm"
 	pathpkg "github.com/open-mcp-ai/Codexploit/internal/path"
+	"github.com/open-mcp-ai/Codexploit/internal/webui"
 )
 
 func main() {
@@ -52,9 +55,10 @@ func run() error {
 		gitBin       = flag.String("git", "git", "git executable")
 		logLevel     = flag.String("log-level", "info", "debug, info, warn or error")
 		anonymous    = flag.Bool("insecure-anonymous", false, "serve without authentication (local development only)")
+		webAuth      = flag.Bool("web-auth", false, "enable administrator account setup and password login in the WebUI")
 		idemTTL      = flag.Duration("idempotency-ttl", 24*time.Hour, "how long a stored write response may be replayed")
 
-		agentRuntime    = flag.String("agent-runtime", app.AgentRuntimeDisabled, "agent adapter: disabled, scripted or cli")
+		agentRuntime    = flag.String("agent-runtime", app.AgentRuntimeDisabled, "agent adapter: disabled, scripted, cli or llm (configured in WebUI)")
 		agentWorkDir    = flag.String("agent-working-dir", "", "working directory of the agent process")
 		agentTimeout    = flag.Int("agent-timeout", 0, "agent run timeout in seconds (0 uses the policy default)")
 		agentMaxHops    = flag.Int("agent-max-hops", 0, "maximum hops one agent run may explore (0 uses the default)")
@@ -107,9 +111,31 @@ func run() error {
 	if path == "" {
 		path = filepath.Join(absWorkspace, "codexploit.db")
 	}
-	auth, err := buildAuthenticator(apiTokens, *anonymous, logger)
+	if *webAuth && *anonymous {
+		return errors.New("--web-auth cannot be combined with --insecure-anonymous")
+	}
+	var accounts *access.Manager
+	if *webAuth {
+		accounts, err = access.Open(filepath.Join(absWorkspace, "auth"))
+		if err != nil {
+			return fmt.Errorf("open workspace accounts: %w", err)
+		}
+	}
+	var auth *api.Authenticator
+	if *webAuth && len(apiTokens) == 0 && strings.TrimSpace(os.Getenv("CODEXPLOIT_API_TOKENS")) == "" {
+		auth, err = api.NewAuthenticator(nil)
+	} else {
+		auth, err = buildAuthenticator(apiTokens, *anonymous, logger)
+	}
 	if err != nil {
 		return err
+	}
+	var modelSettings *llm.Manager
+	if strings.EqualFold(strings.TrimSpace(*agentRuntime), app.AgentRuntimeLLM) {
+		modelSettings, err = llm.Open(filepath.Join(absWorkspace, "settings"))
+		if err != nil {
+			return fmt.Errorf("open model settings: %w", err)
+		}
 	}
 
 	rt, err := app.Build(ctx, app.Config{
@@ -118,6 +144,7 @@ func run() error {
 		AllowNetwork: *allowNetwork,
 		GitBin:       *gitBin,
 		Agent: app.AgentConfig{
+			ModelSettings:      modelSettings,
 			Enabled:            !strings.EqualFold(strings.TrimSpace(*agentRuntime), app.AgentRuntimeDisabled),
 			Runtime:            *agentRuntime,
 			Command:            agentCommand,
@@ -192,16 +219,18 @@ func run() error {
 		api.WithASGBuilder(rt.ASGBuilder),
 		api.WithAudit(rt.Audit),
 		api.WithAgent(rt.Agent),
+		api.WithLLMSettings(modelSettings),
 		api.WithVerifier(rt.Verifier),
 		api.WithVerifyPlanner(rt.VerifyPlanner),
 		api.WithScheduler(rt.Scheduler),
 		api.WithAuth(auth),
+		api.WithAccounts(accounts),
 		api.WithIdempotencyTTL(*idemTTL),
 		api.WithLogger(logger),
 	)
 	httpServer := &http.Server{
 		Addr:              *addr,
-		Handler:           srv.Handler(),
+		Handler:           webui.Handler(srv.Handler()),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       60 * time.Second,
 		WriteTimeout:      10 * time.Minute, // snapshotting a large repository is slow

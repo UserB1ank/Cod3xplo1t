@@ -1,0 +1,42 @@
+{
+  "api_version": "codexploit/v1",
+  "scope": {
+    "project_id": "proj-example",
+    "source_id": "src-example",
+    "snapshot_id": "snap-example"
+  },
+  "batch_id": "batch-example",
+  "base_revision": "view-example-1",
+  "producer": {
+    "plugin_id": "team.scanner.example",
+    "plugin_version": "1.0.0",
+    "invocation_id": "invoke-example",
+    "task_id": "task-example",
+    "config_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "layer": "scg",
+  "nodes": [
+    {
+      "id": "sym-example",
+      "kind": "code.symbol",
+      "label": "GetInvoice",
+      "location": {
+        "file": "internal/handler/invoice.go",
+        "start_line": 42
+      },
+      "confidence": "observed",
+      "evidence_refs": [
+        "evidence-example"
+      ]
+    }
+  ],
+  "edges": [],
+  "coverage": {
+    "files_seen": 2,
+    "files_analyzed": 1,
+    "files_skipped": 1,
+    "limitations": [
+      "Example: one unsupported file was skipped."
+    ]
+  }
+}

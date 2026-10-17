@@ -277,24 +277,3 @@ type CallResolution struct {
 	Confidence      Confidence
 	Detail          string
 }
-
-// resolved builds a resolution for a found symbol, choosing REFERENCES for
-// type-shaped targets (conversions, type uses) and CALLS otherwise.
-func resolvedTarget(ref SymbolRef, conf Confidence, detail string) CallResolution {
-	res := CallResolution{
-		TargetID:        ref.ID,
-		TargetQualified: ref.QualifiedName,
-		Resolution:      Resolved,
-		Confidence:      conf,
-		Detail:          detail,
-	}
-	if conf == Inferred {
-		res.Resolution = ResolvedBestEffort
-	}
-	return res
-}
-
-// unresolved builds a resolution that records why no target was found.
-func unresolved(r Resolution, conf Confidence, qualified, detail string) CallResolution {
-	return CallResolution{Resolution: r, Confidence: conf, TargetQualified: qualified, Detail: detail}
-}

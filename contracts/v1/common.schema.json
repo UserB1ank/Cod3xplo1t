@@ -1,0 +1,332 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codexploit.invalid/contracts/v1/common.schema.json",
+  "title": "Common value objects",
+  "$defs": {
+    "ID": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "APIVersion": {
+      "const": "codexploit/v1"
+    },
+    "Version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "Scope": {
+      "type": "object",
+      "properties": {
+        "project_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        },
+        "source_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        },
+        "snapshot_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        }
+      },
+      "required": [
+        "project_id",
+        "source_id",
+        "snapshot_id"
+      ],
+      "additionalProperties": false
+    },
+    "Location": {
+      "type": "object",
+      "properties": {
+        "file": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "pattern": "^[^/\\\\].*$",
+          "allOf": [
+            {
+              "not": {
+                "pattern": "(^|/)\\.\\.?(/|$)"
+              }
+            },
+            {
+              "not": {
+                "pattern": "[\\\\\u0000]"
+              }
+            },
+            {
+              "not": {
+                "pattern": "//"
+              }
+            },
+            {
+              "not": {
+                "pattern": "/$"
+              }
+            }
+          ]
+        },
+        "start_line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "start_column": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "end_line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "end_column": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "file",
+        "start_line"
+      ],
+      "additionalProperties": false
+    },
+    "Producer": {
+      "type": "object",
+      "properties": {
+        "plugin_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "plugin_version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "invocation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        },
+        "task_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        },
+        "config_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "plugin_id",
+        "plugin_version",
+        "invocation_id",
+        "task_id",
+        "config_digest"
+      ],
+      "additionalProperties": false
+    },
+    "ArtifactKind": {
+      "enum": [
+        "source.snapshot",
+        "code.ast",
+        "code.facts",
+        "security.facts",
+        "scanner.alerts",
+        "discovery.paths",
+        "discovery.findings",
+        "knowledge.view",
+        "report.document"
+      ]
+    },
+    "ArtifactRef": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        },
+        "kind": {
+          "enum": [
+            "source.snapshot",
+            "code.ast",
+            "code.facts",
+            "security.facts",
+            "scanner.alerts",
+            "discovery.paths",
+            "discovery.findings",
+            "knowledge.view",
+            "report.document"
+          ]
+        },
+        "scope": {
+          "type": "object",
+          "properties": {
+            "project_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+            },
+            "source_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+            },
+            "snapshot_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+            }
+          },
+          "required": [
+            "project_id",
+            "source_id",
+            "snapshot_id"
+          ],
+          "additionalProperties": false
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "media_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "schema_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "producer": {
+          "type": "object",
+          "properties": {
+            "plugin_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "plugin_version": {
+              "type": "string",
+              "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+            },
+            "invocation_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+            },
+            "task_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+            },
+            "config_digest": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "plugin_id",
+            "plugin_version",
+            "invocation_id",
+            "task_id",
+            "config_digest"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "scope",
+        "sha256",
+        "bytes",
+        "media_type",
+        "schema_id",
+        "producer"
+      ],
+      "additionalProperties": false
+    },
+    "Coverage": {
+      "type": "object",
+      "properties": {
+        "files_seen": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "files_analyzed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "files_skipped": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "limitations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "files_seen",
+        "files_analyzed",
+        "files_skipped",
+        "limitations"
+      ],
+      "additionalProperties": false
+    },
+    "Error": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        },
+        "details": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "retryable",
+        "request_id"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

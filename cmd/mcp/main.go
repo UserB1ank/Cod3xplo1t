@@ -23,7 +23,6 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/app"
 	"github.com/open-mcp-ai/Codexploit/internal/graph"
 	internalmcp "github.com/open-mcp-ai/Codexploit/internal/mcp"
-	"github.com/open-mcp-ai/Codexploit/internal/storage"
 )
 
 func main() {
@@ -70,12 +69,8 @@ func run() error {
 	}
 	defer rt.Close()
 
-	store, ok := rt.Store.(storage.FullStore)
-	if !ok {
-		return fmt.Errorf("store %T cannot answer graph queries", rt.Store)
-	}
-	svc := graph.NewService(store, rt.Manager)
-	srv := internalmcp.NewServer(svc, store, logger)
+	svc := graph.NewService(rt.Store, rt.Manager)
+	srv := internalmcp.NewServer(svc, rt.Store, logger)
 
 	logger.Info("serving MCP on stdio", "workspace", rt.Workspace, "db", path)
 	if err := srv.Run(ctx, &mcp.StdioTransport{}); err != nil {

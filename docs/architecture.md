@@ -1,5 +1,11 @@
 # Codexploit architecture
 
+The target extensible architecture and ARTEX-inspired interactive prototype are
+documented in [layered interfaces v1](design/interfaces/v1/README.md). That design
+covers explicit source types, plugin workflows and an independent PostgreSQL
+data service. It distinguishes target interfaces from the implemented system
+described below. The design prototype is available at `/prototype/` after building.
+
 How the implemented system is put together: the pipeline, what each package is
 responsible for, what is stored where, which way dependencies point, and where
 configuration is wired. Interface references live in [`api.md`](api.md) (REST)

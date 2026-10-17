@@ -72,11 +72,6 @@ func (s RunStatus) Terminal() bool {
 	return false
 }
 
-// running reports whether a run currently holds its adapter.
-func (s RunStatus) running() bool {
-	return s == RunCreated || s == RunRunning || s == RunPausing || s == RunCancelling
-}
-
 // Stop reasons the orchestrator records when it ends a run.
 const (
 	StopCompleted      = "completed"
@@ -207,12 +202,14 @@ type Budget struct {
 // Task is what one run is given (implementation guide §9.2). It is stored verbatim
 // with the run: judging an answer requires knowing the question.
 type Task struct {
-	SchemaVersion int    `json:"schema_version"`
-	SnapshotID    string `json:"snapshot_id"`
-	PathID        string `json:"path_id"`
-	AuditID       string `json:"audit_id"`
-	SecurityGoal  string `json:"security_goal"`
-	PathSummary   string `json:"path_summary"`
+	// PriorFindings are read-only knowledge from other tasks on this snapshot.
+	PriorFindings []PriorFinding `json:"prior_findings,omitempty"`
+	SchemaVersion int            `json:"schema_version"`
+	SnapshotID    string         `json:"snapshot_id"`
+	PathID        string         `json:"path_id"`
+	AuditID       string         `json:"audit_id"`
+	SecurityGoal  string         `json:"security_goal"`
+	PathSummary   string         `json:"path_summary"`
 	// SourceSinkRefs names the input and the sensitive operation, with the SCG and
 	// ASG ids that make them auditable.
 	SourceSinkRefs SourceSinkRefs `json:"source_sink_refs"`
@@ -230,6 +227,17 @@ type Task struct {
 	// agent does not treat them as settled.
 	Limitations []string `json:"limitations"`
 	CreatedAt   string   `json:"created_at"`
+}
+
+type PriorFinding struct {
+	FindingID                string   `json:"finding_id"`
+	AuditID                  string   `json:"audit_id"`
+	Title                    string   `json:"title"`
+	Status                   string   `json:"status"`
+	Severity                 string   `json:"severity,omitempty"`
+	SupportingEvidenceIDs    []string `json:"supporting_evidence_ids"`
+	ContradictingEvidenceIDs []string `json:"contradicting_evidence_ids"`
+	InconclusiveEvidenceIDs  []string `json:"inconclusive_evidence_ids"`
 }
 
 // SourceSinkRefs identifies the ends of the path.

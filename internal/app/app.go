@@ -20,6 +20,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/asg"
 	"github.com/open-mcp-ai/Codexploit/internal/graph"
 	"github.com/open-mcp-ai/Codexploit/internal/lifecycle"
+	"github.com/open-mcp-ai/Codexploit/internal/llm"
 	"github.com/open-mcp-ai/Codexploit/internal/path"
 	"github.com/open-mcp-ai/Codexploit/internal/repository"
 	"github.com/open-mcp-ai/Codexploit/internal/scg"
@@ -133,7 +134,8 @@ type VerificationConfig struct {
 
 // AgentConfig describes the agent runtime of a deployment.
 type AgentConfig struct {
-	Enabled bool
+	Enabled       bool
+	ModelSettings *llm.Manager
 	// Runtime is "cli" or "scripted".
 	Runtime string
 	// Command is the argv of the CLI adapter. It is executed directly, never
@@ -368,6 +370,9 @@ func (r *Runtime) wireAgent(cfg AgentConfig) error {
 	if err != nil {
 		return err
 	}
+	if model, ok := runtime.(*agent.ModelRuntime); ok {
+		model.ToolDescriptions = registry.Descriptions()
+	}
 	facts := graph.NewAgentFacts(r.Graph, r.ASG, agent.BuildOptions{AllowedTools: policy.AllowedTools})
 	r.AgentRegistry = registry
 	r.Agent = &agent.Runner{
@@ -391,6 +396,7 @@ const (
 	AgentRuntimeDisabled = "disabled"
 	AgentRuntimeScripted = "scripted"
 	AgentRuntimeCLI      = "cli"
+	AgentRuntimeLLM      = "llm"
 )
 
 // buildAgentRuntime builds the adapter the configuration names. An unknown mode,
@@ -398,6 +404,11 @@ const (
 // each of them would otherwise surface as a run that fails every time.
 func (r *Runtime) buildAgentRuntime(mode string, cfg AgentConfig) (agent.Runtime, error) {
 	switch mode {
+	case AgentRuntimeLLM:
+		if cfg.ModelSettings == nil {
+			return nil, errors.New("app: llm runtime needs a settings manager")
+		}
+		return &agent.ModelRuntime{Settings: cfg.ModelSettings}, nil
 	case AgentRuntimeDisabled:
 		return nil, nil
 	case AgentRuntimeScripted:
@@ -432,8 +443,8 @@ func (r *Runtime) buildAgentRuntime(mode string, cfg AgentConfig) (agent.Runtime
 			HeartbeatInterval: time.Duration(cfg.HeartbeatSeconds) * time.Second,
 		})
 	default:
-		return nil, fmt.Errorf("app: agent: unknown runtime %q (want %s, %s or %s)",
-			cfg.Runtime, AgentRuntimeDisabled, AgentRuntimeScripted, AgentRuntimeCLI)
+		return nil, fmt.Errorf("app: agent: unknown runtime %q (want %s, %s, %s or %s)",
+			cfg.Runtime, AgentRuntimeDisabled, AgentRuntimeScripted, AgentRuntimeCLI, AgentRuntimeLLM)
 	}
 }
 
@@ -637,6 +648,8 @@ type agentPathDispatcher struct {
 	TTL    time.Duration
 	Policy agent.ExplorationPolicy
 }
+
+func (d *agentPathDispatcher) Ready() error { return d.Runner.Ready() }
 
 // DispatchPath runs one path the scheduler already chose and leased.
 //

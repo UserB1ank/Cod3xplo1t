@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codexploit.invalid/contracts/v1/analysis.schema.json",
+  "title": "Normalized analysis result",
+  "type": "object",
+  "properties": {
+    "api_version": {
+      "const": "codexploit/v1"
+    },
+    "scope": {
+      "$ref": "common.schema.json#/$defs/Scope"
+    },
+    "producer": {
+      "$ref": "common.schema.json#/$defs/Producer"
+    },
+    "status": {
+      "enum": [
+        "succeeded",
+        "partial",
+        "failed",
+        "unsupported"
+      ]
+    },
+    "outputs": {
+      "type": "array",
+      "items": {
+        "$ref": "common.schema.json#/$defs/ArtifactRef"
+      }
+    },
+    "coverage": {
+      "$ref": "common.schema.json#/$defs/Coverage"
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "level": {
+            "enum": [
+              "info",
+              "warning",
+              "error"
+            ]
+          },
+          "code": {
+            "type": "string",
+            "minLength": 1
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1
+          },
+          "location": {
+            "$ref": "common.schema.json#/$defs/Location"
+          }
+        },
+        "required": [
+          "level",
+          "code",
+          "message"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "api_version",
+    "scope",
+    "producer",
+    "status",
+    "outputs",
+    "coverage",
+    "diagnostics"
+  ],
+  "additionalProperties": false
+}

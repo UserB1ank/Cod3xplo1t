@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codexploit.invalid/contracts/v1/snapshot.schema.json",
+  "title": "Published immutable snapshot",
+  "type": "object",
+  "properties": {
+    "api_version": {
+      "const": "codexploit/v1"
+    },
+    "scope": {
+      "$ref": "common.schema.json#/$defs/Scope"
+    },
+    "source_revision": {
+      "type": "string",
+      "minLength": 1
+    },
+    "content_digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "state": {
+      "const": "ready"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "tree": {
+      "$ref": "common.schema.json#/$defs/ArtifactRef"
+    },
+    "coverage": {
+      "$ref": "common.schema.json#/$defs/Coverage"
+    }
+  },
+  "required": [
+    "api_version",
+    "scope",
+    "source_revision",
+    "content_digest",
+    "state",
+    "created_at",
+    "tree",
+    "coverage"
+  ],
+  "additionalProperties": false
+}

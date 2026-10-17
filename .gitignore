@@ -1,6 +1,8 @@
 # Build output
 /bin/
 /dist/
+/web/dist/
+/web/node_modules/
 # Binaries accidentally produced in the repository root by `go build ./cmd/...`
 /server
 /cli

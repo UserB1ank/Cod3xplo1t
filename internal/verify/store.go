@@ -64,6 +64,7 @@ type EvidenceQuery struct {
 
 // FindingQuery filters findings.
 type FindingQuery struct {
+	ProjectID  string
 	AuditID    string
 	SnapshotID string
 	PathID     string

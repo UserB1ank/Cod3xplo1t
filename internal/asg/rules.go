@@ -242,17 +242,6 @@ const (
 	attribQualified   attribution = "qualified_package"
 )
 
-// RouteRegisteringMethods is used to reject a route-shaped call when the method
-// is not a registration method of any rule.
-func (r FrameworkRule) isMiddlewareMethod(method string) bool {
-	for _, m := range r.MiddlewareMethods {
-		if m == method {
-			return true
-		}
-	}
-	return false
-}
-
 // MatchRule is one callee-name pattern for a source, sink or control.
 type MatchRule struct {
 	// Kind is the source/sink/control kind this rule records.

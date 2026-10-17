@@ -33,11 +33,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/open-mcp-ai/Codexploit/internal/access"
 	"github.com/open-mcp-ai/Codexploit/internal/agent"
 	"github.com/open-mcp-ai/Codexploit/internal/analysis"
 	"github.com/open-mcp-ai/Codexploit/internal/asg"
 	"github.com/open-mcp-ai/Codexploit/internal/graph"
 	"github.com/open-mcp-ai/Codexploit/internal/lifecycle"
+	"github.com/open-mcp-ai/Codexploit/internal/llm"
 	"github.com/open-mcp-ai/Codexploit/internal/path"
 	"github.com/open-mcp-ai/Codexploit/internal/repository"
 	"github.com/open-mcp-ai/Codexploit/internal/scg"
@@ -48,12 +50,6 @@ import (
 
 // maxBodyBytes bounds request bodies; the API has no large payloads in P1.
 const maxBodyBytes = 1 << 20
-
-// idempotencyTTL is how long a replayed response stays valid.
-const idempotencyTTL = 10 * time.Minute
-
-// maxIdempotencyEntries bounds the replay cache.
-const maxIdempotencyEntries = 1024
 
 // Server serves the REST API.
 type Server struct {
@@ -88,6 +84,8 @@ type Server struct {
 	// case every scheduler route answers 501 instead of reporting an idle queue.
 	Scheduler    *schedule.Scheduler
 	AllowNetwork bool
+	LLMSettings  *llm.Manager
+	Accounts     *access.Manager
 	Logger       *slog.Logger
 	// Auth decides who may do what. When it is nil the server refuses every API
 	// call, because an unprotected audit API is worse than an unavailable one.
@@ -166,6 +164,22 @@ func (s *Server) Handler() http.Handler {
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.handleHealth)
+	mux.HandleFunc("GET /api/auth/status", s.handleAuthStatus)
+	mux.HandleFunc("POST /api/auth/setup", s.handleAccountLogin(true))
+	mux.HandleFunc("POST /api/auth/login", s.handleAccountLogin(false))
+	mux.HandleFunc("POST /api/auth/logout", s.handleAccountLogout)
+	mux.HandleFunc("GET /api/me", s.handleMe)
+	mux.HandleFunc("GET /api/settings/llm", s.handleLLMSettings)
+	mux.HandleFunc("PUT /api/settings/llm", s.handleSaveLLMSettings)
+	mux.HandleFunc("POST /api/settings/llm/test", s.handleTestLLMSettings)
+	mux.HandleFunc("GET /api/projects/{id}/tasks", s.handleListTasks)
+	mux.HandleFunc("POST /api/projects/{id}/tasks", s.withIdempotency(s.handleCreateTask))
+	mux.HandleFunc("GET /api/projects/{id}/findings", s.handleProjectFindings)
+	mux.HandleFunc("GET /api/tasks/{id}", s.handleGetTask)
+	mux.HandleFunc("POST /api/tasks/{id}/pause", s.withIdempotency(s.handlePauseTask(true)))
+	mux.HandleFunc("POST /api/tasks/{id}/resume", s.withIdempotency(s.handlePauseTask(false)))
+	mux.HandleFunc("GET /api/knowledge/findings/{id}", s.handleKnowledgeFinding)
+	mux.HandleFunc("PATCH /api/findings/{id}/severity", s.handleGradeFinding)
 	mux.HandleFunc("POST /api/projects", s.withIdempotency(s.handleCreateProject))
 	mux.HandleFunc("GET /api/projects", s.handleListProjects)
 	mux.HandleFunc("GET /api/projects/{id}", s.handleGetProject)

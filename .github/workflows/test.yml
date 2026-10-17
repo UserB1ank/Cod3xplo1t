@@ -6,6 +6,21 @@ on:
   pull_request:
 
 jobs:
+  # Formatting and static analysis do not depend on the platform, so they are
+  # checked once instead of three times. `make lint` is the same command a
+  # developer runs locally: fmt-check (gofmt over tracked files) + go vet +
+  # Staticcheck at the version pinned in the Makefile.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: make lint
+        run: make lint
+
   test:
     strategy:
       fail-fast: false
@@ -18,10 +33,31 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Verify formatting
-        if: matrix.os == 'ubuntu-latest'
-        run: gofmt -l . | tee /tmp/gofmt.out && test ! -s /tmp/gofmt.out
       - name: go vet
         run: go vet ./...
       - name: go test
         run: go test ./... -count=1 -shuffle=on -race -timeout 240s
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install frontend dependencies
+        run: npm --prefix web ci --no-audit --no-fund
+      - name: Frontend tests and production build
+        run: |
+          npm --prefix web test
+          npm --prefix web run build
+      - name: Build and test the embedded server
+        run: |
+          go build -trimpath -tags embedui -o bin/server ./cmd/server
+          go test -tags embedui ./internal/webui ./cmd/server -count=1

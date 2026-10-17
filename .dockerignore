@@ -1,0 +1,21 @@
+# Only build inputs are sent to Docker; local state and credentials stay out.
+*
+!go.mod
+!go.sum
+!cmd
+!internal
+!migrations
+!web
+!contracts
+web/node_modules
+web/dist
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+**/.ssh
+**/id_rsa*
+**/id_ed25519*
+**/*.db
+**/*.db-*
+**/.DS_Store

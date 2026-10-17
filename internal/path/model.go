@@ -357,14 +357,19 @@ type Path struct {
 
 // Audit is one run of path generation over one snapshot.
 type Audit struct {
-	ID           string `json:"audit_id"`
-	SnapshotID   string `json:"snapshot_id"`
-	SCGVersion   string `json:"scg_version"`
-	ASGVersion   string `json:"asg_version"`
-	Status       string `json:"status"`
-	Budget       Budget `json:"budget"`
-	Limits       Limits `json:"limits"`
-	ScoreVersion int    `json:"score_version"`
+	// Named audits are project tasks; their graph remains owned by the snapshot.
+	Name         string   `json:"name,omitempty"`
+	Objective    string   `json:"objective,omitempty"`
+	Scope        []string `json:"scope,omitempty"`
+	Paused       bool     `json:"paused"`
+	ID           string   `json:"audit_id"`
+	SnapshotID   string   `json:"snapshot_id"`
+	SCGVersion   string   `json:"scg_version"`
+	ASGVersion   string   `json:"asg_version"`
+	Status       string   `json:"status"`
+	Budget       Budget   `json:"budget"`
+	Limits       Limits   `json:"limits"`
+	ScoreVersion int      `json:"score_version"`
 	// ConfigHash covers the inputs that change the produced set, so the same
 	// request maps to the same audit.
 	ConfigHash         string         `json:"config_hash"`

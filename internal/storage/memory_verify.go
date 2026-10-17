@@ -298,6 +298,9 @@ func (m *Memory) ListFindings(q verify.FindingQuery) ([]verify.Finding, int, err
 	defer m.mu.RUnlock()
 	var out []verify.Finding
 	for _, finding := range m.findings {
+		if q.ProjectID != "" && m.snapshots[finding.SnapshotID].projectID != q.ProjectID {
+			continue
+		}
 		if !matchesFindingQuery(finding, q) {
 			continue
 		}

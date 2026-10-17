@@ -65,6 +65,9 @@ type RuntimeEvent struct {
 	Detail map[string]string
 	// Tool, when set, is a request for a whitelisted tool call.
 	Tool *ToolRequest
+	// ToolReply is an optional per-request feedback channel. Interactive adapters
+	// wait for the orchestrator's bounded result, including explicit denials.
+	ToolReply chan<- ToolResult
 	// Expansion, when set, is a request for more room.
 	Expansion *ExpansionAsk
 	// Answer, when set, is the structured final output.

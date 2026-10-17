@@ -56,10 +56,10 @@ const (
 	runnerTerminalGrace = 250 * time.Millisecond
 )
 
-// runnerErrNotConfigured is a programming error, not a runtime condition: a
+// errRunnerNotConfigured is a programming error, not a runtime condition: a
 // Runner without a store, a runtime, a task builder or a path coordinator cannot
 // do its job and must not claim a lease it cannot record.
-var runnerErrNotConfigured = errors.New("agent: runner is not configured")
+var errRunnerNotConfigured = errors.New("agent: runner is not configured")
 
 // PathCoordinator is the orchestrator's narrow view of the path engine
 // (internal/path). The package deliberately does not take a *path.Service: the
@@ -680,6 +680,15 @@ func (s *runnerSession) applyEvent(ctx context.Context, ev RuntimeEvent) bool {
 // tool budget is different — the run is over it and stops.
 func (s *runnerSession) applyTool(ctx context.Context, ev RuntimeEvent) bool {
 	req := *ev.Tool
+	reply := ToolResult{CallID: req.CallID, Tool: req.Tool, Error: "tool request denied"}
+	defer func() {
+		if ev.ToolReply != nil {
+			select {
+			case ev.ToolReply <- reply:
+			case <-ctx.Done():
+			}
+		}
+	}()
 	asked := Event{
 		Type: EventToolRequested, Actor: runnerActorAgent,
 		CallID: req.CallID, Tool: req.Tool,
@@ -720,6 +729,13 @@ func (s *runnerSession) applyTool(ctx context.Context, ev RuntimeEvent) bool {
 	elapsed := s.runner.now().Sub(started).Milliseconds()
 	s.toolCalls++
 	s.run.ToolCalls = s.toolCalls
+	reply.ElapsedMS = elapsed
+	if callErr == nil {
+		reply.OK, reply.Error, reply.Refs = result.OK, result.Error, result.Refs
+		reply.Result, _ = TruncateToolResult(result.Result)
+	} else {
+		reply.Error = callErr.Error()
+	}
 
 	allowed := Event{
 		Type: EventToolAllowed, Actor: runnerActorOrchestrator,
@@ -1022,7 +1038,7 @@ func (r *Runner) maxAttempts(p *path.Path) int {
 
 func (r *Runner) configured() error {
 	if r == nil {
-		return runnerErrNotConfigured
+		return errRunnerNotConfigured
 	}
 	var missing []string
 	if r.Store == nil {
@@ -1038,10 +1054,16 @@ func (r *Runner) configured() error {
 		missing = append(missing, "Paths")
 	}
 	if len(missing) > 0 {
-		return fmt.Errorf("%w: %s", runnerErrNotConfigured, strings.Join(missing, ", "))
+		return fmt.Errorf("%w: %s", errRunnerNotConfigured, strings.Join(missing, ", "))
+	}
+	if ready, ok := r.Runtime.(interface{ Ready() error }); ok {
+		return ready.Ready()
 	}
 	return nil
 }
+
+// Ready allows schedulers to check live model configuration before claiming work.
+func (r *Runner) Ready() error { return r.configured() }
 
 func (r *Runner) now() time.Time {
 	if r.Now != nil {

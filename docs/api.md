@@ -1,5 +1,8 @@
 # Codexploit REST API
 
+The project/task workbench endpoints, shared knowledge rules and high/medium/low
+grading API are documented in [Web UI and deployment](webui.md#new-api-surface).
+
 The API exposes the P1 snapshot chain and the P2 Source Code Graph. Every
 endpoint is read-only except project creation, snapshot creation and graph
 building; every error body is `{"error": "...", "code": "..."}`.
@@ -914,3 +917,41 @@ Every graph answer carries a `meta` block:
 `truncated` with a `truncation_reason` means a budget cut the answer short.
 `more_beyond_depth` means the answer is complete for the requested depth but
 deeper neighbours exist. The two are deliberately distinct.
+
+## In-app LLM settings
+
+Deployments started with `--agent-runtime llm` expose administrator-only
+`GET /api/settings/llm`, `PUT /api/settings/llm` and
+`POST /api/settings/llm/test`. GET returns the configuration with
+`api_key_configured` and an ETag, never the key. PUT and test require that ETag
+in `If-Match`. Their JSON body contains `enabled`, `protocol`
+(`chat-completions` or `responses`), `base_url`, `model`, `timeout_seconds` and
+`max_output_tokens`. Omit `api_key` to retain it, supply a new value to replace
+it, or send `clear_api_key: true` to delete it. A new service URL requires
+re-entering or clearing the saved key. A stale version returns 412; a missing
+version returns 428. The test endpoint sends a real, bounded function-call
+request without repository content and does not save the draft. It returns
+502 on provider/connection failure, with a sanitized message.
+
+Settings persist encrypted in the runtime data volume and apply to new runs
+without restarting. Disabled/unconfigured models do not claim queued work.
+See [Web UI deployment](webui.md#docker-deployment) for the Docker setup,
+credential storage and backup procedure.
+
+## Account login
+
+Docker enables `--web-auth`. `GET /api/auth/status` returns `password_login`
+and `setup_required`. On a fresh installation, `POST /api/auth/setup` accepts
+`username` and `password` and creates the administrator account (201). Setup
+cannot replace an existing account (409). `POST /api/auth/login` accepts the
+same fields and sets a 12-hour HttpOnly, SameSite=Strict session cookie. It
+never returns a raw session credential in JSON. `POST /api/auth/logout`
+revokes the current session and expires the cookie. No workspace API is public;
+the auth bootstrap endpoints and liveness are the explicit exceptions.
+
+Cookie-authenticated mutations require a same-origin browser request. Cross-site
+login/setup/logout requests are refused. Failed login returns a generic 401;
+five attempts per minute per peer IP trigger 429 with `Retry-After: 60`.
+Account hashes persist in the Docker data volume; sessions are deliberately
+in-memory and expire on restart. Explicit bearer API tokens remain supported
+for automation and CLI clients.

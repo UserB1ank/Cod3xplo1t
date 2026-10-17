@@ -106,16 +106,6 @@ func (ix *symbolIndex) PackageByBaseName(base string) (string, LookupOutcome) {
 	}
 }
 
-// packagesSorted lists every package path in the index.
-func (ix *symbolIndex) packagesSorted() []string {
-	out := make([]string, 0, len(ix.packages))
-	for p := range ix.packages {
-		out = append(out, p)
-	}
-	sort.Strings(out)
-	return out
-}
-
 func methodKey(pkgPath, typeName string) string { return pkgPath + "|" + typeName }
 
 // pick converts candidate refs into a lookup outcome: exactly one candidate is

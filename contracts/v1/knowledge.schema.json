@@ -1,0 +1,163 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codexploit.invalid/contracts/v1/knowledge.schema.json",
+  "title": "Scoped graph publication batch",
+  "type": "object",
+  "properties": {
+    "api_version": {
+      "const": "codexploit/v1"
+    },
+    "scope": {
+      "$ref": "common.schema.json#/$defs/Scope"
+    },
+    "batch_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "base_revision": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "producer": {
+      "$ref": "common.schema.json#/$defs/Producer"
+    },
+    "layer": {
+      "enum": [
+        "scg",
+        "asg",
+        "paths",
+        "evidence"
+      ]
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+          },
+          "kind": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_.-]+$"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1
+          },
+          "location": {
+            "$ref": "common.schema.json#/$defs/Location"
+          },
+          "attributes": {
+            "type": "object"
+          },
+          "confidence": {
+            "enum": [
+              "observed",
+              "inferred",
+              "unresolved"
+            ]
+          },
+          "evidence_refs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+            },
+            "minItems": 1
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "label",
+          "confidence",
+          "evidence_refs"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 1000
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+          },
+          "kind": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]+$"
+          },
+          "from": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+          },
+          "to": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+          },
+          "confidence": {
+            "enum": [
+              "observed",
+              "inferred",
+              "unresolved"
+            ]
+          },
+          "evidence_refs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+            },
+            "minItems": 1
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "from",
+          "to",
+          "confidence",
+          "evidence_refs"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 2000
+    },
+    "coverage": {
+      "$ref": "common.schema.json#/$defs/Coverage"
+    }
+  },
+  "required": [
+    "api_version",
+    "scope",
+    "batch_id",
+    "base_revision",
+    "producer",
+    "layer",
+    "nodes",
+    "edges",
+    "coverage"
+  ],
+  "additionalProperties": false
+}

@@ -154,6 +154,11 @@ func mergeFinding(stored, incoming verify.Finding, now string) (verify.Finding, 
 			verify.ErrConflict, incoming.HypothesisID, stored.ID)
 	}
 	merged := incoming
+	// An assessed grade survives later verification writes. Explicit grade
+	// changes go through SetFindingSeverity, which checks the current version.
+	if verify.NormalizeSeverity(stored.Severity) != "" {
+		merged.Severity = verify.NormalizeSeverity(stored.Severity)
+	}
 	merged.CreatedAt = stored.CreatedAt
 	if merged.UpdatedAt == "" {
 		merged.UpdatedAt = now

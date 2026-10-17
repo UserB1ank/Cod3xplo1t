@@ -612,11 +612,7 @@ func TestASGQueryServiceExposesTheRouteTable(t *testing.T) {
 // svcReplaceASG stores the document through the store the service reads.
 func svcReplaceASG(t *testing.T, svc *graph.ASGService, doc *asg.Document) error {
 	t.Helper()
-	store, ok := svc.Store.(storage.ASGStore)
-	if !ok {
-		t.Fatalf("service store is not an ASGStore: %T", svc.Store)
-	}
-	return store.ReplaceASG(context.Background(), doc.SnapshotID, doc)
+	return svc.Store.ReplaceASG(context.Background(), doc.SnapshotID, doc)
 }
 
 func contains(hay []string, needle string) bool {

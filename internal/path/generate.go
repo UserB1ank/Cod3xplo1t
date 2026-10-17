@@ -35,6 +35,9 @@ func (e *Engine) now() time.Time {
 
 // GenerateOptions configures one generation run.
 type GenerateOptions struct {
+	// Scope selects entries/sinks by repository-relative file prefix. Calls may
+	// cross that prefix; it is a seed selection, not an execution sandbox.
+	Scope []string
 	// AuditID scopes the produced path ids.
 	AuditID string
 	Budget  Budget
@@ -146,6 +149,9 @@ func (e *Engine) Generate(ctx context.Context, snapshotID string, opts GenerateO
 		}
 		handler := ef.entry.Detail["handler_symbol_id"]
 		for _, sink := range sinks {
+			if len(opts.Scope) > 0 && !InScope(ef.entry.File, opts.Scope) && !InScope(sink.File, opts.Scope) {
+				continue
+			}
 			result.Coverage.SinksExamined++
 			caller, callerKnown := resolveSinkCaller(ctx, e, snapshotID, sink, callerCache)
 			chains, unresolved, exhausted := e.chainsFor(ctx, snapshotID, handler, caller, callerKnown, budget, limits, &chainBudget)

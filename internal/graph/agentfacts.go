@@ -13,6 +13,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/path"
 	"github.com/open-mcp-ai/Codexploit/internal/scg"
 	"github.com/open-mcp-ai/Codexploit/internal/storage"
+	"github.com/open-mcp-ai/Codexploit/internal/verify"
 )
 
 // AgentFacts builds the task an audit agent receives, and the bounded code slice
@@ -384,6 +385,31 @@ func (f *AgentFacts) BuildTask(ctx context.Context, p path.Path, policy agent.Ex
 		Budget:              agent.Budget{TimeoutSeconds: policy.TimeoutSeconds, TokenBudget: policy.TokenBudget},
 		Limitations:         limitations,
 		CreatedAt:           agent.NowString(f.now()),
+	}
+	if store, ok := f.Graph.Store.(storage.FullStore); ok {
+		known, _, err := store.ListFindings(verify.FindingQuery{SnapshotID: p.SnapshotID, Limit: 40})
+		if err != nil {
+			return agent.Task{}, fmt.Errorf("graph: shared findings: %w", err)
+		}
+		for _, finding := range known {
+			if finding.AuditID == p.AuditID {
+				continue
+			}
+			title := []rune(finding.Title)
+			if len(title) > 500 {
+				title = title[:500]
+			}
+			task.PriorFindings = append(task.PriorFindings, agent.PriorFinding{
+				FindingID: finding.ID, AuditID: finding.AuditID, Title: string(title),
+				Status: string(finding.Status), Severity: verify.NormalizeSeverity(finding.Severity),
+				SupportingEvidenceIDs:    append([]string(nil), finding.Supporting[:min(8, len(finding.Supporting))]...),
+				ContradictingEvidenceIDs: append([]string(nil), finding.Contradicting[:min(8, len(finding.Contradicting))]...),
+				InconclusiveEvidenceIDs:  append([]string(nil), finding.Inconclusive[:min(8, len(finding.Inconclusive))]...),
+			})
+			if len(task.PriorFindings) == 20 {
+				break
+			}
+		}
 	}
 	if task.MinimalCodeSlice == nil {
 		task.MinimalCodeSlice = []agent.SliceSection{}

@@ -1,0 +1,10 @@
+{
+  "api_version": "codexploit/v1",
+  "id": "src-example",
+  "project_id": "proj-example",
+  "name": "Git source example",
+  "kind": "git_repository",
+  "location": "https://forge.example.invalid/team/service.git",
+  "ref": "main",
+  "credential_ref": "secret-repository-example"
+}

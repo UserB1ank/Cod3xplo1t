@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codexploit.invalid/contracts/v1/source.schema.json",
+  "title": "Source definition",
+  "type": "object",
+  "properties": {
+    "api_version": {
+      "const": "codexploit/v1"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "project_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "kind": {
+      "enum": [
+        "local_folder",
+        "git_repository"
+      ]
+    },
+    "location": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048
+    },
+    "ref": {
+      "type": "string",
+      "maxLength": 256
+    },
+    "credential_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "snapshot": {
+      "type": "string"
+    },
+    "files": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "api_version",
+    "id",
+    "project_id",
+    "name",
+    "kind",
+    "location",
+    "ref"
+  ],
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "local_folder"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "location": {
+            "pattern": "^/repos/.+",
+            "allOf": [
+              {
+                "not": {
+                  "pattern": "(^|/)\\.\\.?(/|$)"
+                }
+              },
+              {
+                "not": {
+                  "pattern": "[\\\\\u0000]"
+                }
+              },
+              {
+                "not": {
+                  "pattern": "//"
+                }
+              },
+              {
+                "not": {
+                  "pattern": "/$"
+                }
+              }
+            ]
+          },
+          "ref": {
+            "const": ""
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "git_repository"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "location": {
+            "pattern": "^(https|ssh)://[^/@?#]+/[^?#]*$"
+          },
+          "ref": {
+            "minLength": 1
+          }
+        }
+      }
+    }
+  ]
+}

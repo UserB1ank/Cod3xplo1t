@@ -24,7 +24,7 @@ been verified in the tree; nothing is listed from memory alone.
 
 | Area | Open entries | Classes |
 |---|---|---|
-| Repository and release tooling | 4 | `DEBT` |
+| Repository and release tooling | 3 | `DEBT` |
 | P1 snapshot chain | 0 | closed; see §9 |
 | P2 source code graph | 5 | `GAP`, `DEVIATION`, `DEBT` |
 | P3 attack surface | 6 | `GAP`, `DEVIATION`, `RISK` |
@@ -32,7 +32,7 @@ been verified in the tree; nothing is listed from memory alone.
 | Platform and deployment | 5 | `RISK`, `DEVIATION` |
 | Runtime limits and future interfaces | 7 | `GAP`, `DEVIATION`, `RISK` |
 
-There are 33 active entries. Closed entries below retain their old identifiers.
+There are 32 active entries. Closed entries below retain their old identifiers.
 
 ---
 
@@ -63,27 +63,18 @@ There are 33 active entries. Closed entries below retain their old identifiers.
 - **Action**: either write those documents and the target, or trim `AGENTS.md` to
   what exists. Do not leave the references dangling.
 
-### 1.3 `DEBT` — the formatting command scans ignored workspace caches
+### 1.4 `DEBT` — no release workflow
 
-- **Symptom**: CI uses `gofmt -l .`, which recursively enters a local
-  `.cache/gomod` directory and encounters intentionally invalid dependency
-  fixtures. A clean CI checkout does not contain that cache.
-- **Impact**: the same command fails in a documented local workspace even when
-  every tracked project source file is formatted. Running one Ubuntu formatting
-  gate is sufficient to check source changes submitted from all platforms.
-- **Evidence**: `.github/workflows/test.yml`, `docs/testing.md`; compare
-  `gofmt -l .` with formatting the Go files returned by `git ls-files`.
-- **Action**: restrict the gate to tracked Go files and propagate formatter errors.
-
-### 1.4 `DEBT` — no lint job and no release workflow
-
-- **Symptom**: the only workflow is `test.yml`; there is no `staticcheck`/`golangci-lint`
-  job, and no workflow that builds and publishes the binaries.
-- **Impact**: classes of defect that `go vet` does not cover are found by hand;
-  releases are manual and unreproducible.
+- **Symptom**: nothing builds and publishes the binaries, and nothing runs the
+  `server.json`/changelog checks that `AGENTS.md` describes. A release is manual
+  and unreproducible.
+- **Impact**: "the binary we shipped" is a claim about someone's laptop rather
+  than about a tag. (The static-analysis half of this entry was closed by the CI
+  `lint` job; see §10.)
 - **Evidence**: `ls .github/workflows/`.
-- **Action**: add a lint job once the lint configuration is chosen, and a release
-  workflow only after 1.1 and 1.2 are settled.
+- **Action**: add a release workflow only after 1.1 and 1.2 are settled — it
+  needs a canonical module path and the `server.json`/changelog files that 1.2
+  lists as missing.
 
 ---
 
@@ -439,3 +430,32 @@ Evidence: `internal/lifecycle/snapshots_test.go`, `internal/api/lifecycle_test.g
 `cmd/cli/lifecycle_test.go`, and migration `0010_snapshot_lifecycle.sql`.
 The original observations and proposed scope are retained in
 [the dated review](legacy-review-2026-10-16.md).
+
+## 10. Closed by the CI lint gate
+
+- **1.3 — the formatting gate scanned ignored workspace caches**: closed. The gate
+  is `make fmt-check`, which formats the Go files `git ls-files` returns, so a
+  git-ignored `.cache/gomod` (dependency fixtures that are intentionally not
+  parseable) can no longer fail it, and a formatter error is propagated as a
+  non-zero exit instead of hiding behind an empty diff.
+- **1.4 — no lint job**: the static-analysis half is closed by the same change.
+  The `lint` job runs `make lint` on ubuntu: `make fmt-check`, `go vet`, and
+  Staticcheck `v0.8.2`, pinned in the Makefile and resolved with `go run` so it
+  never enters this module's graph. The 17 findings on the pre-change tree were
+  fixed rather than suppressed —
+  - dead private code removed: `(*Graph).normalize`,
+    `(*symbolIndex).packagesSorted`, `resolvedTarget`, `unresolved`,
+    `asgToolMeta`, `(RunStatus).running`, `(FrameworkRule).isMiddlewareMethod`,
+    `asgEdgeOf`, `fakeStore.failNext`, and the stale `idempotencyTTL` /
+    `maxIdempotencyEntries` constants (`defaultIdempotencyTTL` is the one in
+    force);
+  - `tar.TypeRegA` dropped from a read path, where `archive/tar` already
+    normalises it to `tar.TypeReg` (`reader.go`, `next`);
+  - the redundant same-type assertions removed in `cmd/mcp/main.go` and
+    `internal/asg/extract_test.go`;
+  - `runnerErrNotConfigured` renamed to `errRunnerNotConfigured`;
+  - a copy loop replaced with `append(notes, slice.Limitations...)`;
+  - the unused `out` in `TestSchedulerCLIRun`'s follow-up command discarded.
+
+Evidence: `.github/workflows/test.yml` (`lint` job), `Makefile` (`lint`,
+`fmt-check`, `staticcheck`), `docs/testing.md`.

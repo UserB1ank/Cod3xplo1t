@@ -1,0 +1,17 @@
+{
+  "api_version": "codexploit/v1",
+  "project_id": "proj-example",
+  "source_id": "src-example",
+  "snapshot_id": "snap-example",
+  "name": "Example audit task",
+  "objective": "Review request input handling",
+  "workflow_ref": {
+    "id": "workflow-example",
+    "version": "1.0.0",
+    "sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+  },
+  "scope_prefixes": [
+    "internal/handler"
+  ],
+  "idempotency_key": "request-example"
+}

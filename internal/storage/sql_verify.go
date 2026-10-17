@@ -284,6 +284,10 @@ func evidenceQueryFilter(q verify.EvidenceQuery) (string, []any) {
 func findingQueryFilter(q verify.FindingQuery) (string, []any) {
 	clauses := []string{}
 	args := []any{}
+	if q.ProjectID != "" {
+		clauses = append(clauses, "snapshot_id IN (SELECT snapshot_id FROM snapshots WHERE project_id = ?)")
+		args = append(args, q.ProjectID)
+	}
 	for _, filter := range []struct {
 		column string
 		value  string
@@ -558,14 +562,14 @@ func (s *SQL) UpsertFinding(finding verify.Finding) error {
 		return err
 	}
 
-	var storedID, storedCreatedAt string
+	var storedID, storedCreatedAt, storedSeverity string
 	var storedVersion int64
 	row := tx.QueryRowContext(ctx,
-		s.rebind("SELECT finding_id, created_at, version FROM findings WHERE hypothesis_id = ?"+s.forUpdate()),
+		s.rebind("SELECT finding_id, created_at, version, severity FROM findings WHERE hypothesis_id = ?"+s.forUpdate()),
 		prepared.HypothesisID)
-	switch err := row.Scan(&storedID, &storedCreatedAt, &storedVersion); {
+	switch err := row.Scan(&storedID, &storedCreatedAt, &storedVersion, &storedSeverity); {
 	case err == nil:
-		merged, err := mergeFinding(verify.Finding{ID: storedID, CreatedAt: storedCreatedAt, Version: storedVersion}, prepared, now)
+		merged, err := mergeFinding(verify.Finding{ID: storedID, CreatedAt: storedCreatedAt, Version: storedVersion, Severity: storedSeverity}, prepared, now)
 		if err != nil {
 			return err
 		}

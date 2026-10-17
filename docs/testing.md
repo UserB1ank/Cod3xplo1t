@@ -11,10 +11,15 @@ comment, not a contract.
 |---|---|
 | `make test` | `go test ./... -count=1 -shuffle=on -race -timeout 240s` — identical to CI |
 | `make test-stress` | the same suite with `-count=3`, for filesystem and lifecycle races the race detector cannot see |
+| `make lint` | `make fmt-check` + `go vet ./...` + Staticcheck at the pinned version — identical to the CI `lint` job |
+| `make fmt-check` | `gofmt -l` over the Go files `git ls-files` returns; fails on any diff or parse error |
 | `make vet` | `go vet ./...` |
+| `make staticcheck` | Staticcheck `$(STATICCHECK_VERSION)`, default `v0.8.2`, resolved with `go run` so it never enters this module graph |
 | `make fmt` | `go fmt ./...` |
 | `make tidy` | `go mod tidy` |
 | `make build` | builds `bin/cli`, `bin/server`, `bin/mcp` |
+| `make test-web` | Node tests for workbench routing, task state, grading counts and API transport |
+| `npm --prefix web run build` | TypeScript check and production asset build |
 
 Run a single package or test while iterating:
 
@@ -36,21 +41,39 @@ Two environment details matter:
 
 ## What CI does
 
-`.github/workflows/test.yml` runs on every push to `main` and every pull request,
-on a matrix of `ubuntu-latest`, `macos-latest` and `windows-latest`
-(`fail-fast: false`, so one platform's failure does not hide another's). Per
-runner:
+`.github/workflows/test.yml` runs on every push to `main` and every pull request.
+It has Go lint and test jobs, plus a Web UI job.
+
+The Web UI job installs locked packages on Node 22, runs frontend tests and the
+production build, then compiles the embedded Go server and checks its handlers.
+
+**`lint`** runs on ubuntu only: formatting and static analysis do not depend on
+the platform, so checking them on three runners would report the same failure
+three times.
 
 1. check out the repository and install Go using the version in `go.mod`
    (`go-version-file`, module cache enabled);
-2. **ubuntu only**: `gofmt -l .` must produce no output (formatting is a gate,
-   checked once, not three times);
-3. `go vet ./...`;
-4. `go test ./... -count=1 -shuffle=on -race -timeout 240s`.
+2. `make lint` — `make fmt-check`, `go vet ./...`, then Staticcheck at the
+   version pinned in the Makefile.
 
-Nothing in CI reaches the network beyond the checkout and the Go module cache.
-Reproduce any failure locally with the same command `make test` runs; do not
-"fix" a platform difference by skipping the test.
+**`test`** runs on a matrix of `ubuntu-latest`, `macos-latest` and
+`windows-latest` (`fail-fast: false`, so one platform's failure does not hide
+another's). Per runner:
+
+1. check out the repository and install Go as above;
+2. `go vet ./...` — repeated here on purpose, because it is the one analysis that
+   sees platform-specific files;
+3. `go test ./... -count=1 -shuffle=on -race -timeout 240s`.
+
+The formatting gate takes its file list from `git ls-files`, not from a recursive
+walk, so a git-ignored `.cache/gomod` (dependency fixtures that are intentionally
+not parseable) cannot fail it, and a formatter error is propagated as a non-zero
+exit instead of hiding behind an empty diff.
+
+CI reaches the network only for the checkout, the module cache and the pinned
+Staticcheck module. Reproduce any failure locally with the command CI runs —
+`make test` or `make lint`; do not "fix" a platform difference by skipping the
+test.
 
 ## Rules every test must respect
 
@@ -96,6 +119,17 @@ make test
 # or a single package
 GOMODCACHE="$PWD/.cache/gomod" GOCACHE="$PWD/.cache/gobuild" GOFLAGS=-mod=mod \
   go vet ./internal/repository
+```
+
+`make lint` needs three more variables: Staticcheck writes its own cache (by
+default under the user's cache directory, which such a sandbox refuses), and its
+module is not in `go.sum`, so the checksum database lookup has to be skipped.
+
+```bash
+STATICCHECK_CACHE="$PWD/.cache/staticcheck" \
+GOMODCACHE="$PWD/.cache/gomod" GOCACHE="$PWD/.cache/gobuild" \
+GOFLAGS=-mod=mod GOSUMDB=off \
+make lint
 ```
 
 `GOFLAGS=-mod=mod` is what lets the toolchain resolve and update the module graph

@@ -40,3 +40,8 @@ races — run `make test-stress` locally before pushing. Assume concurrency, a
 fresh runner, and dirty state from other tests or processes. Never hardcode a
 shared absolute path; `t.TempDir()` is the default. See
 `docs/agents/testing.md`.
+
+Static analysis is a gate too: the `lint` job runs `make lint` (gofmt over the
+files `git ls-files` returns, `go vet`, and Staticcheck at the version pinned in
+the Makefile) on ubuntu. Run `make lint` before pushing — a new Staticcheck
+finding, including unused code, fails CI.

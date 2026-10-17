@@ -1,0 +1,33 @@
+{
+  "api_version": "codexploit/v1",
+  "id": "finding-example",
+  "scope": {
+    "project_id": "proj-example",
+    "source_id": "src-example",
+    "snapshot_id": "snap-example"
+  },
+  "task_id": "task-example",
+  "title": "Example candidate requiring evidence review",
+  "severity": "medium",
+  "status": "candidate",
+  "location": {
+    "file": "internal/handler/invoice.go",
+    "start_line": 42
+  },
+  "producer": {
+    "plugin_id": "team.scanner.example",
+    "plugin_version": "1.0.0",
+    "invocation_id": "invoke-example",
+    "task_id": "task-example",
+    "config_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "path_refs": [],
+  "supporting_evidence": [
+    "evidence-example"
+  ],
+  "contradicting_evidence": [],
+  "limitations": [
+    "Example only; no target was scanned."
+  ],
+  "version": 1
+}

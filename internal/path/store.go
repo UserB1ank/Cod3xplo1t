@@ -99,6 +99,7 @@ type TransitionRequest struct {
 
 // AuditQuery filters audit listings.
 type AuditQuery struct {
+	ProjectID  string
 	SnapshotID string
 	Status     string
 	Limit      int

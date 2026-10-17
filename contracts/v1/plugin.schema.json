@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codexploit.invalid/contracts/v1/plugin.schema.json",
+  "title": "Versioned plugin manifest",
+  "type": "object",
+  "properties": {
+    "api_version": {
+      "const": "codexploit/v1"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*([.-][a-z0-9]+)+$"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "description": {
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "parser",
+        "analyzer",
+        "normalizer",
+        "graph",
+        "agent",
+        "reporter"
+      ]
+    },
+    "languages": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "runtime": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "builtin",
+            "process",
+            "container",
+            "remote"
+          ]
+        },
+        "entrypoint": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "process",
+                  "container",
+                  "remote"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "entrypoint"
+            ]
+          }
+        }
+      ]
+    },
+    "consumes": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "source.snapshot",
+          "code.ast",
+          "code.facts",
+          "security.facts",
+          "scanner.alerts",
+          "discovery.paths",
+          "discovery.findings",
+          "knowledge.view",
+          "report.document"
+        ]
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "produces": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "source.snapshot",
+          "code.ast",
+          "code.facts",
+          "security.facts",
+          "scanner.alerts",
+          "discovery.paths",
+          "discovery.findings",
+          "knowledge.view",
+          "report.document"
+        ]
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "permissions": {
+      "type": "object",
+      "properties": {
+        "network": {
+          "enum": [
+            "none",
+            "restricted"
+          ]
+        },
+        "source_write": {
+          "const": false
+        }
+      },
+      "required": [
+        "network",
+        "source_write"
+      ],
+      "additionalProperties": false
+    },
+    "config_schema": {
+      "type": "object"
+    }
+  },
+  "required": [
+    "api_version",
+    "id",
+    "version",
+    "name",
+    "description",
+    "kind",
+    "languages",
+    "runtime",
+    "consumes",
+    "produces",
+    "permissions",
+    "config_schema"
+  ],
+  "additionalProperties": false
+}

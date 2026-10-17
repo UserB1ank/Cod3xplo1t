@@ -276,6 +276,27 @@ func requiredCapability(method, path string) (Capability, bool) {
 	rest := strings.TrimPrefix(path, "/api/")
 
 	switch {
+	case rest == "auth/status" && method == http.MethodGet:
+		return CapNone, true
+	case (rest == "auth/login" || rest == "auth/setup" || rest == "auth/logout") && method == http.MethodPost:
+		return CapNone, true
+	case rest == "settings/llm" && (method == http.MethodGet || method == http.MethodPut):
+		return CapAdmin, true
+	case rest == "settings/llm/test" && method == http.MethodPost:
+		return CapAdmin, true
+	case rest == "me" && method == http.MethodGet:
+		return CapRead, true
+	case strings.HasPrefix(rest, "knowledge/findings/") && method == http.MethodGet:
+		return CapRead, true
+	case strings.HasPrefix(rest, "tasks/"):
+		if method == http.MethodGet {
+			return CapRead, true
+		}
+		if method == http.MethodPost && (strings.HasSuffix(rest, "/pause") || strings.HasSuffix(rest, "/resume")) {
+			return CapWrite, true
+		}
+	case strings.HasPrefix(rest, "findings/") && strings.HasSuffix(rest, "/severity") && method == http.MethodPatch:
+		return CapWrite, true
 	// /api/projects ...
 	case rest == "projects":
 		switch method {
@@ -293,6 +314,10 @@ func requiredCapability(method, path string) (Capability, bool) {
 		case action == "" && method == http.MethodPatch:
 			return CapAdmin, true
 		case action == "snapshots" && method == http.MethodPost:
+			return CapWrite, true
+		case (action == "tasks" || action == "findings") && method == http.MethodGet:
+			return CapRead, true
+		case action == "tasks" && method == http.MethodPost:
 			return CapWrite, true
 		}
 		_ = id
@@ -419,6 +444,17 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 			principal, ok = s.Auth.Authenticate(secret)
 			if !ok {
 				s.unauthorized(w, r, "the presented token is not valid")
+				return
+			}
+		} else if cookie, err := r.Cookie(sessionCookie); err == nil && s.Accounts != nil {
+			name, valid := s.Accounts.Authenticate(cookie.Value)
+			if !valid {
+				s.unauthorized(w, r, "login session expired")
+				return
+			}
+			principal = Principal{Name: name, Capabilities: CapAdmin}
+			if r.Method != http.MethodGet && r.Method != http.MethodHead && !sameOrigin(r) {
+				writeError(w, http.StatusForbidden, "origin_forbidden", errors.New("请求来源无效"))
 				return
 			}
 		} else if anon, allowed := s.Auth.Anonymous(); allowed {

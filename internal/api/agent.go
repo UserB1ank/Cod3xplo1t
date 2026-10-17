@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/open-mcp-ai/Codexploit/internal/agent"
+	"github.com/open-mcp-ai/Codexploit/internal/llm"
 	"github.com/open-mcp-ai/Codexploit/internal/path"
 )
 
@@ -471,6 +472,8 @@ func (s *Server) handleGetHypothesis(w http.ResponseWriter, r *http.Request) {
 // from "you cannot spend that" (budget_exceeded).
 func writeAgentError(w http.ResponseWriter, err error, id string) {
 	switch {
+	case errors.Is(err, llm.ErrNotConfigured):
+		writeError(w, http.StatusServiceUnavailable, "llm_not_configured", err)
 	case err == nil:
 		return
 	case errors.Is(err, agent.ErrNotFound),

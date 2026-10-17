@@ -348,7 +348,7 @@ func (v *Verifier) findingFor(run Run, result Result, outcome Outcome, reason, r
 	finding := Finding{
 		ID: run.FindingID, HypothesisID: run.HypothesisID, PathID: run.PathID,
 		AuditID: run.AuditID, SnapshotID: run.SnapshotID,
-		Title: truncateTitle(run.Plan.Claim), Severity: strings.TrimSpace(run.Plan.SecurityGoal),
+		Title:  truncateTitle(run.Plan.Claim),
 		Status: status, Confidence: confidenceFor(outcome, supporting, contradicting, inconclusive),
 		Supporting: supporting, Contradicting: contradicting, Inconclusive: inconclusive,
 		VerificationRunIDs: []string{run.ID},
@@ -360,7 +360,7 @@ func (v *Verifier) findingFor(run Run, result Result, outcome Outcome, reason, r
 	if existing != nil {
 		finding.CreatedAt = existing.CreatedAt
 		finding.Confidence = existing.Confidence
-		finding.Severity = firstNonEmpty(finding.Severity, existing.Severity)
+		finding.Severity = NormalizeSeverity(existing.Severity)
 		finding.Title = firstNonEmpty(existing.Title, finding.Title)
 		finding.VerificationRunIDs = uniqueMerge(existing.VerificationRunIDs, run.ID)
 		finding.Environments = uniqueMerge(existing.Environments, run.EnvironmentDigest)

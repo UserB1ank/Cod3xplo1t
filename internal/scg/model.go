@@ -420,32 +420,6 @@ func (g *Graph) Summarize() *Summary {
 	return s
 }
 
-// normalize replaces nil slices with empty ones so a stored graph and a freshly
-// built one serialise identically.
-func (g *Graph) normalize() {
-	if g.Modules == nil {
-		g.Modules = []Module{}
-	}
-	if g.Files == nil {
-		g.Files = []File{}
-	}
-	if g.Symbols == nil {
-		g.Symbols = []Symbol{}
-	}
-	if g.CallSites == nil {
-		g.CallSites = []CallSite{}
-	}
-	if g.Edges == nil {
-		g.Edges = []Edge{}
-	}
-	if g.Limitations == nil {
-		g.Limitations = []string{}
-	}
-	if g.Frontends == nil {
-		g.Frontends = []FrontendInfo{}
-	}
-}
-
 // addLimitation appends a unique coverage statement.
 func (g *Graph) addLimitation(format string, args ...any) {
 	note := fmt.Sprintf(format, args...)

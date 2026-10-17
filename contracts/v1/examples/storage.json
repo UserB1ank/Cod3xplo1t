@@ -1,0 +1,22 @@
+{
+  "api_version": "codexploit/v1",
+  "metadata": {
+    "driver": "postgresql",
+    "host": "postgres",
+    "port": 5432,
+    "database": "codexploit",
+    "credential_ref": "secret-database-example"
+  },
+  "artifacts": {
+    "driver": "volume",
+    "endpoint": "artifact-service",
+    "bucket": "codexploit-artifacts"
+  },
+  "graph": {
+    "driver": "relational"
+  },
+  "deployment": {
+    "database_service": "postgres",
+    "artifact_service": "artifacts"
+  }
+}

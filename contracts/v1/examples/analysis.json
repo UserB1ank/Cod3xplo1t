@@ -1,0 +1,53 @@
+{
+  "api_version": "codexploit/v1",
+  "scope": {
+    "project_id": "proj-example",
+    "source_id": "src-example",
+    "snapshot_id": "snap-example"
+  },
+  "producer": {
+    "plugin_id": "team.scanner.example",
+    "plugin_version": "1.0.0",
+    "invocation_id": "invoke-example",
+    "task_id": "task-example",
+    "config_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "status": "partial",
+  "outputs": [
+    {
+      "id": "artifact-example",
+      "kind": "code.facts",
+      "scope": {
+        "project_id": "proj-example",
+        "source_id": "src-example",
+        "snapshot_id": "snap-example"
+      },
+      "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "bytes": 128,
+      "media_type": "application/vnd.codexploit.snapshot+tar",
+      "schema_id": "https://codexploit.invalid/contracts/v1/knowledge.schema.json",
+      "producer": {
+        "plugin_id": "team.scanner.example",
+        "plugin_version": "1.0.0",
+        "invocation_id": "invoke-example",
+        "task_id": "task-example",
+        "config_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    }
+  ],
+  "coverage": {
+    "files_seen": 2,
+    "files_analyzed": 1,
+    "files_skipped": 1,
+    "limitations": [
+      "Example: one unsupported file was skipped."
+    ]
+  },
+  "diagnostics": [
+    {
+      "level": "warning",
+      "code": "unsupported_language",
+      "message": "Example unsupported source file."
+    }
+  ]
+}

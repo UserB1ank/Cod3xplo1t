@@ -345,7 +345,7 @@ func extractTar(r io.Reader, dst string, l Limits, submodules []SubmoduleState) 
 			plan.Symlinks = append(plan.Symlinks, SymlinkEntry{Path: name, Target: hdr.Linkname})
 			plan.addSkip(SkippedEntry{Path: name, Reason: SkipSymlink, Detail: "-> " + hdr.Linkname})
 			continue
-		case tar.TypeReg, tar.TypeRegA:
+		case tar.TypeReg:
 		default:
 			plan.Stats.SkippedOther++
 			plan.addSkip(SkippedEntry{Path: name, Reason: SkipOther, Detail: fmt.Sprintf("tar type %q", hdr.Typeflag)})

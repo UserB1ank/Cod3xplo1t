@@ -1,0 +1,42 @@
+[
+  {
+    "file": "examples/source-local.json",
+    "schema": "source.schema.json"
+  },
+  {
+    "file": "examples/source-git.json",
+    "schema": "source.schema.json"
+  },
+  {
+    "file": "examples/snapshot.json",
+    "schema": "snapshot.schema.json"
+  },
+  {
+    "file": "examples/analysis.json",
+    "schema": "analysis.schema.json"
+  },
+  {
+    "file": "examples/graph-batch.json",
+    "schema": "knowledge.schema.json"
+  },
+  {
+    "file": "examples/plugin.json",
+    "schema": "plugin.schema.json"
+  },
+  {
+    "file": "examples/workflow.json",
+    "schema": "workflow.schema.json"
+  },
+  {
+    "file": "examples/finding.json",
+    "schema": "finding.schema.json"
+  },
+  {
+    "file": "examples/storage.json",
+    "schema": "storage.schema.json"
+  },
+  {
+    "file": "examples/task.json",
+    "schema": "application.schema.json"
+  }
+]

@@ -340,13 +340,6 @@ func graphToolMeta(m Meta) toolMeta {
 	}
 }
 
-func asgToolMeta(m ASGMeta) toolMeta {
-	return toolMeta{
-		SnapshotID: m.SnapshotID, ASGVersion: m.ASGVersion, SCGVersion: m.SCGVersion, Query: m.Query,
-		Truncated: m.Truncated, TruncationReason: m.TruncationReason,
-	}
-}
-
 type toolSymbol struct {
 	ID            string `json:"id"`
 	QualifiedName string `json:"qualified_name"`
@@ -719,9 +712,7 @@ func callGetCodeSlice(ctx context.Context, env toolEnv, args map[string]string) 
 		builder.WriteString(strings.Join(section.Lines, "\n"))
 		builder.WriteString("\n")
 	}
-	for _, limitation := range slice.Limitations {
-		notes = append(notes, limitation)
-	}
+	notes = append(notes, slice.Limitations...)
 	return toolText(name, builder.String(), notes, refs), nil
 }
 

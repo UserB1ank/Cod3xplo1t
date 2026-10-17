@@ -24,7 +24,8 @@ documentation lives under [`docs/`](docs/) — see the
 | P5 | Agent runtime: bounded task building with a minimal code slice, structured hypotheses with cited evidence, tool allowlist enforced in Go, expansion policy, run/event/hypothesis store, REST + CLI | **implemented** (scripted and generic CLI adapters; verification is the next phase) |
 | P6 | Verification: bounded plans with a stated disproof condition, scope and approval gates, isolated execution with quotas, immutable redacted evidence, findings that stay apart (confirmed / refuted / inconclusive / blocked), reports (Markdown, JSON, SARIF) | **implemented** (scripted and restricted CLI executors; isolation is a deployment contract) |
 | P7 | Resident scheduler: due-path dispatch under a concurrency budget, bounded retries with durable backoff, lease-based crash recovery, metrics, REST + CLI | **implemented** |
-| Not yet | Incremental analysis and change-impact caching, score calibration, WebUI, MCP exposure of paths/runs/findings | not started |
+| Web UI | Project → task workbench, shared versioned knowledge, execution events, three-grade findings, embedded server and Docker deployment | **implemented** |
+| Not yet | Incremental analysis and change-impact caching, score calibration, MCP exposure of paths/runs/findings | not started |
 
 The Go frontend is currently the only language frontend; files in other source
 languages are listed and counted, never silently dropped. See
@@ -35,24 +36,60 @@ languages are listed and counted, never silently dropped. See
 Requirements:
 
 - Go 1.26 or newer (see `go.mod`);
+- Node.js 22.12+ and npm to build the Web UI (not needed at runtime);
 - `git` on `PATH` for git sources (`--git` overrides the executable).
 
 ```bash
-make build          # builds bin/cli, bin/server and bin/mcp
-make vet            # go vet ./...
+make build          # builds the Web UI into bin/server, plus bin/cli and bin/mcp
+make test           # go test ./... -count=1 -shuffle=on -race (same as CI)
+make lint           # gofmt + go vet + staticcheck (same as the CI lint job)
 make fmt            # go fmt ./...
 ```
 
 Equivalent without make:
 
 ```bash
-go build -o bin/cli    ./cmd/cli
-go build -o bin/server ./cmd/server
-go build -o bin/mcp    ./cmd/mcp
+npm --prefix web ci
+npm --prefix web run build
+go build -trimpath -o bin/cli ./cmd/cli
+go build -trimpath -tags embedui -o bin/server ./cmd/server
+go build -trimpath -o bin/mcp ./cmd/mcp
 ```
 
 SQLite is provided by `modernc.org/sqlite`, a pure-Go driver: there is no cgo
 and the binaries behave identically on Linux, macOS and Windows.
+
+### Web UI and Docker
+
+The Web UI organizes repositories as **projects containing independent hunting
+tasks**. Tasks on the same snapshot share its SCG/ASG; findings retain the source
+task, snapshot, evidence and a separate high / medium / low severity assessment.
+
+```bash
+docker compose up -d --build
+```
+
+Open `http://localhost:18080`, create the administrator account on first startup,
+and sign in with its username and password. Then open
+**模型设置** to configure the LLM protocol, Base URL, model and API Key. Test the
+connection and save with LLM enabled. No LLM credentials belong in Compose,
+environment variables or repository files. Settings are encrypted in the data
+volume and take effect on new runs without restarting the container. The resident
+scheduler waits until a model is enabled before claiming queued work.
+
+Data persists in the `codexploit-data` volume. To clone remote repositories,
+export `CODEXPLOIT_ALLOW_NETWORK=true` before starting. Local repositories can
+be mounted read-only using `compose.local.yaml`.
+
+The Docker build includes the complete frontend and needs no host Go or Node
+installation. See [Web UI and deployment](docs/webui.md) for local source mounts,
+Agent configuration, development, upgrade and backup procedures.
+
+The separate [interactive design prototype](http://127.0.0.1:18080/prototype/#tasks)
+demonstrates an ARTEX-inspired task table, explicit folder/Git sources, shared
+graphs, plugin manifests, typed workflows and an independent PostgreSQL storage
+plan. It uses page-memory examples and does not scan code or change production
+data. See the [layered interface specification](docs/design/interfaces/v1/README.md).
 
 ## Workspace
 
@@ -416,6 +453,8 @@ codes: [`docs/mcp-tools.md`](docs/mcp-tools.md).
 
 | Document | Contents |
 |---|---|
+| [`docs/design/interfaces/v1/README.md`](docs/design/interfaces/v1/README.md) | 分层接口方案、代码源、统一插件与工作流、独立 PostgreSQL 存储和 ARTEX 参考原型 |
+| [`contracts/v1/README.md`](contracts/v1/README.md) | JSON Schema、完整示例与离线契约校验；`make check-contracts` |
 | [`docs/architecture.md`](docs/architecture.md) | pipeline, package responsibilities, storage schema, layering rules, configuration wiring |
 | [`docs/contracts.md`](docs/contracts.md) | every invariant the code enforces, with the file that enforces it |
 | [`docs/scg.md`](docs/scg.md) | Source Code Graph: nodes, edges, ids, resolution classes, query budgets, coverage, limits |

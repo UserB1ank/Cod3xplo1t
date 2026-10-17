@@ -110,6 +110,9 @@ func (m *Memory) ListAudits(q path.AuditQuery) ([]path.Audit, int, error) {
 	defer m.mu.RUnlock()
 	out := make([]path.Audit, 0, len(m.audits))
 	for _, doc := range m.audits {
+		if q.ProjectID != "" && m.snapshots[doc.audit.SnapshotID].projectID != q.ProjectID {
+			continue
+		}
 		if q.SnapshotID != "" && doc.audit.SnapshotID != q.SnapshotID {
 			continue
 		}
@@ -506,6 +509,9 @@ func (m *Memory) ClaimPath(pathID, owner, until string, from []path.Status, acto
 	doc, current, ok := m.findPathDocLocked(pathID)
 	if !ok {
 		return nil, fmt.Errorf("%w: path %s", path.ErrNotFound, pathID)
+	}
+	if doc.audit.Paused {
+		return nil, fmt.Errorf("%w: task is paused", path.ErrNotClaimable)
 	}
 	if err := m.snapshotWritableLocked(current.SnapshotID); err != nil {
 		return nil, err

@@ -167,3 +167,13 @@ no overloading and because a reader should never have to guess which log they ho
   (see `docs/known-issues.md` 5.6).
 - **No MCP surface for runs yet.** The agent's own tool access is the orchestrator's
   registry, not MCP; exposing `get_attack_path`/run tools over MCP is a later step.
+
+## Native HTTP model adapter
+
+The Docker deployment uses `--agent-runtime llm` with administrator settings
+in the Web UI. Both OpenAI-compatible Chat Completions and Responses protocols
+support the existing read-only graph tool loop, reported token usage and the
+same structured-answer validation as other adapters. Configuration is captured
+once per run; later saves apply to subsequent runs. The adapter exposes no
+shell, file-write or arbitrary network tool to the model. See
+[model configuration and Docker deployment](webui.md#docker-deployment).

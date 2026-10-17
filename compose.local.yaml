@@ -1,0 +1,5 @@
+# Optional read-only source mount. Set CODEXPLOIT_REPO_DIR to a local repository.
+services:
+  codexploit:
+    volumes:
+      - "${CODEXPLOIT_REPO_DIR:?Set CODEXPLOIT_REPO_DIR to a repository directory}:/repos/source:ro"

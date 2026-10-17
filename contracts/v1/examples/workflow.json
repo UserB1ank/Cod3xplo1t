@@ -1,0 +1,20 @@
+{
+  "api_version": "codexploit/v1",
+  "id": "workflow-example",
+  "version": "1.0.0",
+  "name": "Example discovery",
+  "description": "Synthetic contract example.",
+  "inputs": [
+    "source.snapshot"
+  ],
+  "nodes": [
+    {
+      "id": "scan",
+      "plugin_id": "team.scanner.example",
+      "plugin_version": "1.0.0",
+      "needs": [],
+      "config": {},
+      "timeout_seconds": 120
+    }
+  ]
+}

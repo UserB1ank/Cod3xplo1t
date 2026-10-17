@@ -111,6 +111,8 @@ func validateGraph(snapshotID string, g *scg.Graph) error {
 // FullStore is what the API and CLI need: documents, graph, attack surface and
 // durable idempotency.
 type FullStore interface {
+	// SetFindingSeverity updates only the grade, with optimistic concurrency.
+	SetFindingSeverity(id, severity string, expectedVersion int64) error
 	Store
 	GraphStore
 	ASGStore
