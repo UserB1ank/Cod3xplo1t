@@ -37,6 +37,8 @@
 
 - 2026-10-17 — #12 接入首个进程扫描器并在自定义工作流使用：部署目录中的固定版本包校验规范化清单、全文件摘要、安全相对 entrypoint 和可执行摘要后才登记为 installed / executable；新增版本化 NDJSON JSON-RPC 2.0 process adapter（握手、双向 `host.artifacts.read`、事件 / 输出块连续序号、1 MiB 消息、256 KiB 分块、16 MiB 报告限额、宿主环境隔离、取消与迟到输出栅栏）。`codexploit.static-patterns@1.0.0` 只解析冻结 Go 源码 tar，CP001 / CP002 告警产出 `scanner.alerts` 与仅含候选的 `security.facts`，经公共 scanner-alerts Schema 和独立 Normalizer 校验，未知版本 / 能力 / 受限网络返回 unsupported，不执行目标 build、test、hook。工作流可选择扫描节点，`$publish` 将 `scanner.alert` 候选作为独立观察发布到不可变知识版本；插件中心与任务页显示注册 / 安装 / 可执行状态、原始报告、标准告警、来源、覆盖与发布版本。已通过四个已确认边界的 TDD red/green、完整乱序竞态回归、三轮 `make test-stress`、`make lint`、前端测试 / 构建、Docker 构建，以及独立容器真实扫描、API 发布和浏览器任务页 / 插件页验收。已按交付流程提交并关闭；未 push。CodeQL 等第三方工具因许可 / 构建约束留待后续 process 适配器接入。
 
+- 2026-10-18 — #13 多插件发现分组、分级审计与来源查看：新增 `internal/findings` 版本化规则族指纹（仅显式等价表跨工具合并，标题不参与；快照、规则版本、位置与结论均参与身份），观察账本按 observation id + digest 幂等，重试不重复计数；Memory / SQLite 新增观察与 append-only 分级审计表、快照清理和 reason-required severity CAS，分级不改变验证裁定。`/api/v1/projects/{id}/findings` 列表 / 详情 / 分级使用公共 `finding-runtime.schema.json`，候选与已确认统计分开，旧 `/api` 保持兼容；发布路径（API 与工作流 `$publish`）自动把带显式 `rule_id` 的插件候选接入现有 finding/evidence 体系，无规则候选不按标题合并。正式漏洞库与详情展示指纹、任务 / 插件 / 规则 / 证据来源、支持 / 反对 / 未决证据和分级原因 / 版本 / 审计。已通过 TDD red/green、完整乱序竞态回归、三轮 `make test-stress`、`make lint`、前端测试 / 构建、Docker 构建，以及独立容器真实扫描、分组 / 发布 / 重试幂等、认证 API 和浏览器发现页 / 详情审计验收。已按交付流程提交并关闭；未 push。
+
 ## Agent skills
 
 ### Issue tracker

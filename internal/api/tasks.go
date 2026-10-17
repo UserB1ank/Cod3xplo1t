@@ -6,11 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/open-mcp-ai/Codexploit/internal/artifact"
+	"github.com/open-mcp-ai/Codexploit/internal/findings"
 	"github.com/open-mcp-ai/Codexploit/internal/path"
 	"github.com/open-mcp-ai/Codexploit/internal/storage"
 	"github.com/open-mcp-ai/Codexploit/internal/verify"
@@ -327,12 +328,29 @@ func requireEntityVersion(w http.ResponseWriter, r *http.Request, current string
 }
 
 type findingSource struct {
-	TaskID    string `json:"task_id"`
-	FindingID string `json:"finding_id"`
+	TaskID        string               `json:"task_id"`
+	FindingID     string               `json:"finding_id"`
+	ObservationID string               `json:"observation_id,omitempty"`
+	Producer      *artifact.Producer   `json:"producer,omitempty"`
+	RuleID        string               `json:"rule_id,omitempty"`
+	RuleVersion   string               `json:"rule_version,omitempty"`
+	RuleFamily    string               `json:"rule_family,omitempty"`
+	Title         string               `json:"title,omitempty"`
+	SeverityHint  string               `json:"severity_hint,omitempty"`
+	Status        verify.FindingStatus `json:"status,omitempty"`
+	File          string               `json:"file,omitempty"`
+	Line          int                  `json:"line,omitempty"`
+	EndLine       int                  `json:"end_line,omitempty"`
+	EvidenceRefs  []string             `json:"evidence_refs"`
+	Limitations   []string             `json:"limitations"`
+	CreatedAt     string               `json:"created_at,omitempty"`
 }
 type projectFinding struct {
 	verify.Finding
-	Sources []findingSource `json:"sources"`
+	Fingerprint        string                   `json:"fingerprint"`
+	FingerprintVersion string                   `json:"fingerprint_version"`
+	Sources            []findingSource          `json:"sources"`
+	SeverityAudit      []findings.SeverityAudit `json:"severity_audit"`
 }
 
 // Project knowledge reads use the store even if execution adapters are disabled.
@@ -343,87 +361,111 @@ func (s *Server) handleProjectFindings(w http.ResponseWriter, r *http.Request) {
 		writeStorageError(w, err)
 		return
 	}
-	groups := map[string]*projectFinding{}
-	truncated := false
-	for offset := 0; ; offset += 500 {
-		if err := r.Context().Err(); err != nil {
+	if s.Findings == nil {
+		writeError(w, http.StatusNotImplemented, "findings_unavailable", errors.New("the findings service is unavailable"))
+		return
+	}
+	query := r.URL.Query()
+	severity := strings.TrimSpace(query.Get("severity"))
+	if severity != "" && severity != "high" && severity != "medium" && severity != "low" {
+		writeError(w, http.StatusBadRequest, "invalid_request", errors.New("severity must be high, medium or low"))
+		return
+	}
+	var status verify.FindingStatus
+	if raw := strings.TrimSpace(query.Get("status")); raw != "" {
+		status = verify.FindingStatus(raw)
+		if !verify.ValidFindingStatus(status) {
+			writeError(w, http.StatusBadRequest, "invalid_request", errors.New("unknown finding status"))
 			return
 		}
-		items, total, err := s.Store.ListFindings(verify.FindingQuery{ProjectID: projectID, AuditID: r.URL.Query().Get("task_id"), Limit: 500, Offset: offset})
-		if err != nil {
-			writeVerifyError(w, err, "")
-			return
-		}
-		for _, item := range items {
-			item.Severity = verify.NormalizeSeverity(item.Severity)
-			key := item.ID
-			if p, err := s.Store.GetPath(item.PathID); err == nil && p.Signature != "" {
-				key = item.SnapshotID + "\x00" + p.Signature + "\x00" + strings.ToLower(strings.TrimSpace(item.Title)) + "\x00" + string(item.Status)
-			}
-			group := groups[key]
-			if group == nil {
-				group = &projectFinding{Finding: item, Sources: []findingSource{}}
-				groups[key] = group
-			}
-			group.Sources = append(group.Sources, findingSource{TaskID: item.AuditID, FindingID: item.ID})
-			if gradeOrder(item.Severity) < gradeOrder(group.Severity) {
-				group.Finding = item
-			}
-		}
-		if offset+len(items) >= total || len(items) == 0 {
-			break
-		}
-		if offset+len(items) >= 10000 {
-			truncated = true
-			break
-		}
 	}
-	findings := make([]projectFinding, 0, len(groups))
-	counts := map[string]int{"high": 0, "medium": 0, "low": 0, "ungraded": 0}
-	for _, group := range groups {
-		sort.Slice(group.Sources, func(i, j int) bool { return group.Sources[i].FindingID < group.Sources[j].FindingID })
-		findings = append(findings, *group)
-		if group.Status == verify.FindingConfirmed {
-			grade := group.Severity
-			if grade == "" {
-				grade = "ungraded"
-			}
-			counts[grade]++
-		}
-	}
-	sort.Slice(findings, func(i, j int) bool {
-		if gradeOrder(findings[i].Severity) != gradeOrder(findings[j].Severity) {
-			return gradeOrder(findings[i].Severity) < gradeOrder(findings[j].Severity)
-		}
-		return findings[i].ID < findings[j].ID
+	limit := pageLimit(query.Get("limit"))
+	offset := max(0, queryInt(query.Get("offset"), 0))
+	result, err := s.Findings.List(r.Context(), findings.ListQuery{
+		ProjectID: projectID,
+		TaskID:    strings.TrimSpace(query.Get("task_id")),
+		Severity:  severity,
+		Status:    status,
+		Limit:     limit,
+		Offset:    offset,
 	})
-	severity, status := r.URL.Query().Get("severity"), r.URL.Query().Get("status")
-	filtered := make([]projectFinding, 0, len(findings))
-	for _, finding := range findings {
-		if severity != "" && finding.Severity != severity {
-			continue
-		}
-		if status != "" && string(finding.Status) != status {
-			continue
-		}
-		filtered = append(filtered, finding)
+	if err != nil {
+		writeFindingsError(w, err)
+		return
 	}
-	offset := max(0, queryInt(r.URL.Query().Get("offset"), 0))
-	end := min(len(filtered), offset+pageLimit(r.URL.Query().Get("limit")))
-	offset = min(offset, end)
-	writeJSON(w, http.StatusOK, map[string]any{"findings": filtered[offset:end], "total": len(filtered), "counts": counts, "truncated": truncated})
+	items := make([]projectFinding, 0, len(result.Groups))
+	for _, group := range result.Groups {
+		items = append(items, projectFindingFromGroup(group))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"findings":         items,
+		"total":            result.Total,
+		"counts":           result.Counts.Confirmed,
+		"confirmed_counts": result.Counts.Confirmed,
+		"candidate_counts": result.Counts.Candidate,
+		"truncated":        result.Truncated,
+	})
 }
 
-func gradeOrder(grade string) int {
-	switch grade {
-	case "high":
-		return 0
-	case "medium":
-		return 1
-	case "low":
-		return 2
+func projectFindingFromGroup(group findings.Group) projectFinding {
+	finding := group.Finding
+	finding.Severity = verify.NormalizeSeverity(finding.Severity)
+	item := projectFinding{
+		Finding:            finding,
+		Fingerprint:        group.Fingerprint,
+		FingerprintVersion: group.FingerprintVersion,
+		Sources:            []findingSource{},
+		SeverityAudit:      group.SeverityAudit,
+	}
+	if item.SeverityAudit == nil {
+		item.SeverityAudit = []findings.SeverityAudit{}
+	}
+	if len(group.Observations) == 0 {
+		members := group.Members
+		if len(members) == 0 {
+			members = []verify.Finding{finding}
+		}
+		for _, member := range members {
+			item.Sources = append(item.Sources, findingSource{
+				TaskID: member.AuditID, FindingID: member.ID, Status: member.Status,
+				EvidenceRefs: []string{}, Limitations: []string{},
+			})
+		}
+		return item
+	}
+	for _, observation := range group.Observations {
+		producer := observation.Producer
+		item.Sources = append(item.Sources, findingSource{
+			TaskID: observation.TaskID, FindingID: observation.FindingID,
+			ObservationID: observation.ID, Producer: &producer,
+			RuleID: observation.RuleID, RuleVersion: observation.RuleVersion, RuleFamily: observation.RuleFamily,
+			Title: observation.Title, SeverityHint: observation.SeverityHint, Status: observation.Status,
+			File: observation.File, Line: observation.Line, EndLine: observation.EndLine,
+			EvidenceRefs: nonNilStrings(observation.EvidenceRefs),
+			Limitations:  nonNilStrings(observation.Limitations),
+			CreatedAt:    observation.CreatedAt,
+		})
+	}
+	return item
+}
+
+func nonNilStrings(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	return values
+}
+
+func writeFindingsError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, findings.ErrInvalid), errors.Is(err, verify.ErrInvalidArgument):
+		writeError(w, http.StatusBadRequest, "invalid_request", err)
+	case errors.Is(err, findings.ErrConflict), errors.Is(err, verify.ErrConflict):
+		writeError(w, http.StatusPreconditionFailed, "precondition_failed", err)
+	case errors.Is(err, findings.ErrNotFound), errors.Is(err, verify.ErrNotFound):
+		writeError(w, http.StatusNotFound, "finding_not_found", err)
 	default:
-		return 3
+		writeError(w, http.StatusServiceUnavailable, "findings_unavailable", err)
 	}
 }
 
@@ -446,9 +488,22 @@ func (s *Server) handleKnowledgeFinding(w http.ResponseWriter, r *http.Request) 
 	if runs == nil {
 		runs = []verify.Run{}
 	}
-	finding.Severity = verify.NormalizeSeverity(finding.Severity)
-	w.Header().Set("ETag", findingETag(finding))
-	writeJSON(w, http.StatusOK, findingDetail{Finding: *finding, Evidence: grouped, Verifications: runs})
+	detail := findingDetail{Finding: *finding, Evidence: grouped, Verifications: runs, Sources: []findingSource{}, SeverityAudit: []findings.SeverityAudit{}}
+	if s.Findings != nil {
+		group, err := s.Findings.Get(r.Context(), finding.ID)
+		if err != nil {
+			writeFindingsError(w, err)
+			return
+		}
+		item := projectFindingFromGroup(group)
+		detail.Finding = item.Finding
+		detail.Fingerprint, detail.FingerprintVersion = item.Fingerprint, item.FingerprintVersion
+		detail.Sources, detail.SeverityAudit = item.Sources, item.SeverityAudit
+	} else {
+		detail.Finding.Severity = verify.NormalizeSeverity(detail.Finding.Severity)
+	}
+	w.Header().Set("ETag", findingETag(&detail.Finding))
+	writeJSON(w, http.StatusOK, detail)
 }
 
 func findingETag(finding *verify.Finding) string {
@@ -466,12 +521,28 @@ func (s *Server) handleGradeFinding(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct {
 		Severity string `json:"severity"`
+		Reason   string `json:"reason"`
 	}
 	if !s.decode(w, r, &req) {
 		return
 	}
 	if req.Severity != "high" && req.Severity != "medium" && req.Severity != "low" {
 		writeError(w, http.StatusBadRequest, "invalid_request", errors.New("severity must be high, medium or low"))
+		return
+	}
+	reason := strings.TrimSpace(req.Reason)
+	if s.Findings != nil {
+		if reason == "" {
+			reason = "legacy severity request without a reason"
+		}
+		group, err := s.Findings.AssessSeverity(r.Context(), finding.ID, req.Severity, reason, principalName(r), finding.Version)
+		if err != nil {
+			writeFindingsError(w, err)
+			return
+		}
+		s.Logger.Info("finding graded", "finding", finding.ID, "severity", req.Severity, "actor", principalName(r))
+		w.Header().Set("ETag", findingETag(&group.Finding))
+		writeJSON(w, http.StatusOK, group.Finding)
 		return
 	}
 	if err := s.Store.SetFindingSeverity(finding.ID, req.Severity, finding.Version); err != nil {

@@ -32,13 +32,52 @@ export interface Identity {
   can_write: boolean;
   features: Record<string, boolean>;
 }
+export interface FindingSource {
+  task_id: string;
+  finding_id: string;
+  observation_id?: string;
+  producer?: {
+    plugin_id: string;
+    plugin_version: string;
+    invocation_id: string;
+    task_id?: string;
+    config_digest: string;
+  };
+  rule_id?: string;
+  rule_version?: string;
+  rule_family?: string;
+  title?: string;
+  severity_hint?: Grade;
+  status?: Finding["status"];
+  file?: string;
+  line?: number;
+  end_line?: number;
+  evidence_refs?: string[];
+  limitations?: string[];
+  created_at?: string;
+}
+export interface SeverityAudit {
+  audit_id: string;
+  finding_id: string;
+  version: number;
+  previous_severity?: Grade;
+  severity: Grade;
+  reason: string;
+  actor: string;
+  created_at: string;
+}
 export interface ProjectFinding extends Finding {
-  sources: { task_id: string; finding_id: string }[];
+  fingerprint: string;
+  fingerprint_version: string;
+  sources: FindingSource[];
+  severity_audit: SeverityAudit[];
 }
 export interface FindingPage {
   findings: ProjectFinding[];
   total: number;
   counts: Record<string, number>;
+  confirmed_counts?: Record<string, number>;
+  candidate_counts?: Record<string, number>;
   truncated: boolean;
 }
 export interface Route {
@@ -124,6 +163,7 @@ export function taskGradeCounts(findings: ProjectFinding[], taskID: string) {
     if (
       finding.status === "confirmed" &&
       finding.sources.some((s) => s.task_id === taskID) &&
+      finding.severity &&
       finding.severity in counts
     )
       counts[finding.severity as Grade]++;

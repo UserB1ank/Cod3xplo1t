@@ -347,15 +347,20 @@ func (m *Memory) deleteVerificationForSnapshotLocked(snapshotID string) int {
 		removedRuns[id] = true
 		removed++
 	}
+	removedFindings := map[string]bool{}
+	for id, finding := range m.findings {
+		if finding.SnapshotID == snapshotID {
+			removedFindings[id] = true
+		}
+	}
 	for id, object := range m.evidence {
 		if object.SnapshotID == snapshotID || removedRuns[object.VerificationRunID] {
 			delete(m.evidence, id)
 		}
 	}
-	for id, finding := range m.findings {
-		if finding.SnapshotID == snapshotID {
-			delete(m.findings, id)
-		}
+	m.deleteFindingObservationsForSnapshotLocked(snapshotID, removedFindings)
+	for id := range removedFindings {
+		delete(m.findings, id)
 	}
 	for id := range removedRuns {
 		delete(m.verificationRuns, id)

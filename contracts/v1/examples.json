@@ -66,5 +66,9 @@
   {
     "file": "examples/workflow-run.json",
     "schema": "workflow-run.schema.json"
+  },
+  {
+    "file": "examples/finding-runtime.json",
+    "schema": "finding-runtime.schema.json"
   }
 ]

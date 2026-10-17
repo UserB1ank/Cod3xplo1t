@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/open-mcp-ai/Codexploit/internal/analysis"
+	"github.com/open-mcp-ai/Codexploit/internal/findings"
 	"github.com/open-mcp-ai/Codexploit/internal/scg"
 )
 
@@ -129,6 +130,10 @@ type FullStore interface {
 	// methods are verification-scoped (CreateVerificationRun and friends) for the
 	// same reason the agent log's are run-scoped.
 	VerificationStore
+	// ObservationStore is the plugin observation ledger and severity audit
+	// history that the findings service groups. Findings themselves stay in the
+	// verification table.
+	findings.ObservationStore
 }
 
 // sameAnalysis reports whether two serialised manifests describe the same

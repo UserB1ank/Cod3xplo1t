@@ -15,6 +15,7 @@ import (
 
 	"github.com/open-mcp-ai/Codexploit/internal/app"
 	"github.com/open-mcp-ai/Codexploit/internal/artifact"
+	"github.com/open-mcp-ai/Codexploit/internal/findings"
 	"github.com/open-mcp-ai/Codexploit/internal/plugin"
 	"github.com/open-mcp-ai/Codexploit/internal/processplugin"
 	"github.com/open-mcp-ai/Codexploit/internal/processplugin/wire"
@@ -346,5 +347,13 @@ func TestScannerCandidatesArePublishedIntoAnImmutableKnowledgeRevision(t *testin
 	}
 	if alerts != 1 {
 		t.Fatalf("scanner facts = %d, revision = %+v", alerts, revision)
+	}
+	groups, err := rt.Findings.List(ctx, findings.ListQuery{ProjectID: scope.ProjectID})
+	if err != nil || groups.Total != 1 || len(groups.Groups) != 1 || len(groups.Groups[0].Observations) != 1 {
+		t.Fatalf("finding groups = %+v %v", groups, err)
+	}
+	observation := groups.Groups[0].Observations[0]
+	if observation.RuleID != "CP001" || observation.TaskID == "" || observation.Producer.PluginID != scanner.ID || observation.FingerprintVersion != findings.FingerprintVersion {
+		t.Fatalf("observation = %+v", observation)
 	}
 }

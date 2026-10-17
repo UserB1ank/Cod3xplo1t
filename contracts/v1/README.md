@@ -29,6 +29,11 @@ process scanner parses a frozen source tar without building or running it.
 coverage and limitations only; `discovery.schema.json` is the normalized result
 the host publishes after verifying Scope, producer and artifact digests.
 
+`finding-runtime.schema.json` defines the grouped findings read model: versioned
+fingerprint groups, plugin observation sources, separate candidate/confirmed
+counts and append-only severity audit rows. `finding.schema.json` remains the
+single-finding DTO.
+
 `discovery.schema.json` defines normalized semantic facts and path observations.
 Candidates have an immutable `candidate` status and an optional high/medium/low
 severity hint. Invocation `analysis` follows `analysis.schema.json`; observed

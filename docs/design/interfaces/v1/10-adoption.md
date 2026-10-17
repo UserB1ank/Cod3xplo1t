@@ -46,6 +46,8 @@ Issue #6 的正式插件中心已接入 Schema 校验的不可变目录与内置
 
 Issue #12 已把部署目录中的 `codexploit.static-patterns@1.0.0` 接入正式插件目录、工作流与知识发布：包摘要和 entrypoint 校验后才显示 installed/executable；扫描器通过 NDJSON JSON-RPC 读取冻结 tar，只输出告警位置和 `security.facts` 候选；`$publish` 以 `scanner.alert` 事实进入不可变版本，任务页展示原始报告、标准告警、来源和发布版本。CodeQL 等重依赖工具因许可/构建约束未内置，后续可用同一适配器接入。详见 [进程扫描器](../../../process-scanner.md)。
 
+Issue #13 已把插件观察接入现有 FindingService：版本化规则族/位置指纹、观察账本、候选/已确认分开统计、reason-required severity CAS 与 append-only 审计；正式发现页可展开任务、插件、规则、证据和分级历史，`/api/v1` DTO 经 `finding-runtime.schema.json` 校验，旧 `/api` 保持兼容。详见 [发现层](07-findings.md)。
+
 Issue #11 已把运行控制接到正式任务：`POST .../workflow-runs/{id}/pause|resume|cancel|retry`（writer）实现 PAUSING/PAUSED/CANCELLING 状态机与幂等控制，暂停只阻断新节点、活动节点到边界完成；只有可重试错误按退避与次数上限重试，取消不重试；节点写入租约与独立 attempt，迟到结果被拒；进程重启后 `Recover` 恢复非终态运行，已成功节点复用原产物不重复发布。运行并发与重试上限固定写入运行记录，事件游标保持 `after_seq` 语义。正式任务页新增暂停/继续/取消/重试与尝试次数、并发策略展示。
 
 Issue #8 已把插件标准结果接到不可变共享版本：新增 `POST .../knowledge/publications`（writer）与 `GET .../knowledge/revisions/{view}/facts`（reader），版本 CAS、幂等批次、scope / 孤立边校验、冲突观察保留和 outbox 同事务提交；同一事实的多工具来源保留为独立观察。正式图谱页的“共享知识版本”面板可选择任意已发布版本并展开来源。旧 `/api` 与 #5 的固定视图保持兼容；PostgreSQL 规范化索引仍属后续存储切片。

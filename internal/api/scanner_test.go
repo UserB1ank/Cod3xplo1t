@@ -206,4 +206,108 @@ func TestProcessScannerRunsPublishesAndShowsSourcesThroughAuthenticatedAPI(t *te
 	if facts.status != 200 || !strings.Contains(string(facts.body), "scanner.alert") || !strings.Contains(string(facts.body), scanner.ID) {
 		t.Fatalf("facts: %d %s", facts.status, facts.body)
 	}
+
+	grouped := doAs(t, env.ts, readerSecret, http.MethodGet, "/api/projects/"+project.ID+"/findings", nil, nil)
+	if grouped.status != 200 {
+		t.Fatalf("findings: %d %s", grouped.status, grouped.body)
+	}
+	var library struct {
+		Findings        []projectFinding `json:"findings"`
+		Total           int              `json:"total"`
+		CandidateCounts map[string]int   `json:"candidate_counts"`
+		ConfirmedCounts map[string]int   `json:"confirmed_counts"`
+	}
+	grouped.decode(t, &library)
+	if library.Total != 1 || len(library.Findings) != 1 || library.CandidateCounts["ungraded"] != 1 || library.ConfirmedCounts["high"] != 0 {
+		t.Fatalf("library = %+v", library)
+	}
+	group := library.Findings[0]
+	if group.FingerprintVersion != "1" || len(group.Fingerprint) != 32 || len(group.Sources) != 1 {
+		t.Fatalf("group = %+v", group)
+	}
+	observationSource := group.Sources[0]
+	if observationSource.RuleID != "CP001" || observationSource.Producer == nil || observationSource.Producer.PluginID != scanner.ID || observationSource.File != "main.go" || len(observationSource.EvidenceRefs) != 1 {
+		t.Fatalf("source = %+v", observationSource)
+	}
+	retried := do(t, env.ts, http.MethodPost, "/api/v1/projects/"+project.ID+"/knowledge/publications", map[string]any{
+		"api_version":   "codexploit/v1",
+		"snapshot_id":   snapshot.Snapshot.SnapshotID,
+		"invocation_id": invocation.ID,
+		"batch_id":      "batch-api-scanner-retry",
+		"base_revision": receipt.Publication.Revision,
+	}, nil)
+	if retried.status != 201 {
+		t.Fatalf("retry publish: %d %s", retried.status, retried.body)
+	}
+	retriedGroups := doAs(t, env.ts, readerSecret, http.MethodGet, "/api/projects/"+project.ID+"/findings", nil, nil)
+	retriedGroups.decode(t, &library)
+	if library.Total != 1 || len(library.Findings) != 1 || len(library.Findings[0].Sources) != 1 || library.CandidateCounts["ungraded"] != 1 {
+		t.Fatalf("retry inflated the group: %+v", library)
+	}
+
+	v1List := doAs(t, env.ts, readerSecret, http.MethodGet, "/api/v1/projects/"+project.ID+"/findings", nil, nil)
+	if v1List.status != 200 {
+		t.Fatalf("v1 list: %d %s", v1List.status, v1List.body)
+	}
+	var v1Page struct {
+		Findings []struct {
+			FindingID          string `json:"finding_id"`
+			FingerprintVersion string `json:"fingerprint_version"`
+			Status             string `json:"status"`
+			Sources            []struct {
+				RuleID string `json:"rule_id"`
+			} `json:"sources"`
+		} `json:"findings"`
+		Total           int            `json:"total"`
+		CandidateCounts map[string]int `json:"candidate_counts"`
+	}
+	v1List.decode(t, &v1Page)
+	if v1Page.Total != 1 || len(v1Page.Findings) != 1 || v1Page.Findings[0].Status != "candidate" || v1Page.Findings[0].Sources[0].RuleID != "CP001" || v1Page.CandidateCounts["ungraded"] != 1 {
+		t.Fatalf("v1 page = %+v", v1Page)
+	}
+	findingID := v1Page.Findings[0].FindingID
+	detail := doAs(t, env.ts, readerSecret, http.MethodGet, "/api/v1/projects/"+project.ID+"/findings/"+findingID, nil, nil)
+	if detail.status != 200 || detail.header.Get("ETag") == "" {
+		t.Fatalf("v1 detail: %d %s", detail.status, detail.body)
+	}
+	if !strings.Contains(string(detail.body), "CP001") || !strings.Contains(string(detail.body), "sources") {
+		t.Fatalf("v1 detail body: %s", detail.body)
+	}
+	gradePath := "/api/v1/projects/" + project.ID + "/findings/" + findingID + "/severity"
+	noReason := do(t, env.ts, http.MethodPatch, gradePath, map[string]any{"severity": "medium"}, map[string]string{"If-Match": detail.header.Get("ETag")})
+	if noReason.status != 400 {
+		t.Fatalf("missing reason: %d %s", noReason.status, noReason.body)
+	}
+	reader := doAs(t, env.ts, readerSecret, http.MethodPatch, gradePath, map[string]any{"severity": "medium", "reason": "reachable"}, map[string]string{"If-Match": detail.header.Get("ETag")})
+	if reader.status != 403 {
+		t.Fatalf("reader grade: %d %s", reader.status, reader.body)
+	}
+	graded := do(t, env.ts, http.MethodPatch, gradePath, map[string]any{"severity": "medium", "reason": "reachable from the public route"}, map[string]string{"If-Match": detail.header.Get("ETag")})
+	if graded.status != 200 {
+		t.Fatalf("v1 grade: %d %s", graded.status, graded.body)
+	}
+	var gradedGroup struct {
+		Finding struct {
+			ID            string `json:"finding_id"`
+			Status        string `json:"status"`
+			Severity      string `json:"severity"`
+			Version       int64  `json:"version"`
+			SeverityAudit []struct {
+				Reason string `json:"reason"`
+				Actor  string `json:"actor"`
+			} `json:"severity_audit"`
+		} `json:"finding"`
+	}
+	graded.decode(t, &gradedGroup)
+	if gradedGroup.Finding.Status != "candidate" || gradedGroup.Finding.Severity != "medium" || gradedGroup.Finding.Version != 2 || len(gradedGroup.Finding.SeverityAudit) != 1 || gradedGroup.Finding.SeverityAudit[0].Reason == "" {
+		t.Fatalf("graded = %+v", gradedGroup.Finding)
+	}
+	stale := do(t, env.ts, http.MethodPatch, gradePath, map[string]any{"severity": "low", "reason": "stale"}, map[string]string{"If-Match": detail.header.Get("ETag")})
+	if stale.status != 412 {
+		t.Fatalf("stale grade: %d %s", stale.status, stale.body)
+	}
+	crossProject := doAs(t, env.ts, readerSecret, http.MethodGet, "/api/v1/projects/project-other/findings/"+findingID, nil, nil)
+	if crossProject.status != 404 {
+		t.Fatalf("cross-project detail: %d %s", crossProject.status, crossProject.body)
+	}
 }

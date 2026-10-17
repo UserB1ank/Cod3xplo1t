@@ -13,6 +13,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/analysis"
 	"github.com/open-mcp-ai/Codexploit/internal/artifact"
 	"github.com/open-mcp-ai/Codexploit/internal/asg"
+	"github.com/open-mcp-ai/Codexploit/internal/findings"
 	"github.com/open-mcp-ai/Codexploit/internal/plugin"
 	"github.com/open-mcp-ai/Codexploit/internal/repository"
 	"github.com/open-mcp-ai/Codexploit/internal/verify"
@@ -71,6 +72,10 @@ type Memory struct {
 	// hypothesis is the upsert identity, so a re-upsert updates the row instead of
 	// adding one.
 	findings map[string]verify.Finding
+	// findingObservations holds plugin claims grouped by a versioned fingerprint;
+	// findingAudits is the append-only severity history.
+	findingObservations map[string]findings.Observation
+	findingAudits       map[string][]findings.SeverityAudit
 }
 
 type memorySnapshot struct {
@@ -82,20 +87,22 @@ type memorySnapshot struct {
 // NewMemory returns an empty in-memory store.
 func NewMemory() *Memory {
 	return &Memory{
-		deleting:         map[string]bool{},
-		projects:         map[string]Project{},
-		snapshots:        map[string]memorySnapshot{},
-		manifests:        map[string][]byte{},
-		analyses:         map[string]string{},
-		graphs:           map[string]*memoryGraph{},
-		asgDocuments:     map[string]*asg.Document{},
-		idempotency:      map[idempotencyKey]IdempotencyRecord{},
-		audits:           map[string]*auditDocument{},
-		agentRuns:        map[string]*agentRunDocument{},
-		agentHypotheses:  map[string]agent.Hypothesis{},
-		verificationRuns: map[string]verify.Run{},
-		evidence:         map[string]verify.Evidence{},
-		findings:         map[string]verify.Finding{},
+		deleting:            map[string]bool{},
+		projects:            map[string]Project{},
+		snapshots:           map[string]memorySnapshot{},
+		manifests:           map[string][]byte{},
+		analyses:            map[string]string{},
+		graphs:              map[string]*memoryGraph{},
+		asgDocuments:        map[string]*asg.Document{},
+		idempotency:         map[idempotencyKey]IdempotencyRecord{},
+		audits:              map[string]*auditDocument{},
+		agentRuns:           map[string]*agentRunDocument{},
+		agentHypotheses:     map[string]agent.Hypothesis{},
+		verificationRuns:    map[string]verify.Run{},
+		evidence:            map[string]verify.Evidence{},
+		findings:            map[string]verify.Finding{},
+		findingObservations: map[string]findings.Observation{},
+		findingAudits:       map[string][]findings.SeverityAudit{},
 	}
 }
 

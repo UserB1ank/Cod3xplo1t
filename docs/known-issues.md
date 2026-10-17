@@ -30,9 +30,9 @@ been verified in the tree; nothing is listed from memory alone.
 | P3 attack surface | 6 | `GAP`, `DEVIATION`, `RISK` |
 | P4 audit paths | 6 | `DEVIATION`, `RISK` |
 | Platform and deployment | 5 | `RISK`, `DEVIATION` |
-| Runtime limits and future interfaces | 8 | `GAP`, `DEVIATION`, `RISK` |
+| Runtime limits and future interfaces | 9 | `GAP`, `DEVIATION`, `RISK` |
 
-There are 33 active entries. Closed entries below retain their old identifiers.
+There are 34 active entries. Closed entries below retain their old identifiers.
 
 ---
 
@@ -378,6 +378,7 @@ registered explicitly with `snapshots register`.
 | 7.4 | `GAP` | Incremental analysis, dependency-impact caching and benchmark calibration (P7) | full rebuilds per commit and uncalibrated weights are the two costs that grow fastest |
 | 7.5 | `GAP` | WebUI (design §12): SCG/ASG views, path workbench, agent monitoring, finding centre, reports | all read-only APIs it needs exist; the ASG route table and the path queue are already shaped for it |
 | 7.6 | `GAP` | Process plugin v1 ships one deployment-installed first-party Go pattern scanner; CodeQL/Semgrep/OSV are not bundled, installation is a deployment directory rather than an HTTP upload, plugin events are transport-only (not restarted), and the adapter cannot enforce network isolation (`network=restricted` returns unsupported) | the boundary and limits are exercised end to end, but third-party/worker coverage and approved network execution remain later work; see `docs/process-scanner.md` |
+| 7.7 | `DEVIATION` | Fingerprint equality is deliberately conservative: only the built-in scanner's CP001/CP002 families are cross-tool equivalent, and observations without an explicit rule id are not registered as findings at all. Rule-family changes require a new `FingerprintVersion`; existing observations keep their stored fingerprint | a second scanner must declare its equivalence rather than rely on a similar title; built-in path candidates remain only in knowledge revisions until a rule family is defined for them |
 
 ---
 

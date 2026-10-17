@@ -131,6 +131,19 @@ func (s *Server) handlePublishKnowledge(w http.ResponseWriter, r *http.Request) 
 		writePublicationError(w, err)
 		return
 	}
+	if s.Findings != nil && len(document.Candidates) > 0 {
+		producer := artifact.Producer{
+			PluginID:      invocation.Request.PluginID,
+			PluginVersion: invocation.Request.PluginVersion,
+			InvocationID:  invocation.ID,
+			TaskID:        request.TaskID,
+			ConfigDigest:  invocation.ConfigDigest,
+		}
+		if _, err := s.Findings.RecordCandidates(r.Context(), scope, request.TaskID, producer, document.Candidates); err != nil {
+			writeFindingsError(w, err)
+			return
+		}
+	}
 	view, err := publication.NewView(batch.Scope, revision.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", err)

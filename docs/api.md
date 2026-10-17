@@ -701,7 +701,10 @@ executes it, and only the derivation in `internal/verify` decides a verdict.
 | `GET /api/verifications/{id}` | `reader` | one run with its plan, environment digest, approval record, outcome, reason and evidence ids |
 | `GET /api/verifications/{id}/evidence` | `reader` | the run's immutable evidence objects (`kind`, `limit`, `offset`) |
 | `GET /api/findings` | `reader` | page of findings (`audit_id`, `snapshot_id`, `path_id`, `status`, `conclusive`, `candidates`, `limit`, `offset`) |
-| `GET /api/findings/{id}` | `reader` | one finding with its evidence grouped and its verification runs |
+| `GET /api/findings/{id}` | `reader` | one finding with its evidence grouped, its observations and severity audit |
+| `GET /api/v1/projects/{id}/findings` | `reader` | versioned fingerprint groups (`task_id`, `severity`, `status`, `limit`, `offset`), separate candidate/confirmed counts |
+| `GET /api/v1/projects/{id}/findings/{findingID}` | `reader` | one group with sources, evidence groups, severity audit and ETag |
+| `PATCH /api/v1/projects/{id}/findings/{findingID}/severity` | `writer` | set high/medium/low with a required reason, If-Match and append-only audit |
 | `GET /api/evidence/{id}` | `reader` | one evidence object |
 | `GET /api/audits/{id}/report` | `reader` | render the audit's findings (`format=md\|json\|sarif`, `include_candidates`) |
 
@@ -721,7 +724,9 @@ the verification layer answers `501 verification_unavailable` on every route her
 
 A `candidate` finding is an unverified hypothesis: it appears in a report only with
 `include_candidates=true`, because a report of findings must not read as a report of
-vulnerabilities. The HTTP status describes the request while `status` and `outcome`
+vulnerabilities. Plugin observations are always candidates; they are grouped by a
+versioned rule-family/location fingerprint and never change a verification verdict.
+`/api/v1` reports candidate and confirmed counts separately. The HTTP status describes the request while `status` and `outcome`
 describe the run: a run that ended `BLOCKED` was still started successfully, so the
 POST answers `200` with that run in the body.
 
@@ -810,6 +815,31 @@ groups the referenced objects into `supporting`, `contradicting` and `inconclusi
 and `verifications` holds every run recorded for the finding. The three lists stay
 apart because a contradiction is the interesting part and "we could not tell" is
 not "we disproved it".
+
+The same detail adds `fingerprint`, `fingerprint_version`, `sources` and
+`severity_audit`. A source names the task, plugin/version, invocation, rule
+id/version/family, location, evidence refs and limitations. Severity changes are
+recorded as append-only audit rows; candidate observations stay candidates.
+
+### Grouped findings (`/api/v1`)
+
+`GET /api/v1/projects/{projectID}/findings` returns `findings`, `total`,
+`counts` (confirmed, compatibility), `confirmed_counts`, `candidate_counts` and
+`truncated`. Each group has a stable 32-hex `fingerprint`, a
+`fingerprint_version`, every `source` observation and its `severity_audit`.
+
+Observations group only when they share the same project, snapshot, semantic rule
+family, rule version, file, line and confirmation status. The built-in scanner's
+`CP001` and `CP002` map to explicit families (`codexploit.command-execution`,
+`codexploit.sql-query`); an undeclared rule stays in its own plugin namespace.
+Titles are never a grouping input. A replay of the same observation is idempotent;
+a new invocation adds a source without inflating group or count totals.
+
+`PATCH .../findings/{findingID}/severity` requires `If-Match`, a `severity` of
+`high`/`medium`/`low` and a non-empty `reason`. The new version and the audit row
+commit together; the finding's `status` is untouched. Cross-project finding ids
+answer `404`. The legacy `PATCH /api/findings/{id}/severity` remains compatible and
+records a legacy reason when the body omits one.
 
 ### Evidence
 

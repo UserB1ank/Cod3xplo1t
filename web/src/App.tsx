@@ -55,7 +55,7 @@ import { dateLabel, eventNames, findingStatus, shortId } from "./domain";
 import type {
   AuditEvent,
   AuditPath,
-  FindingDetail,
+  Evidence,
   GraphSummary,
   Project,
   Run,
@@ -799,6 +799,7 @@ export default function App() {
         {inspectFinding && (
           <FindingInspector
             api={api}
+            projectID={route.project!}
             id={inspectFinding}
             canWrite={canWrite}
             onChange={() => refresh((n) => n + 1)}
@@ -1684,16 +1685,18 @@ function FindingLibrary({
   onFinding: (id: string) => void;
 }) {
   const [grade, setGrade] = useState("");
-  const [status, setStatus] = useState("confirmed");
+  const [status, setStatus] = useState("");
   const [page, setPage] = useState(0);
   const data = useResource(
     (signal) =>
       api.get<FindingPage>(
-        `/projects/${projectID}/findings?limit=50&offset=${page * 50}&severity=${grade}&status=${status}`,
+        `/v1/projects/${encodeURIComponent(projectID)}/findings?limit=50&offset=${page * 50}&severity=${grade}&status=${status}`,
         signal,
       ),
     [api, projectID, revision, grade, status, page],
   );
+  const confirmed = data.data?.confirmed_counts || data.data?.counts || {};
+  const candidates = data.data?.candidate_counts || {};
   return (
     <>
       <div className="section-toolbar">
@@ -1706,8 +1709,9 @@ function FindingLibrary({
               setPage(0);
             }}
           >
-            <option value="confirmed">已确认漏洞</option>
             <option value="">全部结论</option>
+            <option value="confirmed">已确认漏洞</option>
+            <option value="candidate">候选观察</option>
             {Object.entries(findingStatus)
               .filter(([key]) => key !== "confirmed")
               .map(([key, value]) => (
@@ -1732,9 +1736,23 @@ function FindingLibrary({
             ))}
           </select>
         </div>
-        <span className="muted">同版本、同路径、同结论的重复发现合并展示</span>
+        <span className="muted">
+          同 Scope、同规则族与位置的观察按版本化指纹合并；候选与已确认分开统计
+        </span>
       </div>
       {data.error && <Failure message={data.error} />}
+      <div className="finding-counts">
+        <span>
+          <strong>已确认</strong> 高 {confirmed.high || 0} · 中{" "}
+          {confirmed.medium || 0} · 低 {confirmed.low || 0} · 待分级{" "}
+          {confirmed.ungraded || 0}
+        </span>
+        <span>
+          <strong>候选</strong> 高 {candidates.high || 0} · 中{" "}
+          {candidates.medium || 0} · 低 {candidates.low || 0} · 待分级{" "}
+          {candidates.ungraded || 0}
+        </span>
+      </div>
       <Panel title="项目漏洞库">
         {data.loading ? (
           <Loading />
@@ -1749,9 +1767,9 @@ function FindingLibrary({
       {data.data?.truncated && (
         <Hint>本次汇总达到 10,000 条来源上限，统计为部分结果。</Hint>
       )}
-      {!!data.data?.counts.ungraded && (
+      {!!confirmed.ungraded && (
         <Hint>
-          {data.data.counts.ungraded}{" "}
+          {confirmed.ungraded}{" "}
           条已确认发现尚未评估严重度，可在详情中设置高、中、低等级。
         </Hint>
       )}
@@ -1774,7 +1792,7 @@ function TaskFindings({
   const data = useResource(
     (signal) =>
       api.get<FindingPage>(
-        `/projects/${projectID}/findings?task_id=${taskID}&limit=1000`,
+        `/v1/projects/${encodeURIComponent(projectID)}/findings?task_id=${encodeURIComponent(taskID)}&limit=200`,
         signal,
       ),
     [api, projectID, taskID, revision],
@@ -1790,8 +1808,8 @@ function TaskFindings({
           onFinding={onFinding}
         />
       )}
-      {(data.data?.total || 0) > 1000 && (
-        <Hint>当前展示前 1000 条，请在项目漏洞库筛选并分页查看。</Hint>
+      {(data.data?.total || 0) > 200 && (
+        <Hint>当前展示前 200 组，请在项目漏洞库筛选并分页查看。</Hint>
       )}
     </Panel>
   );
@@ -1809,44 +1827,70 @@ function FindingTable({
         <thead>
           <tr>
             <th>等级</th>
-            <th>漏洞 / 假设</th>
+            <th>漏洞 / 候选</th>
             <th>确认状态</th>
-            <th>来源任务</th>
-            <th>代码版本</th>
+            <th>来源</th>
+            <th>代码版本 / 指纹</th>
             <th />
           </tr>
         </thead>
         <tbody>
-          {findings.map((f) => (
-            <tr key={f.finding_id}>
-              <td>
-                <GradeBadge grade={f.severity} />
-              </td>
-              <td>
-                <button
-                  className="table-title"
-                  onClick={() => onFinding(f.finding_id)}
-                >
-                  {f.title}
-                </button>
-                <p className="cell-subtitle mono">{shortId(f.finding_id)}</p>
-              </td>
-              <td>
-                <Badge status={f.status} />
-              </td>
-              <td>{new Set(f.sources.map((s) => s.task_id)).size} 个任务</td>
-              <td className="mono">{shortId(f.snapshot_id, 6)}</td>
-              <td>
-                <button
-                  className="icon-button"
-                  aria-label={`查看漏洞 ${f.title}`}
-                  onClick={() => onFinding(f.finding_id)}
-                >
-                  <ChevronRight size={16} />
-                </button>
-              </td>
-            </tr>
-          ))}
+          {findings.map((f) => {
+            const tasks = new Set(
+              f.sources.map((s) => s.task_id).filter(Boolean),
+            ).size;
+            const producers = [
+              ...new Set(
+                f.sources
+                  .map((s) => s.producer?.plugin_id)
+                  .filter((value): value is string => !!value),
+              ),
+            ];
+            const plugins = producers.length;
+            return (
+              <tr key={f.finding_id}>
+                <td>
+                  <GradeBadge grade={f.severity} />
+                </td>
+                <td>
+                  <button
+                    className="table-title"
+                    onClick={() => onFinding(f.finding_id)}
+                  >
+                    {f.title}
+                  </button>
+                  <p className="cell-subtitle mono">{shortId(f.finding_id)}</p>
+                </td>
+                <td>
+                  <Badge status={f.status} />
+                </td>
+                <td>
+                  {tasks || 1} 个任务 ·{" "}
+                  {plugins ? `${plugins} 个插件` : "验证结果"}
+                  <p className="cell-subtitle mono">
+                    {producers.join(", ") || "验证结果"} · {f.sources.length}{" "}
+                    条观察
+                  </p>
+                </td>
+                <td className="mono">
+                  {shortId(f.snapshot_id, 6)}
+                  <small>
+                    fp {f.fingerprint_version} ·{" "}
+                    {(f.fingerprint || "").slice(0, 10)}
+                  </small>
+                </td>
+                <td>
+                  <button
+                    className="icon-button"
+                    aria-label={`查看漏洞 ${f.title}`}
+                    onClick={() => onFinding(f.finding_id)}
+                  >
+                    <ChevronRight size={16} />
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -1857,13 +1901,24 @@ function FindingTable({
   );
 }
 
+interface FindingDetailPage {
+  finding: ProjectFinding;
+  evidence: {
+    supporting: Evidence[];
+    contradicting: Evidence[];
+    inconclusive: Evidence[];
+  };
+}
+
 function FindingInspector({
   api,
+  projectID,
   id,
   canWrite,
   onChange,
 }: {
   api: ApiClient;
+  projectID: string;
   id: string;
   canWrite: boolean;
   onChange: () => void;
@@ -1871,25 +1926,35 @@ function FindingInspector({
   const [revision, refresh] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [severity, setSeverity] = useState("");
+  const [reason, setReason] = useState("");
+  const endpoint = `/v1/projects/${encodeURIComponent(projectID)}/findings/${encodeURIComponent(id)}`;
   const data = useResource(
-    (signal) => api.get<FindingDetail>(`/knowledge/findings/${id}`, signal),
-    [api, id, revision],
+    (signal) => api.get<FindingDetailPage>(endpoint, signal),
+    [api, endpoint, revision],
   );
   const finding = data.data?.finding;
-  async function grade(severity: string) {
-    if (!severity) return;
+  useEffect(() => {
+    setSeverity(finding?.severity || "");
+  }, [finding?.severity]);
+  async function grade() {
+    if (!severity || !reason.trim()) {
+      setError("请选择等级并填写分级原因。");
+      return;
+    }
     setBusy(true);
     setError("");
     try {
-      const read = await api.response(`/knowledge/findings/${id}`);
+      const read = await api.response(endpoint);
       const etag = read.headers.get("ETag");
       await read.arrayBuffer();
       if (!etag) throw new Error("发现缺少版本标识");
-      await api.response(`/findings/${id}/severity`, {
+      await api.response(`${endpoint}/severity`, {
         method: "PATCH",
         headers: { "If-Match": etag },
-        body: JSON.stringify({ severity }),
+        body: JSON.stringify({ severity, reason: reason.trim() }),
       });
+      setReason("");
       refresh((n) => n + 1);
       onChange();
     } catch (error) {
@@ -1909,30 +1974,116 @@ function FindingInspector({
             <Badge status={finding.status} />
             <h2>{finding.title}</h2>
           </div>
-          <label className="inline-field">
-            漏洞严重度
-            <select
-              aria-label="设置漏洞严重度"
-              disabled={!canWrite || busy}
-              value={finding.severity || ""}
-              onChange={(e) => void grade(e.target.value)}
+          <p className="source-description mono">
+            指纹 {finding.fingerprint_version} · {finding.fingerprint} · 版本{" "}
+            {finding.version}
+          </p>
+          <div className="finding-grade">
+            <label>
+              等级
+              <select
+                aria-label="设置漏洞严重度"
+                disabled={!canWrite || busy}
+                value={severity}
+                onChange={(e) => setSeverity(e.target.value)}
+              >
+                <option value="">待评估</option>
+                {Object.entries(gradeNames).map(([key, value]) => (
+                  <option value={key} key={key}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              分级原因
+              <input
+                aria-label="分级原因"
+                disabled={!canWrite || busy}
+                value={reason}
+                maxLength={2000}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="说明为何是这个等级；原因会写入审计"
+              />
+            </label>
+            <button
+              className="button primary small"
+              disabled={!canWrite || busy || !severity || !reason.trim()}
+              onClick={() => void grade()}
             >
-              <option value="">待评估</option>
-              {Object.entries(gradeNames).map(([key, value]) => (
-                <option value={key} key={key}>
-                  {value}
-                </option>
-              ))}
-            </select>
-          </label>
+              保存分级
+            </button>
+          </div>
           <dl>
             <dt>来源任务</dt>
-            <dd className="mono">{finding.audit_id}</dd>
+            <dd className="mono">{finding.audit_id || "无任务绑定"}</dd>
             <dt>代码版本</dt>
             <dd className="mono">{finding.snapshot_id}</dd>
             <dt>关联路径</dt>
-            <dd className="mono">{finding.path_id}</dd>
+            <dd className="mono">{finding.path_id || "无"}</dd>
+            <dt>级联维度</dt>
+            <dd>严重度、确认状态与证据等级相互独立；分级不改变裁定。</dd>
           </dl>
+          <h3>来源观察 <span>{finding.sources.length}</span></h3>
+          {finding.sources.map((source, index) => (
+            <details
+              className="source-description"
+              key={`${source.finding_id}-${source.observation_id || index}`}
+            >
+              <summary>
+                {source.producer
+                  ? `${source.producer.plugin_id}@${source.producer.plugin_version}`
+                  : "验证结果"}{" "}
+                · {source.rule_id || "无规则"}
+                {source.rule_version ? `@${source.rule_version}` : ""} ·{" "}
+                {source.task_id || "无任务"}
+              </summary>
+              <p className="mono">
+                {source.file
+                  ? `${source.file}:${source.line || 1}`
+                  : "无代码位置"}{" "}
+                · 状态 {source.status || "candidate"}
+                {source.severity_hint
+                  ? ` · 工具建议 ${gradeNames[source.severity_hint]}`
+                  : ""}
+              </p>
+              {source.producer && (
+                <p className="mono">
+                  invocation {source.producer.invocation_id} · config{" "}
+                  {source.producer.config_digest.slice(0, 16)}…
+                </p>
+              )}
+              {!!source.evidence_refs?.length && (
+                <p className="mono">
+                  观察证据：{source.evidence_refs.join(", ")}
+                </p>
+              )}
+              {!!source.limitations?.length && (
+                <ul>
+                  {source.limitations.map((note, i) => (
+                    <li key={i}>{note}</li>
+                  ))}
+                </ul>
+              )}
+            </details>
+          ))}
+          {!!finding.severity_audit?.length && (
+            <details className="limitations">
+              <summary>分级审计 · {finding.severity_audit.length} 次</summary>
+              <ul>
+                {finding.severity_audit.map((audit) => (
+                  <li key={audit.audit_id}>
+                    v{audit.version}{" "}
+                    {audit.previous_severity
+                      ? `${gradeNames[audit.previous_severity]} → `
+                      : ""}
+                    {gradeNames[audit.severity]} · {audit.reason} ·{" "}
+                    {audit.actor} · {dateLabel(audit.created_at)}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
           <h3>复现步骤</h3>
           <pre className="evidence-content">
             {finding.reproduce_steps || "尚无已保存的复现步骤。"}

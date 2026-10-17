@@ -158,6 +158,8 @@ func Normalize(inv plugin.Invocation, native artifact.Ref, raw []byte) (plugin.D
 			Status:       "candidate",
 			Title:        "[" + alert.RuleID + "] " + alert.Title,
 			SeverityHint: alert.SeverityHint,
+			RuleID:       alert.RuleID,
+			RuleVersion:  alert.RuleVersion,
 			PathRefs:     []string{},
 			EvidenceRefs: []string{native.ID},
 			File:         alert.File,

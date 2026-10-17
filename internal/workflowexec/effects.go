@@ -12,6 +12,7 @@ import (
 
 	"github.com/open-mcp-ai/Codexploit/internal/agent"
 	"github.com/open-mcp-ai/Codexploit/internal/artifact"
+	"github.com/open-mcp-ai/Codexploit/internal/findings"
 	"github.com/open-mcp-ai/Codexploit/internal/graph"
 	audit "github.com/open-mcp-ai/Codexploit/internal/path"
 	"github.com/open-mcp-ai/Codexploit/internal/plugin"
@@ -32,6 +33,7 @@ type Effects struct {
 	Artifacts   artifact.Store
 	Manager     *repository.Manager
 	Agent       *agent.Runner
+	Findings    *findings.Service
 	enabled     bool
 	native      *plugin.NativeReport
 	pathReports []pathReport
@@ -129,6 +131,12 @@ func (e *Effects) publish(ctx context.Context, run workflow.Run, plan workflow.P
 		}
 		if err != nil {
 			return result, err
+		}
+		if e.Findings != nil && len(document.Candidates) > 0 {
+			producer := artifact.Producer{PluginID: inv.Request.PluginID, PluginVersion: inv.Request.PluginVersion, InvocationID: inv.ID, TaskID: run.TaskID, ConfigDigest: inv.ConfigDigest}
+			if _, err := e.Findings.RecordCandidates(ctx, run.Scope, run.TaskID, producer, document.Candidates); err != nil {
+				return result, err
+			}
 		}
 		result.Knowledge = append(result.Knowledge, workflow.KnowledgePin{Revision: revision.ID, Digest: revision.Digest})
 		for _, ref := range nr.Outputs {

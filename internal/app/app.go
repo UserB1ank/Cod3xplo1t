@@ -20,6 +20,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/artifact"
 	"github.com/open-mcp-ai/Codexploit/internal/asg"
 	"github.com/open-mcp-ai/Codexploit/internal/builtinanalysis"
+	"github.com/open-mcp-ai/Codexploit/internal/findings"
 	"github.com/open-mcp-ai/Codexploit/internal/graph"
 	"github.com/open-mcp-ai/Codexploit/internal/lifecycle"
 	"github.com/open-mcp-ai/Codexploit/internal/llm"
@@ -219,6 +220,9 @@ type Runtime struct {
 	VerifyPlanner *graph.VerifyPlanner
 	// VerificationConfig is the configuration verification was wired from.
 	VerificationConfig VerificationConfig
+	// Findings groups plugin observations and owns the reason-bearing severity
+	// audit. Verification keeps the verdict.
+	Findings *findings.Service
 	// Scheduler is the P7 resident scheduler. It is nil when the scheduler is
 	// disabled, which is what makes the operator surfaces say "not configured"
 	// instead of pretending a scheduler is idle.
@@ -282,6 +286,7 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 	if path == "" || path == "memory" {
 		memory := storage.NewMemory()
 		rt.Store = memory
+		rt.Findings = findings.NewService(memory)
 		rt.wireGraphServices(memory)
 		rt.PluginCatalog, err = plugin.NewCatalog(ctx, memory)
 		if err != nil {
@@ -318,6 +323,7 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 		return nil, err
 	}
 	rt.Store = sqlStore
+	rt.Findings = findings.NewService(sqlStore)
 	rt.wireGraphServices(sqlStore)
 	rt.PluginCatalog, err = plugin.NewCatalog(ctx, sqlStore)
 	if err != nil {
@@ -824,7 +830,7 @@ func (r *Runtime) wireWorkflowRunner() error {
 		return workflow.ErrInvalid
 	}
 	r.WorkflowRunner = workflow.NewRunner(r.WorkflowCompiler, repo, workflow.PluginExecutor{Host: r.Plugins, Catalog: r.PluginCatalog}, r.WorkflowCompiler.Artifacts)
-	r.WorkflowRunner.Effects = &workflowexec.Effects{Store: r.Store, Host: r.Plugins, Artifacts: r.WorkflowCompiler.Artifacts, Manager: r.Manager, Agent: r.Agent}
+	r.WorkflowRunner.Effects = &workflowexec.Effects{Store: r.Store, Host: r.Plugins, Artifacts: r.WorkflowCompiler.Artifacts, Manager: r.Manager, Agent: r.Agent, Findings: r.Findings}
 	if resumed, err := r.WorkflowRunner.Recover(context.Background()); err != nil {
 		slog.Warn("workflow recovery failed", "error", err)
 	} else if len(resumed) > 0 {

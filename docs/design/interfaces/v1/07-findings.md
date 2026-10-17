@@ -37,6 +37,8 @@ confirmed 需要达到项目明确声明的证据门槛并有支持证据，存�
 
 项目和任务统计明确标注“已确认”与“候选”。报告包含固定版本、分析范围、分级、独立确认状态、证据、路径语义、工具版本、覆盖局限和未解决问题。产品不包含修复工单、自动补丁或修复复测流程。
 
-当前 `internal/verify` 已有上述状态及证据原则；项目级分组和 severity CAS 也已实现。统一 finding DTO 与插件观察账本需要适配，不能破坏现有证据链。
+Issue #13 已把插件观察接入现有 finding/evidence 体系：`internal/findings` 使用版本化规则族指纹（显式等价表；未声明规则留在自身命名空间；标题不参与）把同 Scope、同规则版本、同位置、同结论的观察归入一个 finding group。观察账本保存 producer、task、rule、证据引用和局限；重复调用按 observation id + digest 幂等，新的 invocation 只增加来源，不增加组或统计数。`verify.Finding` 仍保存裁定和 severity CAS，插件观察只能是 candidate。
+
+`/api/v1/projects/{id}/findings`、详情和 reason-required severity PATCH 使用公共 `finding-runtime.schema.json`；分级更新与 append-only audit 在同一事务提交，候选/已确认统计分开。旧 `/api` 端点保留。
 
 验收：分级不会改变裁定；扫描器不能伪造确认；去重不丢来源；证据不可覆盖；报告计数与分页声明一致。

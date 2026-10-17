@@ -18,11 +18,12 @@ export interface Audit {
 }
 export interface Finding {
   finding_id: string; hypothesis_id: string; path_id: string; audit_id: string; snapshot_id: string; title: string;
-  severity: string; status: FindingStatus; supporting_evidence: string[]; contradicting_evidence: string[];
-  inconclusive_evidence: string[]; limitations: string[]; reproduce_steps: string; created_at: string;
+  severity?: string; status: FindingStatus; confidence?: string; supporting_evidence: string[]; contradicting_evidence: string[];
+  inconclusive_evidence: string[]; limitations: string[]; reproduce_steps?: string; created_at: string; updated_at?: string;
+  version?: number;
 }
 export interface Evidence { evidence_id: string; kind: string; tool: string; file?: string; line?: number; content: string; redacted: boolean; content_hash: string }
-export interface FindingDetail { finding: Finding; evidence: { supporting: Evidence[]; contradicting: Evidence[]; inconclusive: Evidence[] }; verifications: Array<{ run_id: string; status: string; outcome: string }> }
+export interface FindingDetail { finding: Finding; evidence: { supporting: Evidence[]; contradicting: Evidence[]; inconclusive: Evidence[] }; verifications?: Array<{ run_id: string; status: string; outcome: string }> }
 export interface Run {
   run_id: string; path_id: string; audit_id: string; snapshot_id: string; runtime: string; status: string;
   started_at: string; heartbeat_at: string; tool_calls: number; input_tokens: number; output_tokens: number;

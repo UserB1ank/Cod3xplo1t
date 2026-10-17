@@ -146,12 +146,13 @@ and no prefix.
 | `internal/analysis` | detector output, confidence classes, coverage accounting, manifest determinism (`analysis_test.go`) |
 | `internal/scg` | discovery, ids, resolution classes, budgets, determinism (`builder_test.go`) |
 | `internal/graph` | bounded traversal, truncation vs depth, slices, cache behaviour (`service_test.go`) |
-| `internal/storage` | store contract, graph persistence and rebuild atomicity, idempotency claim/complete/release (`store_test.go`, `graph_test.go`, `idempotency_test.go`) |
+| `internal/storage` | store contract, graph persistence and rebuild atomicity, idempotency claim/complete/release, observation ledger and severity audit (`findings_test.go`) |
 | `internal/api` | capability table and authentication (`auth_test.go`), routing, status codes, idempotency, ETag/If-Match (`server_test.go`) |
 | `internal/mcp` | tool surface, argument validation, error codes, provenance block (`server_test.go`) |
 | `internal/plugin` | catalog, package digest/entrypoint safety, builtin execution and cancellation fencing (`host_test.go`, `package_test.go`) |
 | `internal/plugin/rpc` | bounded NDJSON JSON-RPC framing, routing, malformed and oversized messages (`rpc_test.go`) |
 | `internal/processplugin` | process handshake, host reads, event/output sequencing, limits, cancellation, real scanner and workflow publication |
+| `internal/findings` | versioned rule-family fingerprint, observation grouping/idempotency, candidate/confirmed counts, reason-required severity CAS and stored fingerprint compatibility |
 | `internal/scanner` | fixed Go pattern rules, syntax-error coverage, alert budget, unsafe tar rejection (`scan_test.go`) |
 | `internal/app` | wiring, migrations, memory vs file store (`app_test.go`) |
 | `cmd/cli`, `cmd/server` | flag parsing, human output, authentication construction (`main_test.go`, `scg_test.go`) |

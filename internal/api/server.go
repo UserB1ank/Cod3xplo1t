@@ -39,6 +39,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/analysis"
 	"github.com/open-mcp-ai/Codexploit/internal/artifact"
 	"github.com/open-mcp-ai/Codexploit/internal/asg"
+	"github.com/open-mcp-ai/Codexploit/internal/findings"
 	"github.com/open-mcp-ai/Codexploit/internal/graph"
 	"github.com/open-mcp-ai/Codexploit/internal/knowledge"
 	"github.com/open-mcp-ai/Codexploit/internal/lifecycle"
@@ -76,8 +77,11 @@ type Server struct {
 	// Publications turns a plugin's standard result into an immutable shared
 	// knowledge revision. It is nil when the store cannot persist revisions.
 	Publications *publication.Publisher
-	Graph        *graph.Service
-	Builder      *scg.Builder
+	// Findings groups plugin observations and owns severity audit history. It is
+	// nil only when no full store is wired.
+	Findings *findings.Service
+	Graph    *graph.Service
+	Builder  *scg.Builder
 	// ASG and ASGBuilder are the attack-surface read and build paths. They are
 	// separate from Graph/Builder so a deployment can serve the SCG without the
 	// P3 layer, in which case every ASG route answers 501 instead of guessing.
@@ -188,6 +192,9 @@ func NewServer(store storage.FullStore, mgr *repository.Manager, analyzer *analy
 			Artifacts: artifacts,
 		})
 	}
+	if s.Findings == nil && store != nil {
+		s.Findings = findings.NewService(store)
+	}
 	s.snapshots = lifecycle.Snapshots{Store: s.Store, Manager: s.Manager}
 	s.handler = s.routes()
 	return s
@@ -218,6 +225,9 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/workflow-plans/{planID}", s.handleGetWorkflowPlan)
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/workflows/{workflowID}/versions/{version}", s.handleGetWorkflow)
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/workflows/{workflowID}/versions/{version}/export", s.handleGetWorkflow)
+	mux.HandleFunc("GET /api/v1/projects/{projectID}/findings", s.handleV1ProjectFindings)
+	mux.HandleFunc("GET /api/v1/projects/{projectID}/findings/{findingID}", s.handleV1Finding)
+	mux.HandleFunc("PATCH /api/v1/projects/{projectID}/findings/{findingID}/severity", s.handleV1GradeFinding)
 	mux.HandleFunc("GET /api/v1/plugins", s.handleListPlugins)
 	mux.HandleFunc("POST /api/v1/projects/{projectID}/snapshots/{snapshotID}/plugin-invocations", s.withIdempotency(s.handleExecutePlugin))
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/snapshots/{snapshotID}/plugin-invocations", s.handleListInvocations)

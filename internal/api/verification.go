@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/open-mcp-ai/Codexploit/internal/agent"
+	"github.com/open-mcp-ai/Codexploit/internal/findings"
 	"github.com/open-mcp-ai/Codexploit/internal/graph"
 	"github.com/open-mcp-ai/Codexploit/internal/storage"
 	"github.com/open-mcp-ai/Codexploit/internal/verify"
@@ -348,9 +349,13 @@ type findingEvidence struct {
 
 // findingDetail is the answer of GET /api/findings/{id}.
 type findingDetail struct {
-	Finding       verify.Finding  `json:"finding"`
-	Evidence      findingEvidence `json:"evidence"`
-	Verifications []verify.Run    `json:"verifications"`
+	Finding            verify.Finding           `json:"finding"`
+	Evidence           findingEvidence          `json:"evidence"`
+	Verifications      []verify.Run             `json:"verifications"`
+	Fingerprint        string                   `json:"fingerprint,omitempty"`
+	FingerprintVersion string                   `json:"fingerprint_version,omitempty"`
+	Sources            []findingSource          `json:"sources"`
+	SeverityAudit      []findings.SeverityAudit `json:"severity_audit"`
 }
 
 // handleGetFinding answers GET /api/findings/{id} with the finding, its evidence
@@ -378,7 +383,19 @@ func (s *Server) handleGetFinding(w http.ResponseWriter, r *http.Request) {
 	if runs == nil {
 		runs = []verify.Run{}
 	}
-	writeJSON(w, http.StatusOK, findingDetail{Finding: *finding, Evidence: grouped, Verifications: runs})
+	detail := findingDetail{Finding: *finding, Evidence: grouped, Verifications: runs, Sources: []findingSource{}, SeverityAudit: []findings.SeverityAudit{}}
+	if s.Findings != nil {
+		group, err := s.Findings.Get(r.Context(), finding.ID)
+		if err != nil {
+			writeFindingsError(w, err)
+			return
+		}
+		item := projectFindingFromGroup(group)
+		detail.Finding = item.Finding
+		detail.Fingerprint, detail.FingerprintVersion = item.Fingerprint, item.FingerprintVersion
+		detail.Sources, detail.SeverityAudit = item.Sources, item.SeverityAudit
+	}
+	writeJSON(w, http.StatusOK, detail)
 }
 
 // groupFindingEvidence resolves the finding's three id lists into objects. A

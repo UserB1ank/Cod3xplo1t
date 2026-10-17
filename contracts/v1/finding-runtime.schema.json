@@ -1,0 +1,464 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codexploit.invalid/contracts/v1/finding-runtime.schema.json",
+  "title": "Grouped findings with observations and severity audit",
+  "type": "object",
+  "properties": {
+    "api_version": {
+      "const": "codexploit/v1"
+    },
+    "finding": {
+      "$ref": "#/$defs/Group"
+    },
+    "findings": {
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "$ref": "#/$defs/Group"
+      }
+    },
+    "evidence": {
+      "$ref": "#/$defs/EvidenceGroups"
+    },
+    "total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "counts": {
+      "$ref": "#/$defs/Counts"
+    },
+    "confirmed_counts": {
+      "$ref": "#/$defs/Counts"
+    },
+    "candidate_counts": {
+      "$ref": "#/$defs/Counts"
+    },
+    "truncated": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "api_version"
+  ],
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "required": [
+        "findings",
+        "total",
+        "counts",
+        "confirmed_counts",
+        "candidate_counts",
+        "truncated"
+      ]
+    },
+    {
+      "required": [
+        "finding"
+      ]
+    }
+  ],
+  "$defs": {
+    "Counts": {
+      "type": "object",
+      "properties": {
+        "high": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "medium": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "low": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ungraded": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "high",
+        "medium",
+        "low",
+        "ungraded"
+      ],
+      "additionalProperties": false
+    },
+    "Source": {
+      "type": "object",
+      "properties": {
+        "observation_id": {
+          "$ref": "common.schema.json#/$defs/ID"
+        },
+        "finding_id": {
+          "$ref": "common.schema.json#/$defs/ID"
+        },
+        "scope": {
+          "$ref": "common.schema.json#/$defs/Scope"
+        },
+        "task_id": {
+          "$ref": "common.schema.json#/$defs/ID"
+        },
+        "producer": {
+          "$ref": "common.schema.json#/$defs/Producer"
+        },
+        "rule_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,63}$"
+        },
+        "rule_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "rule_family": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "severity_hint": {
+          "enum": [
+            "high",
+            "medium",
+            "low"
+          ]
+        },
+        "status": {
+          "enum": [
+            "candidate",
+            "confirmed",
+            "refuted",
+            "inconclusive",
+            "blocked"
+          ]
+        },
+        "file": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "end_line": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "common.schema.json#/$defs/ID"
+          }
+        },
+        "limitations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "created_at": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "finding_id",
+        "status"
+      ],
+      "additionalProperties": false
+    },
+    "Audit": {
+      "type": "object",
+      "properties": {
+        "audit_id": {
+          "$ref": "common.schema.json#/$defs/ID"
+        },
+        "finding_id": {
+          "$ref": "common.schema.json#/$defs/ID"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 2
+        },
+        "previous_severity": {
+          "enum": [
+            "high",
+            "medium",
+            "low"
+          ]
+        },
+        "severity": {
+          "enum": [
+            "high",
+            "medium",
+            "low"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "actor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "created_at": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "audit_id",
+        "finding_id",
+        "version",
+        "severity",
+        "reason",
+        "actor",
+        "created_at"
+      ],
+      "additionalProperties": false
+    },
+    "Group": {
+      "type": "object",
+      "properties": {
+        "finding_id": {
+          "$ref": "common.schema.json#/$defs/ID"
+        },
+        "hypothesis_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "path_id": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "audit_id": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "snapshot_id": {
+          "$ref": "common.schema.json#/$defs/ID"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "severity": {
+          "enum": [
+            "high",
+            "medium",
+            "low"
+          ]
+        },
+        "status": {
+          "enum": [
+            "candidate",
+            "confirmed",
+            "refuted",
+            "inconclusive",
+            "blocked"
+          ]
+        },
+        "confidence": {
+          "type": "string"
+        },
+        "supporting_evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "common.schema.json#/$defs/ID"
+          }
+        },
+        "contradicting_evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "common.schema.json#/$defs/ID"
+          }
+        },
+        "inconclusive_evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "common.schema.json#/$defs/ID"
+          }
+        },
+        "limitations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "created_at": {
+          "type": "string",
+          "minLength": 1
+        },
+        "updated_at": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "fingerprint": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        },
+        "fingerprint_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "sources": {
+          "type": "array",
+          "maxItems": 5000,
+          "items": {
+            "$ref": "#/$defs/Source"
+          }
+        },
+        "severity_audit": {
+          "type": "array",
+          "maxItems": 2000,
+          "items": {
+            "$ref": "#/$defs/Audit"
+          }
+        },
+        "reproduce_steps": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "finding_id",
+        "hypothesis_id",
+        "path_id",
+        "audit_id",
+        "snapshot_id",
+        "title",
+        "status",
+        "confidence",
+        "supporting_evidence",
+        "contradicting_evidence",
+        "inconclusive_evidence",
+        "limitations",
+        "created_at",
+        "updated_at",
+        "version",
+        "fingerprint",
+        "fingerprint_version",
+        "sources",
+        "severity_audit",
+        "reproduce_steps"
+      ],
+      "additionalProperties": false
+    },
+    "Evidence": {
+      "type": "object",
+      "properties": {
+        "evidence_id": {
+          "$ref": "common.schema.json#/$defs/ID"
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tool": {
+          "type": "string"
+        },
+        "tool_version": {
+          "type": "string"
+        },
+        "snapshot_id": {
+          "$ref": "common.schema.json#/$defs/ID"
+        },
+        "hypothesis_id": {
+          "type": "string"
+        },
+        "finding_id": {
+          "type": "string"
+        },
+        "path_id": {
+          "type": "string"
+        },
+        "verification_run_id": {
+          "type": "string"
+        },
+        "file": {
+          "type": "string"
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "content_hash": {
+          "type": "string",
+          "minLength": 1
+        },
+        "content": {
+          "type": "string"
+        },
+        "redacted": {
+          "type": "boolean"
+        },
+        "redaction_notes": {
+          "type": "string"
+        },
+        "supersedes": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "evidence_id",
+        "kind",
+        "snapshot_id",
+        "content_hash",
+        "content",
+        "redacted",
+        "created_at"
+      ],
+      "additionalProperties": false
+    },
+    "EvidenceGroups": {
+      "type": "object",
+      "properties": {
+        "supporting": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Evidence"
+          }
+        },
+        "contradicting": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Evidence"
+          }
+        },
+        "inconclusive": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Evidence"
+          }
+        }
+      },
+      "required": [
+        "supporting",
+        "contradicting",
+        "inconclusive"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

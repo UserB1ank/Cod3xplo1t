@@ -40,6 +40,8 @@ type Candidate struct {
 	Status       string   `json:"status"`
 	Title        string   `json:"title"`
 	SeverityHint string   `json:"severity_hint,omitempty"`
+	RuleID       string   `json:"rule_id,omitempty"`
+	RuleVersion  string   `json:"rule_version,omitempty"`
 	PathRefs     []string `json:"path_refs"`
 	EvidenceRefs []string `json:"evidence_refs"`
 	File         string   `json:"file"`

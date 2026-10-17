@@ -682,6 +682,9 @@ func (s *SQL) deleteVerificationRowsForSnapshot(ctx context.Context, exec sqlExe
 	if _, err := exec.ExecContext(ctx, s.rebind(evidence), snapshotID, snapshotID); err != nil {
 		return 0, mapVerifySQLError(err)
 	}
+	if err := s.deleteFindingRowsForSnapshot(ctx, exec, snapshotID); err != nil {
+		return 0, err
+	}
 	if _, err := exec.ExecContext(ctx, s.rebind("DELETE FROM findings WHERE snapshot_id = ?"), snapshotID); err != nil {
 		return 0, mapVerifySQLError(err)
 	}

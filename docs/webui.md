@@ -267,9 +267,12 @@ lifecycle commands rather than manual filesystem deletion.
 | `POST /api/projects/{id}/tasks` | writer | create independent task using an owned snapshot |
 | `GET /api/tasks/{id}` | reader | task and ETag |
 | `POST /api/tasks/{id}/pause` or `/resume` | writer | change scheduling; body `{}`, requires If-Match |
-| `GET /api/projects/{id}/findings` | reader | grouped findings and confirmed grade counts |
+| `GET /api/projects/{id}/findings` | reader | grouped findings with sources, separate candidate/confirmed counts and fingerprint metadata |
+| `GET /api/v1/projects/{id}/findings` | reader | versioned fingerprint groups (`task_id`, `severity`, `status`, `limit`, `offset`) |
+| `GET /api/v1/projects/{id}/findings/{findingID}` | reader | group sources, evidence groups, severity audit and ETag |
 | `GET /api/knowledge/findings/{id}` | reader | evidence detail and ETag, including when execution is disabled |
-| `PATCH /api/findings/{id}/severity` | writer | set grade with If-Match |
+| `PATCH /api/findings/{id}/severity` | writer | set grade with If-Match (legacy; records a legacy reason when omitted) |
+| `PATCH /api/v1/projects/{id}/findings/{findingID}/severity` | writer | set grade with required reason, If-Match and audit row |
 
 Task creation accepts `name`, `objective`, `snapshot_id`, optional `scope`,
 `budget` and `limits`. The snapshot must belong to the project and have an ASG.
@@ -283,6 +286,13 @@ pinning, archive/restore and existing pause/resume controls. Search, state/categ
 filters and pages are fetched from the server. Task state and progress use current
 path records; unfinished Agent/verification runs also prevent archiving. The
 table refreshes every five seconds while visible and not editing categories.
+
+The project vulnerability library groups plugin observations by a versioned
+rule-family fingerprint, not by title. Its table shows task/plugin source counts,
+the fingerprint version and candidate/confirmed totals separately. The detail
+drawer lists every source task, plugin/version, rule, location and evidence ref,
+and exposes each severity change's reason, actor and version. Grading requires a
+reason and never changes the confirmation status.
 
 Archive only after pausing scheduling and waiting for active paths and unfinished
 runs to settle. Archived tasks retain their snapshot, graph, paths, findings and
