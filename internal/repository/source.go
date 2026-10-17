@@ -17,6 +17,12 @@ import (
 
 // Source is a user-supplied repository location plus the revision to pin.
 type Source struct {
+	// KindDir explicitly reads current directory contents, even inside Git.
+	// Empty preserves the legacy automatic source detection.
+	Kind Kind
+	// Files is a provider-owned filesystem for a logical directory source. The
+	// provider keeps it open until Create returns (for example os.Root.FS).
+	Files fs.FS
 	// Raw is exactly what the user passed: a git URL, a local git repository or
 	// a plain directory.
 	Raw string
@@ -109,6 +115,22 @@ func (m *Manager) Resolve(ctx context.Context, src Source) (*Resolved, error) {
 	if src.Raw == "" {
 		return nil, errors.New("repository: empty source")
 	}
+	if src.Kind != "" && src.Kind != KindDir {
+		return nil, errors.New("repository: unsupported explicit source kind")
+	}
+	if src.Kind == KindDir && (src.Ref != "" || !IsLocalPath(src.Raw)) {
+		return nil, errors.New("repository: directory mode requires a local path without a Git revision")
+	}
+	if src.Files != nil {
+		if src.Kind != KindDir {
+			return nil, errors.New("repository: a filesystem requires explicit directory mode")
+		}
+		name := src.NameOverride
+		if name == "" {
+			name = NormalizeRepoName(src.Raw)
+		}
+		return &Resolved{Source: src, Kind: KindDir, Identity: Identity{Kind: "dir", Name: name}}, nil
+	}
 	if IsLocalPath(src.Raw) {
 		abs, err := filepath.Abs(src.Raw)
 		if err != nil {
@@ -128,7 +150,7 @@ func (m *Manager) Resolve(ctx context.Context, src Source) (*Resolved, error) {
 		if name == "" {
 			name = NormalizeRepoName(filepath.ToSlash(abs))
 		}
-		if m.isGitRepo(ctx, abs) {
+		if src.Kind != KindDir && m.isGitRepo(ctx, abs) {
 			return &Resolved{Source: src, Kind: KindLocalGit, Path: abs, Identity: Identity{Kind: "git", Name: name}}, nil
 		}
 		return &Resolved{Source: src, Kind: KindDir, Path: abs, Identity: Identity{Kind: "dir", Name: name}}, nil
@@ -171,19 +193,18 @@ type dirPlan struct {
 // planDir walks a plain directory and produces the accepted-file list, its
 // content digest and the skip accounting. It never follows symlinks.
 func planDir(root string, l Limits) (*dirPlan, error) {
+	return planDirectory(os.DirFS(root), l)
+}
+
+func planDirectory(root fs.FS, l Limits) (*dirPlan, error) {
 	matcher := newIgnoreMatcher(l)
 	plan := &dirPlan{}
 	plan.ensureSkipCapacity(l)
 	var total int64
-	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+	err := fs.WalkDir(root, ".", func(rel string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		rel, rerr := filepath.Rel(root, p)
-		if rerr != nil {
-			return rerr
-		}
-		rel = filepath.ToSlash(rel)
 		if rel == "." {
 			return nil
 		}
@@ -211,7 +232,7 @@ func planDir(root string, l Limits) (*dirPlan, error) {
 				plan.addSkip(SkippedEntry{Path: rel, Reason: SkipSymlink, Detail: "symlink skipped by policy"})
 				return nil
 			}
-			target, lerr := os.Readlink(p)
+			target, lerr := fs.ReadLink(root, rel)
 			if lerr != nil {
 				plan.Stats.SkippedUnreadable++
 				plan.addSkip(SkippedEntry{Path: rel, Reason: SkipUnreadable, Detail: lerr.Error()})
@@ -241,7 +262,7 @@ func planDir(root string, l Limits) (*dirPlan, error) {
 			return nil
 		}
 
-		digest, binary, derr := hashFile(p, rel, l, plan)
+		digest, binary, derr := hashFile(root, rel, l, plan)
 		if derr != nil {
 			return derr
 		}
@@ -251,11 +272,11 @@ func planDir(root string, l Limits) (*dirPlan, error) {
 			return nil
 		}
 		if len(plan.Entries) >= l.MaxFiles {
-			return fmt.Errorf("%w: more than max_files=%d accepted files under %s", ErrLimitExceeded, l.MaxFiles, root)
+			return fmt.Errorf("%w: more than max_files=%d accepted files", ErrLimitExceeded, l.MaxFiles)
 		}
 		total += info.Size()
 		if total > l.MaxRepoBytes {
-			return fmt.Errorf("%w: more than max_repo_bytes=%d under %s", ErrLimitExceeded, l.MaxRepoBytes, root)
+			return fmt.Errorf("%w: more than max_repo_bytes=%d", ErrLimitExceeded, l.MaxRepoBytes)
 		}
 		plan.Entries = append(plan.Entries, planEntry{Rel: rel, Size: info.Size(), Mode: info.Mode().Perm(), Digest: digest})
 		plan.Stats.Files++
@@ -272,8 +293,8 @@ func planDir(root string, l Limits) (*dirPlan, error) {
 
 // hashFile hashes one file and applies the binary policy. The file handle is
 // opened once: the sniff prefix is folded into the same digest stream.
-func hashFile(p, rel string, l Limits, plan *dirPlan) (string, bool, error) {
-	f, err := os.Open(p)
+func hashFile(root fs.FS, rel string, l Limits, plan *dirPlan) (string, bool, error) {
+	f, err := root.Open(rel)
 	if err != nil {
 		plan.Stats.SkippedUnreadable++
 		plan.addSkip(SkippedEntry{Path: rel, Reason: SkipUnreadable, Detail: err.Error()})
@@ -316,21 +337,24 @@ func digestEntries(entries []planEntry) string {
 // still byte-identical to the hashed version. A concurrent edit aborts the
 // snapshot instead of producing a tree that does not match its ID.
 func copyPlan(root, dst string, plan *dirPlan) error {
+	return copyDirectory(os.DirFS(root), dst, plan)
+}
+
+func copyDirectory(root fs.FS, dst string, plan *dirPlan) error {
 	for _, e := range plan.Entries {
-		src := filepath.Join(root, filepath.FromSlash(e.Rel))
 		target := filepath.Join(dst, filepath.FromSlash(e.Rel))
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return err
 		}
-		if err := copyVerified(src, target, e); err != nil {
+		if err := copyVerified(root, target, e); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func copyVerified(src, target string, e planEntry) error {
-	in, err := os.Open(src)
+func copyVerified(root fs.FS, target string, e planEntry) error {
+	in, err := root.Open(e.Rel)
 	if err != nil {
 		return err
 	}

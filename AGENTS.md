@@ -9,6 +9,19 @@
 - 禁止出现 `Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>` 相关字样
 - 只有在人工同意后才能push和commit。在多次commit后，人工要求push再进行push，绝对不要主动push。
 
+## Issue delivery workflow
+
+用户已授权本轮按 Issue 顺序持续交付：每完成并验收一个 Issue，更新本文件的完成记录，执行 commit，关闭对应 GitHub Issue，然后推进下一个未阻塞的 Issue。此授权覆盖这些 Issue 的 commit 和关闭操作，无需逐次重复确认；push 仍必须等待用户明确要求。
+
+- 使用 TDD，在已确认的公开边界逐个完成 red → green；新测试边界先按技能要求确认。
+- 交付包含真实后端、认证 API、正式 UI、持久化、文档与适当验收；失败不得退回演示成功。
+- 提交前检查差异与隐私，运行相关测试、完整竞态回归、前端测试/构建及 `make lint`；涉及文件系统或生命周期时运行 `make test-stress`。
+- 每个 Issue 独立提交，使用可说明最终行为的提交信息。提交成功后用 `gh issue close --reason completed` 关闭，再按依赖继续。
+
+### Completed issues
+
+- 2026-10-17 — #1 本地文件夹代码源生成真实快照并创建任务：支持项目多代码源、受控目录采集、当前文件内容、不可变快照与任务绑定、SQLite 重启恢复和旧 API 兼容。已通过 TDD red/green、三轮乱序竞态回归、`make lint`、前端测试/构建、Docker 构建及浏览器验收；提交后关闭。PostgreSQL 和 Git v1 provider 属于后续 Issue。
+
 ## Agent skills
 
 ### Issue tracker

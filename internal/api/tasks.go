@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/rand"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/open-mcp-ai/Codexploit/internal/path"
+	"github.com/open-mcp-ai/Codexploit/internal/storage"
 	"github.com/open-mcp-ai/Codexploit/internal/verify"
 )
 
@@ -23,6 +25,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 }
 
 type taskRequest struct {
+	SourceID   string      `json:"source_id"`
 	Name       string      `json:"name"`
 	Objective  string      `json:"objective"`
 	SnapshotID string      `json:"snapshot_id"`
@@ -90,13 +93,37 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_snapshot", errors.New("choose a snapshot owned by this project"))
 		return
 	}
+	binding, err := s.snapshotSource(r.Context(), req.SnapshotID)
+	if err != nil {
+		writeStorageError(w, err)
+		return
+	}
+	if req.SourceID != "" && req.SourceID != binding.SourceID {
+		writeError(w, http.StatusBadRequest, "invalid_source", errors.New("snapshot does not belong to the selected source"))
+		return
+	}
 	result, err := s.Audit.CreateAudit(r.Context(), path.CreateAuditRequest{TaskKey: rand.Text(), Name: req.Name, Objective: req.Objective, Scope: req.Scope, SnapshotID: req.SnapshotID, Budget: req.Budget, Limits: req.Limits})
 	if err != nil {
 		writeAuditError(w, err, req.SnapshotID)
 		return
 	}
 	w.Header().Set("ETag", taskETag(&result.Audit))
-	writeJSON(w, http.StatusCreated, map[string]any{"task": result.Audit, "project_id": projectID})
+	writeJSON(w, http.StatusCreated, map[string]any{"task": sourceTask{Audit: result.Audit, SourceSnapshot: binding}, "project_id": projectID})
+}
+
+type sourceTask struct {
+	path.Audit
+	storage.SourceSnapshot
+}
+
+func (s *Server) snapshotSource(ctx context.Context, id string) (storage.SourceSnapshot, error) {
+	if sources, ok := s.Store.(storage.SourceRepository); ok {
+		binding, err := sources.GetSourceSnapshot(ctx, id)
+		if !errors.Is(err, storage.ErrNotFound) {
+			return binding, err
+		}
+	}
+	return storage.SourceSnapshot{}, nil
 }
 
 func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
@@ -113,10 +140,16 @@ func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
 		writeAuditError(w, err, "")
 		return
 	}
-	if tasks == nil {
-		tasks = []path.Audit{}
+	result := make([]sourceTask, 0, len(tasks))
+	for _, task := range tasks {
+		binding, err := s.snapshotSource(r.Context(), task.SnapshotID)
+		if err != nil {
+			writeStorageError(w, err)
+			return
+		}
+		result = append(result, sourceTask{Audit: task, SourceSnapshot: binding})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"tasks": tasks, "total": total, "project_id": projectID})
+	writeJSON(w, http.StatusOK, map[string]any{"tasks": result, "total": total, "project_id": projectID})
 }
 
 func taskETag(task *path.Audit) string { return fmt.Sprintf(`"task-%s-v%d"`, task.ID, task.Version) }
@@ -131,7 +164,12 @@ func (s *Server) handleGetTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("ETag", taskETag(task))
-	writeJSON(w, http.StatusOK, task)
+	binding, err := s.snapshotSource(r.Context(), task.SnapshotID)
+	if err != nil {
+		writeStorageError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, sourceTask{Audit: *task, SourceSnapshot: binding})
 }
 
 func (s *Server) handlePauseTask(paused bool) http.HandlerFunc {

@@ -86,7 +86,9 @@ type Server struct {
 	AllowNetwork bool
 	LLMSettings  *llm.Manager
 	Accounts     *access.Manager
-	Logger       *slog.Logger
+	// LocalSourceRoot is mounted as the logical /repos namespace by the host.
+	LocalSourceRoot string
+	Logger          *slog.Logger
 	// Auth decides who may do what. When it is nil the server refuses every API
 	// call, because an unprotected audit API is worse than an unavailable one.
 	Auth *Authenticator
@@ -169,6 +171,10 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/auth/login", s.handleAccountLogin(false))
 	mux.HandleFunc("POST /api/auth/logout", s.handleAccountLogout)
 	mux.HandleFunc("GET /api/me", s.handleMe)
+	mux.HandleFunc("POST /api/v1/projects", s.withIdempotency(s.handleCreateSourceProject))
+	mux.HandleFunc("GET /api/v1/projects/{id}/sources", s.handleListSources)
+	mux.HandleFunc("POST /api/v1/projects/{id}/sources", s.withIdempotency(s.handleCreateSource))
+	mux.HandleFunc("POST /api/v1/sources/{id}/snapshots", s.withIdempotency(s.handleCaptureSource))
 	mux.HandleFunc("GET /api/settings/llm", s.handleLLMSettings)
 	mux.HandleFunc("PUT /api/settings/llm", s.handleSaveLLMSettings)
 	mux.HandleFunc("POST /api/settings/llm/test", s.handleTestLLMSettings)
@@ -421,6 +427,7 @@ type snapshotResponse struct {
 }
 
 type snapshotSummary struct {
+	storage.SourceSnapshot
 	SnapshotID     string   `json:"snapshot_id"`
 	ProjectID      string   `json:"project_id"`
 	VCS            string   `json:"vcs"`
@@ -579,6 +586,16 @@ func (s *Server) handleListSnapshots(w http.ResponseWriter, r *http.Request) {
 	if records == nil {
 		records = []storage.SnapshotRecord{}
 	}
+	if sources, ok := s.Store.(storage.SourceRepository); ok {
+		for i := range records {
+			binding, err := sources.GetSourceSnapshot(r.Context(), records[i].SnapshotID)
+			if err != nil && !errors.Is(err, storage.ErrNotFound) {
+				writeStorageError(w, err)
+				return
+			}
+			records[i].SourceSnapshot = binding
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"snapshots": records})
 }
 
@@ -597,7 +614,16 @@ func (s *Server) handleGetSnapshot(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	writeJSON(w, http.StatusOK, snapshotResponse{Snapshot: summaryOf(snap, projectIDValue)})
+	summary := summaryOf(snap, projectIDValue)
+	if sources, ok := s.Store.(storage.SourceRepository); ok {
+		binding, err := sources.GetSourceSnapshot(r.Context(), snap.SnapshotID)
+		if err != nil && !errors.Is(err, storage.ErrNotFound) {
+			writeStorageError(w, err)
+			return
+		}
+		summary.SourceSnapshot = binding
+	}
+	writeJSON(w, http.StatusOK, snapshotResponse{Snapshot: summary})
 }
 
 func (s *Server) handleDeleteSnapshot(w http.ResponseWriter, r *http.Request) {

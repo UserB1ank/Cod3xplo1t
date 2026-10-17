@@ -34,6 +34,7 @@ import {
 } from "lucide-react";
 import { ApiClient } from "./api";
 import { LLMSettings } from "./LLMSettings";
+import { Sources, sourceInput, readSources, type CodeSource } from "./Sources";
 import {
   Badge,
   CodeBlock,
@@ -158,6 +159,7 @@ export default function App() {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [dialog, setDialog] = useState("");
+  const [taskSnapshot, setTaskSnapshot] = useState<string>();
   const [inspectPath, setInspectPath] = useState<AuditPath>();
   const [inspectFinding, setInspectFinding] = useState<string>();
   const navigate = useCallback((next: Route) => {
@@ -253,6 +255,7 @@ export default function App() {
   const navItems = [
     { id: "overview", label: "项目概览", icon: Layers },
     { id: "tasks", label: "挖掘任务", icon: Workflow },
+    { id: "sources", label: "代码源", icon: FolderGit2 },
     { id: "knowledge", label: "共享知识图谱", icon: Network },
     { id: "findings", label: "项目漏洞库", icon: ShieldCheck },
     { id: "settings", label: "项目设置", icon: Settings2 },
@@ -431,7 +434,7 @@ export default function App() {
               onCreate={() => setDialog("project")}
               onOpen={(id) => navigate({ project: id, view: "tasks" })}
             />
-          ) : projects.loading ? (
+          ) : projects.loading && !project ? (
             <Loading />
           ) : !project ? (
             <EmptyState title="项目不存在">
@@ -474,29 +477,50 @@ export default function App() {
                         ? "项目级代码事实与攻击面，供所有任务共同查询。"
                         : route.view === "findings"
                           ? "汇总任务发现，按证据结论与漏洞严重度查看。"
-                          : project.source}
+                          : route.view === "sources"
+                            ? "登记本地目录，冻结真实快照，再选择代码基线创建任务。"
+                            : project.source || "项目代码源独立管理。"}
                   </p>
                 </div>
                 <div className="heading-actions">
-                  <button
-                    className="button secondary"
-                    disabled={!canWrite || !!busy}
-                    onClick={() => setDialog("snapshot")}
-                  >
-                    <GitBranch size={15} />
-                    更新代码版本
-                  </button>
+                  {project.source && route.view !== "sources" && (
+                    <button
+                      className="button secondary"
+                      disabled={!canWrite || !!busy}
+                      onClick={() => setDialog("snapshot")}
+                    >
+                      <GitBranch size={15} />
+                      更新代码版本
+                    </button>
+                  )}
                   <button
                     className="button primary"
                     disabled={!canWrite || !!busy || !snapshots.data?.length}
-                    onClick={() => setDialog("task")}
+                    onClick={() => {
+                      setTaskSnapshot(undefined);
+                      setDialog("task");
+                    }}
                   >
                     <Plus size={16} />
                     新建任务
                   </button>
                 </div>
               </div>
-              {route.view === "knowledge" ? (
+              {route.view === "sources" ? (
+                <Sources
+                  key={project.id}
+                  api={api}
+                  project={project}
+                  revision={revision}
+                  canWrite={canWrite && !busy}
+                  onRefresh={() => refresh((n) => n + 1)}
+                  onLegacySnapshot={() => setDialog("snapshot")}
+                  onTask={(snapshot) => {
+                    setTaskSnapshot(snapshot);
+                    setDialog("task");
+                  }}
+                />
+              ) : route.view === "knowledge" ? (
                 <Knowledge
                   key={project.id}
                   api={api}
@@ -593,6 +617,24 @@ export default function App() {
             action(
               "建立项目与图谱",
               async () => {
+                if (values.kind === "local_folder") {
+                  const created = await api.post<{ project: Project }>(
+                    "/v1/projects",
+                    { api_version: "codexploit/v1", name: values.name },
+                  );
+                  navigate({ project: created.project.id, view: "sources" });
+                  const input = await api.post<{ source: CodeSource }>(
+                    `/v1/projects/${created.project.id}/sources`,
+                    sourceInput(created.project.id, values.name, values.source),
+                  );
+                  await api.post(`/v1/sources/${input.source.id}/snapshots`, {
+                    project_id: created.project.id,
+                    source_version: input.source.version,
+                    build_graph: true,
+                    build_asg: true,
+                  });
+                  return;
+                }
                 const created = await api.post<{ project: Project }>(
                   "/projects",
                   { name: values.name, source: values.source },
@@ -637,6 +679,10 @@ export default function App() {
         title="创建挖掘任务"
       >
         <TaskForm
+          key={`${dialog}:${project?.id}:${taskSnapshot}`}
+          api={api}
+          projectID={project?.id}
+          preferredSnapshot={taskSnapshot}
           snapshots={snapshots.data || []}
           busy={!!busy}
           onSubmit={(values) =>
@@ -1374,6 +1420,12 @@ function TaskWorkbench({
             <span>
               <Network size={13} />
               复用项目图谱
+            </span>
+            <span title={current.source_id}>
+              <FolderGit2 size={13} />
+              {current.source_id
+                ? `${current.source_id} · 定义 v${current.source_version}`
+                : "原项目代码源"}
             </span>
             <span>{dateLabel(current.created_at)}</span>
           </div>
@@ -2713,8 +2765,14 @@ function ProjectForm({
 }: {
   busy: boolean;
   network: boolean;
-  onSubmit: (values: { name: string; source: string; ref: string }) => void;
+  onSubmit: (values: {
+    name: string;
+    source: string;
+    ref: string;
+    kind: string;
+  }) => void;
 }) {
+  const [kind, setKind] = useState("local_folder");
   return (
     <form
       onSubmit={(e) => {
@@ -2724,6 +2782,7 @@ function ProjectForm({
           name: String(form.get("name")),
           source: String(form.get("source")),
           ref: String(form.get("ref")),
+          kind,
         });
       }}
     >
@@ -2731,18 +2790,30 @@ function ProjectForm({
         项目名称
         <input
           required
-          maxLength={120}
+          maxLength={100}
           name="name"
           placeholder="例如：订单服务漏洞挖掘"
         />
       </label>
       <label>
-        代码仓库
+        代码源类型
+        <select value={kind} onChange={(event) => setKind(event.target.value)}>
+          <option value="local_folder">本地文件夹 · 读取当前文件</option>
+          <option value="legacy_auto">项目仓库 · 既有 Git 入口</option>
+        </select>
+      </label>
+      <label>
+        {kind === "local_folder" ? "容器内代码目录" : "代码仓库"}
         <input
           required
           name="source"
+          pattern={kind === "local_folder" ? "/repos/.+" : undefined}
           placeholder={
-            network ? "仓库地址或服务端目录" : "服务端可读取的代码目录"
+            kind === "local_folder"
+              ? "/repos/service"
+              : network
+                ? "仓库地址或服务端目录"
+                : "服务端可读取的代码目录"
           }
         />
       </label>
@@ -2752,16 +2823,20 @@ function ProjectForm({
           ? "已启用远程 Git 仓库访问。"
           : "远程 Git 访问需通过 --allow-network 启用。"}
       </small>
-      <label>
-        代码版本
-        <input
-          name="ref"
-          defaultValue="HEAD"
-          placeholder="分支、标签或 Commit"
-        />
-      </label>
+      {kind !== "local_folder" && (
+        <label>
+          代码版本
+          <input
+            name="ref"
+            defaultValue="HEAD"
+            placeholder="分支、标签或 Commit"
+          />
+        </label>
+      )}
       <Hint>
         创建项目后，将固定代码快照并构建共享图谱。分析过程只读取源码。
+        {kind === "local_folder" &&
+          "包含未提交修改；目录内的 .git 不会切换读取方式。"}
       </Hint>
       <FormFooter busy={busy} label="创建项目并建立图谱" />
     </form>
@@ -2791,14 +2866,35 @@ function SnapshotForm({
   );
 }
 function TaskForm({
+  api,
+  projectID,
+  preferredSnapshot,
   snapshots,
   busy,
   onSubmit,
 }: {
+  api: ApiClient;
+  projectID?: string;
+  preferredSnapshot?: string;
   snapshots: Snapshot[];
   busy: boolean;
   onSubmit: (values: unknown) => void;
 }) {
+  const [sourceFilter, setSourceFilter] = useState("*");
+  const [selectedSnapshot, setSelectedSnapshot] = useState(
+    preferredSnapshot || latestSnapshot(snapshots)?.snapshot_id,
+  );
+  const sources = useResource(
+    async (signal) => (projectID ? readSources(api, projectID, signal) : []),
+    [api, projectID],
+  );
+  const available = snapshots.filter(
+    (snapshot) =>
+      sourceFilter === "*" || (snapshot.source_id || "legacy") === sourceFilter,
+  );
+  const current =
+    available.find((snapshot) => snapshot.snapshot_id === selectedSnapshot) ||
+    latestSnapshot(available);
   return (
     <form
       onSubmit={(e) => {
@@ -2808,6 +2904,10 @@ function TaskForm({
           name: form.get("name"),
           objective: form.get("objective"),
           snapshot_id: form.get("snapshot"),
+          source_id:
+            snapshots.find(
+              (snapshot) => snapshot.snapshot_id === form.get("snapshot"),
+            )?.source_id || "",
           scope: String(form.get("scope"))
             .split("\n")
             .map((s) => s.trim())
@@ -2843,14 +2943,39 @@ function TaskForm({
         />
       </label>
       <label>
+        代码源范围
+        <select
+          value={sourceFilter}
+          onChange={(event) => setSourceFilter(event.target.value)}
+        >
+          <option value="*">全部代码源</option>
+          {snapshots.some((snapshot) => !snapshot.source_id) && (
+            <option value="legacy">原项目默认代码源</option>
+          )}
+          {(sources.data || []).map((source) => (
+            <option key={source.id} value={source.id}>
+              {source.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      {sources.error && <Failure message={sources.error} />}
+      <label>
         共享图谱版本
         <select
           name="snapshot"
-          defaultValue={latestSnapshot(snapshots)?.snapshot_id}
+          value={current?.snapshot_id || ""}
+          onChange={(event) => setSelectedSnapshot(event.target.value)}
+          required
         >
-          {[...snapshots].reverse().map((s) => (
+          {!available.length && <option value="">所选代码源尚无快照</option>}
+          {[...available].reverse().map((s) => (
             <option key={s.snapshot_id} value={s.snapshot_id}>
-              {s.commit.slice(0, 12)} · {dateLabel(s.created_at)}
+              {sources.data?.find((source) => source.id === s.source_id)
+                ?.name ||
+                s.source_id ||
+                "原项目代码源"}{" "}
+              · {s.commit.slice(0, 12)} · {dateLabel(s.created_at)}
             </option>
           ))}
         </select>

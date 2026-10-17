@@ -37,6 +37,8 @@ v1 先支持挂载文件夹与远程 Git。浏览器上传、同步目录及本�
 
 新 provider 声明 location Schema、可固定的版本类型、网络需求、忽略规则和读取能力，然后实现 Probe / Resolve / Release。通用快照服务仍负责限额、内容摘要和冻结。
 
-现有 `internal/repository.Manager.Resolve` 支持目录、本地 Git 和远程 Git的自动识别；显式用户类型及 `local_folder` 强制读取语义尚未在正式 API 接线。原型展示目标分型。
+现有 `internal/repository.Manager.Resolve` 保留目录、本地 Git 和远程 Git 的自动识别；显式 `KindDir` 强制读取当前文件，支持 provider 持有的受控 `fs.FS`。正式界面已接通本地文件夹、多代码源、真实快照与任务绑定。`storage.SourceRepository` 是独立于旧 Store 的代码源持久化端口，Memory / SQLite 均已实现；快照登记与来源绑定原子写入。
+
+当前已实现的 HTTP 子集与示例见 [API 文档](../../../api.md#explicit-local-sources-implemented-v1-subset)。定义从 `version: 1` 开始，暂不提供修改接口；`revision` 仅统计不同快照的发布。`--local-source-root` 是部署侧登记的唯一根目录，公开位置仍为 `/repos/...`。远程 Git provider、Probe / Resolve / Release 协议及读取句柄 TTL 仍是目标接口，尚未作为正式 v1 能力交付。
 
 验收：同一固定提交可复现；文件夹变化被检测；跨项目和越界挂载被拒绝；添加代码源不改变已有任务的固定快照。

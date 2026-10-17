@@ -304,6 +304,9 @@ func (s *SQL) DeleteSnapshot(ctx context.Context, id string) error {
 	if _, err := s.deleteVerificationRowsForSnapshot(ctx, tx, id); err != nil {
 		return err
 	}
+	if err := s.deleteSourceSnapshot(ctx, tx, id); err != nil {
+		return err
+	}
 	res, err := tx.ExecContext(ctx, s.rebind(`DELETE FROM snapshots WHERE snapshot_id = ?`), id)
 	if err != nil {
 		return mapSQLError(err)

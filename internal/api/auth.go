@@ -276,6 +276,21 @@ func requiredCapability(method, path string) (Capability, bool) {
 	rest := strings.TrimPrefix(path, "/api/")
 
 	switch {
+	case rest == "v1/projects" && method == http.MethodPost:
+		return CapWrite, true
+	case strings.HasPrefix(rest, "v1/sources/"):
+		_, action, _ := strings.Cut(strings.TrimPrefix(rest, "v1/sources/"), "/")
+		if action == "snapshots" && method == http.MethodPost {
+			return CapWrite, true
+		}
+	case strings.HasPrefix(rest, "v1/projects/"):
+		_, action, _ := strings.Cut(strings.TrimPrefix(rest, "v1/projects/"), "/")
+		if action == "sources" && method == http.MethodGet {
+			return CapRead, true
+		}
+		if action == "sources" && method == http.MethodPost {
+			return CapWrite, true
+		}
 	case rest == "auth/status" && method == http.MethodGet:
 		return CapNone, true
 	case (rest == "auth/login" || rest == "auth/setup" || rest == "auth/logout") && method == http.MethodPost:

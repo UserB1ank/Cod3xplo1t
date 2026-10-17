@@ -24,6 +24,9 @@ protected by accident.
 | `writer` | everything a reader may do, plus `POST /api/projects`, `POST /api/projects/{id}/snapshots`, `POST /api/snapshots/{id}/graph` |
 | `admin` | everything a writer may do, plus `PATCH /api/projects/{id}` and `DELETE /api/snapshots/{id}` |
 
+The additive local-source routes below use `reader` for listing and `writer`
+for project creation, source creation and capture.
+
 Configure tokens with `--api-token name:role:secret` (repeatable) or the
 `CODEXPLOIT_API_TOKENS` environment variable (semicolon separated). A secret may
 be given pre-hashed as `sha256:<hex digest>` so a deployment file holds no usable
@@ -95,6 +98,58 @@ is missing, `412` when the ETag is stale). The `ETag` changes whenever the
 project does.
 
 ## Projects and snapshots
+
+### Explicit local sources (implemented v1 subset)
+
+`POST /api/v1/projects` accepts `{"api_version":"codexploit/v1","name":"Service audit"}`
+and creates an independent project without a legacy default source. Existing
+`POST /api/projects` identity and IDs are unchanged.
+
+| Method and path | Result |
+|---|---|
+| `POST /api/v1/projects/{id}/sources` | register a local-folder definition; `201` and source `ETag` |
+| `GET /api/v1/projects/{id}/sources?cursor=&limit=50` | `{sources,next_cursor,legacy_source}`; stable ID cursor, maximum 200 per page |
+| `POST /api/v1/sources/{id}/snapshots` | materialize current files, optionally build manifest/SCG/ASG; `201` |
+
+Source registration uses this body (see [source schema](../contracts/v1/source.schema.json)):
+
+```json
+{"api_version":"codexploit/v1","id":"src-service","project_id":"PROJECT_ID","name":"Service","kind":"local_folder","location":"/repos/service","ref":""}
+```
+
+Definitions are immutable in this implementation and start at `version: 1`.
+The returned `snapshot`, `files` and `revision` describe the latest published
+content, independently of definition `version`. A new distinct snapshot increments
+`revision`; recapturing the same snapshot does not. A project may own several
+sources. `legacy_source` is the existing project's default input, not a v1 source.
+
+Capture requires the project and definition version:
+
+```json
+{"project_id":"PROJECT_ID","source_version":1,"build_graph":true,"build_asg":true}
+```
+
+`skip_analysis` is also supported. A local-folder capture has no Git `ref`:
+it includes modified and untracked files even when `.git` exists. It uses the
+configured mount root (`--local-source-root`, default `/repos`); public locations
+always use logical `/repos/...` paths. Traversal and directory symlink escapes
+are refused. File symlinks are skipped and accounted for by the snapshot policy.
+The accepted-file manifest is checked again after copying; changed inputs return
+`409 source_changed` without publishing a new snapshot. Coverage limits and
+skips are available in the existing snapshot detail API.
+
+The capture response uses the existing snapshot response with added `source_id`
+and `source_version`. Snapshot list/detail and task list/detail expose the same
+binding. `POST /api/projects/{id}/tasks` accepts optional `source_id` alongside
+`snapshot_id`; if supplied, it must match the snapshot's source. Tasks remain
+pinned to that snapshot when the folder changes. Bindings and definitions persist
+in SQLite and are removed consistently with snapshot deletion.
+
+Scope mismatches return `400 invalid_scope`, a stale definition version returns
+`412 precondition_failed`, a missing mount returns `503 source_mount_unavailable`,
+and an invalid or escaping directory returns `400 invalid_source_path`.
+This subset does not implement the target Git provider, source editing,
+Probe/Resolve/Release protocol or canonical ArtifactRef response yet.
 
 ### `POST /api/projects`
 

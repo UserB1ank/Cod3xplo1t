@@ -37,6 +37,7 @@ type Project struct {
 // SnapshotRecord is the indexed view of a stored snapshot. The full snapshot
 // metadata document stays in the store and is returned by GetSnapshot.
 type SnapshotRecord struct {
+	SourceSnapshot
 	SnapshotID      string    `json:"snapshot_id"`
 	ProjectID       string    `json:"project_id"`
 	Commit          string    `json:"commit"`

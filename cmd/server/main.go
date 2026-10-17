@@ -48,15 +48,16 @@ func run() error {
 	var agentCommand, agentEnv repeatedFlag
 	var verifyCommand, verifyEnv repeatedFlag
 	var (
-		addr         = flag.String("addr", ":8080", "listen address")
-		workspace    = flag.String("workspace", ".codexploit", "workspace directory for snapshots")
-		dbPath       = flag.String("db", "", "SQLite database file (default <workspace>/codexploit.db, \"memory\" for an in-process store)")
-		allowNetwork = flag.Bool("allow-network", false, "permit cloning remote git URLs")
-		gitBin       = flag.String("git", "git", "git executable")
-		logLevel     = flag.String("log-level", "info", "debug, info, warn or error")
-		anonymous    = flag.Bool("insecure-anonymous", false, "serve without authentication (local development only)")
-		webAuth      = flag.Bool("web-auth", false, "enable administrator account setup and password login in the WebUI")
-		idemTTL      = flag.Duration("idempotency-ttl", 24*time.Hour, "how long a stored write response may be replayed")
+		addr            = flag.String("addr", ":8080", "listen address")
+		workspace       = flag.String("workspace", ".codexploit", "workspace directory for snapshots")
+		dbPath          = flag.String("db", "", "SQLite database file (default <workspace>/codexploit.db, \"memory\" for an in-process store)")
+		allowNetwork    = flag.Bool("allow-network", false, "permit cloning remote git URLs")
+		gitBin          = flag.String("git", "git", "git executable")
+		logLevel        = flag.String("log-level", "info", "debug, info, warn or error")
+		anonymous       = flag.Bool("insecure-anonymous", false, "serve without authentication (local development only)")
+		webAuth         = flag.Bool("web-auth", false, "enable administrator account setup and password login in the WebUI")
+		localSourceRoot = flag.String("local-source-root", "/repos", "physical mount exposed as the logical /repos namespace for explicit folder sources")
+		idemTTL         = flag.Duration("idempotency-ttl", 24*time.Hour, "how long a stored write response may be replayed")
 
 		agentRuntime    = flag.String("agent-runtime", app.AgentRuntimeDisabled, "agent adapter: disabled, scripted, cli or llm (configured in WebUI)")
 		agentWorkDir    = flag.String("agent-working-dir", "", "working directory of the agent process")
@@ -212,6 +213,7 @@ func run() error {
 	}
 
 	srv := api.NewServer(rt.Store, rt.Manager, rt.Analyzer,
+		api.WithLocalSourceRoot(*localSourceRoot),
 		api.WithAllowNetwork(*allowNetwork),
 		api.WithGraph(rt.Graph),
 		api.WithBuilder(rt.Builder),

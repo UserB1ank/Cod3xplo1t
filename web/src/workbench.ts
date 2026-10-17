@@ -7,6 +7,8 @@ export const gradeNames: Record<Grade, string> = {
   low: "低危",
 };
 export interface Task extends Audit {
+  source_id?: string;
+  source_version?: number;
   name?: string;
   objective?: string;
   scope?: string[];
@@ -48,7 +50,13 @@ export function readRoute(hash: string): Route {
       return { project, task, view: view || "overview" };
     return {
       project,
-      view: ["overview", "knowledge", "findings", "settings"].includes(page)
+      view: [
+        "overview",
+        "sources",
+        "knowledge",
+        "findings",
+        "settings",
+      ].includes(page)
         ? page
         : "tasks",
     };

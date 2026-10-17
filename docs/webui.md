@@ -181,6 +181,25 @@ files must be readable by the runtime user. The container runs as uid/gid 10001,
 with a read-only root, a temporary `/tmp`, no added capabilities, a persistent
 `/data` volume, an HTTP healthcheck and graceful termination.
 
+Choose **本地文件夹 · 读取当前文件** when creating a project to capture the current
+folder, including uncommitted changes. The project **代码源** page supports
+several local folders, captures a real snapshot with SCG/ASG, shows coverage,
+and opens task creation with that snapshot selected. Task creation can filter
+snapshots by source. Updating a folder and capturing again preserves old tasks'
+snapshot bindings. The existing Git project entry retains its earlier behavior.
+
+For several folders, mount a parent directory read-only at `/repos` using a Compose
+override, then register each child (for example `/repos/service` and `/repos/library`).
+The supplied `compose.local.yaml` mounts only one directory at `/repos/source`.
+A non-container server can set `--local-source-root` to a controlled directory;
+the browser still uses logical `/repos/...` paths relative to that root. This
+setting is server-side only and does not expose a filesystem browser.
+
+Source definitions currently start at version 1 and are read-only. **更新快照与图谱**
+captures changed content; it does not edit the definition. Source records and
+task bindings use the existing persistent SQLite database. PostgreSQL and
+external artifact storage remain separate implementation work.
+
 The image includes the server, the HTTP model adapter, Git and CA certificates.
 External CLI agents and evidence-verification executables are deployment-specific
 and are **not automatically supplied**. Configure `--agent-runtime cli

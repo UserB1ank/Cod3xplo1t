@@ -55,6 +55,11 @@
     "revision": {
       "type": "integer",
       "minimum": 0
+    },
+    "version": {
+      "description": "Immutable source definition version pinned during capture",
+      "type": "integer",
+      "minimum": 1
     }
   },
   "required": [

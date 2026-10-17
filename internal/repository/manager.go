@@ -151,11 +151,21 @@ func (m *Manager) Create(ctx context.Context, src Source) (*Snapshot, error) {
 	}
 
 	var plan *dirPlan
+	var directory fs.FS
 	switch res.Kind {
 	case KindDir:
+		directory = res.Source.Files
+		if directory == nil {
+			root, openErr := os.OpenRoot(res.Path)
+			if openErr != nil {
+				return nil, openErr
+			}
+			defer root.Close()
+			directory = root.FS()
+		}
 		snap.VCS = "none"
 		snap.RequestedRef = ""
-		plan, err = planDir(res.Path, l)
+		plan, err = planDirectory(directory, l)
 		if err != nil {
 			return nil, err
 		}
@@ -213,8 +223,15 @@ func (m *Manager) Create(ctx context.Context, src Source) (*Snapshot, error) {
 
 	switch res.Kind {
 	case KindDir:
-		if err := copyPlan(res.Path, tree, plan); err != nil {
+		if err := copyDirectory(directory, tree, plan); err != nil {
 			return nil, err
+		}
+		latest, err := planDirectory(directory, l)
+		if err != nil {
+			return nil, fmt.Errorf("%w: directory cannot be revalidated", ErrSourceChanged)
+		}
+		if latest.Digest != plan.Digest {
+			return nil, ErrSourceChanged
 		}
 	default:
 		plan, err = m.extractCommitTree(ctx, res.Path, snap.Commit, tree, l, snap.SubmoduleState)

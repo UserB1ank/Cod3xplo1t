@@ -20,13 +20,15 @@ import (
 // faithful target for API tests and for `--db memory` runs.
 type Memory struct {
 	// Presence blocks writes; true means pending cleanup, false means completed.
-	deleting  map[string]bool
-	mu        sync.RWMutex
-	projects  map[string]Project
-	snapshots map[string]memorySnapshot
-	manifests map[string][]byte
-	analyses  map[string]string // analysis_id -> analysis document
-	graphs    map[string]*memoryGraph
+	deleting        map[string]bool
+	mu              sync.RWMutex
+	projects        map[string]Project
+	sources         map[string]SourceDefinition
+	sourceSnapshots map[string]SourceSnapshot
+	snapshots       map[string]memorySnapshot
+	manifests       map[string][]byte
+	analyses        map[string]string // analysis_id -> analysis document
+	graphs          map[string]*memoryGraph
 	// asgDocuments holds the derived attack surface of a snapshot, keyed by
 	// snapshot id and kept separate from graphs: the ASG is derived data and can
 	// be dropped and rebuilt without touching an SCG fact.
@@ -246,6 +248,13 @@ func (m *Memory) DeleteSnapshot(_ context.Context, id string) error {
 		return fmt.Errorf("%w: snapshot %s", ErrNotFound, id)
 	}
 	delete(m.snapshots, id)
+	if binding, exists := m.sourceSnapshots[id]; exists {
+		if source, ok := m.sources[binding.SourceID]; ok && source.Snapshot == id {
+			source.Snapshot, source.Files = "", 0
+			m.sources[source.ID] = source
+		}
+		delete(m.sourceSnapshots, id)
+	}
 	delete(m.manifests, id)
 	delete(m.graphs, id)
 	// The attack surface is derived from the snapshot, so it dies with it.

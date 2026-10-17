@@ -3,7 +3,7 @@ export type PathFilter = 'all' | 'queued' | 'active' | 'attention';
 export type FindingStatus = 'candidate' | 'confirmed' | 'refuted' | 'inconclusive' | 'blocked';
 
 export interface Project { id: string; name: string; source: string; identity: string; created_at: string; updated_at: string; version: number }
-export interface Snapshot { snapshot_id: string; project_id: string; commit: string; vcs: string; created_at: string; manifest_present: boolean }
+export interface Snapshot { snapshot_id: string; project_id: string; commit: string; vcs: string; created_at: string; manifest_present: boolean; source_id?: string; source_version?: number }
 export interface Step { layer: string; from: string; to: string; kind: string; subject?: string; file?: string; line?: number; evidence?: string; confidence?: string }
 export interface AuditPath {
   path_id: string; audit_id: string; snapshot_id: string; entry_subject: string; target_subject: string; target_kind: string;

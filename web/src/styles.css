@@ -1963,3 +1963,12 @@ pre {
 .settings-explanation h3 { color: #e4e7e6; margin: 10px 0; font-size: 18px; }
 .settings-explanation p { margin: 12px 0 0; }
 @media (max-width: 1050px) { .model-settings-layout { grid-template-columns: 1fr; } }
+.source-description { padding: 20px 24px; }
+.source-description p { margin-top: 12px; }
+.source-table { min-width: 780px; }
+.source-secondary { display: block; margin-top: 7px; color: var(--muted, #85818d); font-size: 11px; overflow-wrap: anywhere; }
+.source-kind, .source-actions { display: flex; align-items: center; gap: 8px; }
+.source-actions { flex-wrap: wrap; }
+.source-actions .button { white-space: nowrap; }
+.source-snapshot { display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 14px; margin-bottom: 24px; }
+.source-snapshot dd { margin: 0; overflow-wrap: anywhere; }
