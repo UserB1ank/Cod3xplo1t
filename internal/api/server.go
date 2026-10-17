@@ -45,6 +45,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/llm"
 	"github.com/open-mcp-ai/Codexploit/internal/path"
 	"github.com/open-mcp-ai/Codexploit/internal/plugin"
+	"github.com/open-mcp-ai/Codexploit/internal/publication"
 	"github.com/open-mcp-ai/Codexploit/internal/repository"
 	"github.com/open-mcp-ai/Codexploit/internal/scg"
 	"github.com/open-mcp-ai/Codexploit/internal/schedule"
@@ -68,8 +69,11 @@ type Server struct {
 	// attack surface and the path queue. It is nil when no graph service is
 	// wired, which is what makes every knowledge route answer 501.
 	Knowledge *knowledge.Reader
-	Graph     *graph.Service
-	Builder   *scg.Builder
+	// Publications turns a plugin's standard result into an immutable shared
+	// knowledge revision. It is nil when the store cannot persist revisions.
+	Publications *publication.Publisher
+	Graph        *graph.Service
+	Builder      *scg.Builder
 	// ASG and ASGBuilder are the attack-surface read and build paths. They are
 	// separate from Graph/Builder so a deployment can serve the SCG without the
 	// P3 layer, in which case every ASG route answers 501 instead of guessing.
@@ -164,6 +168,9 @@ func NewServer(store storage.FullStore, mgr *repository.Manager, analyzer *analy
 			s.Artifacts, _ = artifact.NewLocal(filepath.Join(s.Manager.Root, "artifacts"), index)
 		}
 	}
+	if publisher, ok := store.(publication.Store); ok {
+		s.Publications = publication.NewPublisher(publisher)
+	}
 	if s.Graph != nil {
 		var artifacts knowledge.ArtifactReader
 		if reader, ok := store.(knowledge.ArtifactReader); ok {
@@ -208,6 +215,9 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/v1/projects", s.withIdempotency(s.handleCreateSourceProject))
 	mux.HandleFunc("GET /api/v1/projects/{id}/sources", s.handleListSources)
 	mux.HandleFunc("POST /api/v1/projects/{projectID}/knowledge/views", s.handleOpenKnowledgeView)
+	mux.HandleFunc("POST /api/v1/projects/{projectID}/knowledge/publications", s.handlePublishKnowledge)
+	mux.HandleFunc("GET /api/v1/projects/{projectID}/knowledge/revisions", s.handleListKnowledgeRevisions)
+	mux.HandleFunc("GET /api/v1/projects/{projectID}/knowledge/revisions/{viewID}/facts", s.handleKnowledgeRevisionFacts)
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/knowledge/views/{viewID}/symbols", s.handleKnowledgeSymbols)
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/knowledge/views/{viewID}/neighborhood", s.handleKnowledgeNeighborhood)
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/knowledge/views/{viewID}/nodes", s.handleKnowledgeNodes)

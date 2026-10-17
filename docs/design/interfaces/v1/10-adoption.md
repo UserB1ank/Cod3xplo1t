@@ -44,6 +44,8 @@ Issue #3 的正式任务表已接通项目分类目录、置顶、归档/恢复�
 
 Issue #6 的正式插件中心已接入 Schema 校验的不可变目录与内置 Go 解析器。调用固定输入、版本、包和参数摘要，保存覆盖、局限及 AST / facts 产物，支持 CAS 取消、预算与单宿主重启中断状态。外部清单仅登记，不显示为已安装执行器。实际接口、版本指纹和部署限制见 [插件接口](../../../plugins.md)。
 
+Issue #8 已把插件标准结果接到不可变共享版本：新增 `POST .../knowledge/publications`（writer）与 `GET .../knowledge/revisions/{view}/facts`（reader），版本 CAS、幂等批次、scope / 孤立边校验、冲突观察保留和 outbox 同事务提交；同一事实的多工具来源保留为独立观察。正式图谱页的“共享知识版本”面板可选择任意已发布版本并展开来源。旧 `/api` 与 #5 的固定视图保持兼容；PostgreSQL 规范化索引仍属后续存储切片。
+
 Issue #5 已把正式“共享知识图谱”页面接到固定视图：`POST /api/v1/projects/{id}/knowledge/views` 记录快照的 SCG / ASG 版本与构建时间，`symbols`、`neighborhood`、`nodes`、`paths`、`code_slice`、`provenance` 都从该 pin 读取并带覆盖与截断说明。同快照的多个任务共享一组事实与路径，重建后旧视图显式返回 `view_superseded`。旧 `/api` 图谱接口保持兼容；增量发布仍属 #8。
 
 Issue #4 已接通正式产物目录、完整引用、预算校验、清单预览与认证下载。新代码源快照自动登记逐文件清单和冻结源码 tar，既有快照可显式登记。ArtifactStore 与认证 HTTP API 的测试覆盖不可变发布、冲突、读取取消、预算、损坏/丢失、项目与来源隔离、分页、退役拒绝和 SQLite 重启；外部容器存储另由 #19 接入。

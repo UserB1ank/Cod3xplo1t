@@ -50,5 +50,9 @@
   {
     "file": "examples/discovery.json",
     "schema": "discovery.schema.json"
+  },
+  {
+    "file": "examples/publication.json",
+    "schema": "publication.schema.json"
   }
 ]

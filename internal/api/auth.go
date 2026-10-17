@@ -297,6 +297,12 @@ func requiredCapability(method, path string) (Capability, bool) {
 				return CapWrite, true
 			}
 		}
+		if strings.HasPrefix(action, "knowledge/publications") {
+			if method == http.MethodPost {
+				return CapWrite, true
+			}
+			return 0, false
+		}
 		if strings.HasPrefix(action, "knowledge/") {
 			return CapRead, true
 		}

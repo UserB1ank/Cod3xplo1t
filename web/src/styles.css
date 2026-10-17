@@ -2021,3 +2021,10 @@ pre {
 .plugin-run-form label:has(textarea) { grid-column: 1 / -1; }
 .plugin-digest { font-size: 11px; overflow-wrap: anywhere; word-break: break-all; max-width: 320px; display: inline-block; }
 @media (max-width: 780px) { .plugin-run-form { grid-template-columns: minmax(0, 1fr); } }
+.knowledge-observations { margin: 8px 0 0; padding-left: 16px; display: grid; gap: 10px; font-size: 11px; }
+.knowledge-observations dl { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 3px 10px; margin: 6px 0 0; padding: 0; font-size: 10px; }
+.knowledge-observations dt { color: var(--muted); }
+.knowledge-observations dd { margin: 0; overflow-wrap: anywhere; }
+.knowledge-table details summary { cursor: pointer; color: var(--accent); }
+.knowledge-observation-row td { background: var(--panel); }
+.knowledge-observation-row .knowledge-observations { padding: 10px 22px 16px; }

@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codexploit.invalid/contracts/v1/publication.schema.json",
+  "title": "Knowledge publication receipt",
+  "description": "The immutable revision one producer batch created, and the view that addresses it.",
+  "type": "object",
+  "properties": {
+    "api_version": {
+      "const": "codexploit/v1"
+    },
+    "publication": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "published"
+          ]
+        },
+        "revision": {
+          "type": "string",
+          "pattern": "^rev-[1-9][0-9]*$"
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "facts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "edges": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "view": {
+          "type": "object",
+          "properties": {
+            "view_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "revision": {
+              "type": "string",
+              "pattern": "^rev-[1-9][0-9]*$"
+            },
+            "scope": {
+              "type": "object",
+              "properties": {
+                "project_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 160,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+                },
+                "snapshot_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 160,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+                }
+              },
+              "required": [
+                "project_id",
+                "snapshot_id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "view_id",
+            "revision",
+            "scope"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "status",
+        "revision",
+        "digest",
+        "facts",
+        "edges",
+        "view"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "api_version",
+    "publication"
+  ],
+  "additionalProperties": false
+}

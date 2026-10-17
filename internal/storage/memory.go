@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -22,13 +23,16 @@ import (
 // faithful target for API tests and for `--db memory` runs.
 type Memory struct {
 	// Presence blocks writes; true means pending cleanup, false means completed.
-	deleting          map[string]bool
-	mu                sync.RWMutex
-	projects          map[string]Project
-	sources           map[string]SourceDefinition
-	sourceSnapshots   map[string]SourceSnapshot
-	taskCategories    map[string]TaskCategories
-	artifacts         map[string]artifact.Ref
+	deleting        map[string]bool
+	mu              sync.RWMutex
+	projects        map[string]Project
+	sources         map[string]SourceDefinition
+	sourceSnapshots map[string]SourceSnapshot
+	taskCategories  map[string]TaskCategories
+	artifacts       map[string]artifact.Ref
+	// knowledge holds the immutable publication revisions of each project
+	// snapshot: the revision documents, their batch index and the outbox.
+	knowledge         map[string]*knowledgeScopeState
 	plugins           map[string][]byte
 	pluginInvocations map[string][]byte
 	snapshots         map[string]memorySnapshot
@@ -263,6 +267,11 @@ func (m *Memory) DeleteSnapshot(_ context.Context, id string) error {
 	for key, ref := range m.artifacts {
 		if ref.Scope.SnapshotID == id {
 			delete(m.artifacts, key)
+		}
+	}
+	for key := range m.knowledge {
+		if strings.HasSuffix(key, "\x00"+id) {
+			delete(m.knowledge, key)
 		}
 	}
 	if binding, exists := m.sourceSnapshots[id]; exists {

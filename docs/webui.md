@@ -357,6 +357,11 @@ Enter opens); the drawer shows the code slice, callers and provenance — the
 plugin, version, config digest, sharing tasks and the source artifact the fact
 was derived from.
 
+The **共享知识版本** panel lists the immutable revisions producers published for
+that snapshot: pick a version to read its facts and expand one fact to see every
+observation — plugin, version, sharing task and the attributes each tool
+claimed. A newer publication never replaces an open version.
+
 The page states its coverage (parsed files, unparsed files, skipped symbols),
 the number of sharing tasks and any budget truncation. A layer that was never
 built is shown as 未构建, a missing capability as 不可用, a snapshot without a

@@ -1,0 +1,18 @@
+{
+  "api_version": "codexploit/v1",
+  "publication": {
+    "status": "published",
+    "revision": "rev-1",
+    "digest": "3f1c8a6b3b6c0f0f5b0b6b8f5f2f9c7d4e1a2b3c4d5e6f708192a3b4c5d6e7f8",
+    "facts": 6,
+    "edges": 5,
+    "view": {
+      "view_id": "view-eyJwIjoicHJvai1leGFtcGxlIiwicyI6InNuYXAtMDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWYiLCJyIjoicmV2LTEifQ",
+      "revision": "rev-1",
+      "scope": {
+        "project_id": "proj-example",
+        "snapshot_id": "snap-0123456789abcdef0123456789abcdef"
+      }
+    }
+  }
+}

@@ -43,6 +43,28 @@ Issue #5 在现有 `graph.Service`、`graph.ASGService` 与 `path.Service` 之�
 
 401 表示未认证；reader 可读，writer / admin 同样可读。404 `knowledge_not_found` 表示视图、项目或快照不属于该作用域；409 `knowledge_unavailable` 表示快照尚无代码图谱；409 `layer_unavailable` 表示该层未固定或未构建；409 `view_superseded` 表示图层已重建；400 `invalid_request` 表示非法游标、预算或方向；501 表示该部署未接线知识查询；503 表示查询故障。
 
+## 发布与版本
+
+语义分析等工具产出的标准结果不会直接改写共享图谱，而是由宿主作为 GraphBatch 原子发布：
+
+`POST /api/v1/projects/{projectID}/knowledge/publications`（writer）
+
+```json
+{"api_version": "codexploit/v1", "snapshot_id": "snap-…", "invocation_id": "inv-…",
+ "task_id": "audit-…", "batch_id": "batch-…", "base_revision": "rev-0"}
+```
+
+- 只接受已完成（`SUCCEEDED` / `PARTIAL`）的调用；事实来源取该调用的生产者、版本、配置摘要，`task_id` 必须属于同一快照。
+- 跨层边（例如指向 SCG 调用点）不属于本批事实，适配层会省略并在 `limitations` 中计数，不伪造端点。
+- 版本 CAS：`base_revision` 必须等于当前 `head`（首个版本为 `rev-0`），否则 409 `version_conflict`。
+- 幂等：相同 `batch_id` 且摘要相同返回原版本；摘要不同返回 409 `batch_conflict`。
+- 孤立边、非法事实返回 400 `invalid_batch`；失败批次、版本和 outbox 都不落库。
+- 冲突观察保留：同一 `fact_id` 的第二个生产者会新增 observation（携带其原始属性），不覆盖既有 canonical 字段。
+
+`GET /api/v1/projects/{projectID}/knowledge/revisions?snapshot_id=…`（reader）列出不可变版本；`GET /api/v1/projects/{projectID}/knowledge/revisions/{viewID}/facts?snapshot_id=…` 按版本读取事实与全部观察。`view_id` 自描述版本号，读取永远不会落到 “latest”。正式页面的“共享知识版本”面板用它选择版本并展开同一事实的多来源。
+
+发布记录持久化在 `knowledge_revisions` / `knowledge_outbox`（migration `0017`）：版本行、批次索引与 outbox 事件在同一事务提交，失败整体回滚。查询侧暂以版本文档形式保存事实与观察；PostgreSQL 规范化索引属于后续存储切片。
+
 ## 兼容与边界
 
 旧 `/api/snapshots/{id}/…` 图谱接口形状不变，正式页面、CLI 与 MCP 继续使用它们不受影响。知识共享是逻辑共享：同一快照的多个任务复用同一组事实与路径；不同快照通过不同 `view_id` 读取，不会在一次查询中混合。增量批次发布、跨快照显式映射、统一观察账本与外部图数据库属于 #8 及后续切片。

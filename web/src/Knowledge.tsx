@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type KeyboardEvent } from "react";
+import { Fragment, useCallback, useEffect, useState, type KeyboardEvent } from "react";
 import { ArrowDown, ArrowUp, Loader2, Network, RefreshCw, Search } from "lucide-react";
 import { ApiClient, ApiError } from "./api";
 import { CodeBlock, EmptyState, Hint, Modal, Panel } from "./components";
@@ -283,6 +283,7 @@ export function Knowledge({
       ) : view ? (
         <>
           <CoverageStrip view={view} />
+          <PublicationPanel api={api} projectID={projectID} snapshotID={snapshotID} />
           {layerState && layerState.status !== "available" ? (
             <Panel title={layerLabels[layer]}>
               <EmptyState title={layerState.detail || `${layerLabels[layer]}不可用`}>
@@ -384,6 +385,157 @@ function CoverageStrip({ view }: { view: View }) {
         <strong className="mono">{view.engine.version}</strong>
       </div>
     </div>
+  );
+}
+
+interface RevisionSummary {
+  revision: string;
+  revision_no: number;
+  batch_id: string;
+  producer: { plugin_id: string; plugin_version: string; task_id?: string };
+  created_at: string;
+  view: { view_id: string; revision: string; scope: { project_id: string; snapshot_id: string } };
+}
+
+interface PublishedFact {
+  id: string;
+  kind: string;
+  label: string;
+  location?: { file: string; start_line: number; end_line: number };
+  confidence?: string;
+  observations: {
+    observation_id: string;
+    producer: { plugin_id: string; plugin_version: string; invocation_id: string; task_id?: string; config_digest: string };
+    attributes?: Record<string, string>;
+    evidence_refs?: string[];
+  }[];
+}
+
+// PublicationPanel shows the immutable versions a producer published and every
+// observation behind one fact, so two tools that disagree stay visible.
+function PublicationPanel({ api, projectID, snapshotID }: { api: ApiClient; projectID: string; snapshotID: string }) {
+  const revisions = useQuery(
+    (signal) => api.get<{ revisions: RevisionSummary[] }>(`/v1/projects/${projectID}/knowledge/revisions?snapshot_id=${encodeURIComponent(snapshotID)}&limit=100`, signal),
+    [api, projectID, snapshotID],
+  );
+  const [selected, setSelected] = useState("");
+  const [expanded, setExpanded] = useState("");
+  const latest = revisions.data?.revisions[revisions.data.revisions.length - 1];
+  const active = revisions.data?.revisions.find((item) => item.revision === selected) || latest;
+  const facts = useQuery(
+    (signal) =>
+      active
+        ? api.get<{ facts: PublishedFact[]; next_cursor: string }>(
+            `/v1/projects/${projectID}/knowledge/revisions/${encodeURIComponent(active.view.view_id)}/facts?snapshot_id=${encodeURIComponent(snapshotID)}&limit=50`,
+            signal,
+          )
+        : Promise.resolve({ facts: [], next_cursor: "" }),
+    [api, projectID, snapshotID, active?.view.view_id],
+  );
+  return (
+    <Panel
+      title="共享知识版本"
+      action={
+        revisions.data?.revisions.length ? (
+          <select aria-label="已发布知识版本" value={active?.revision || ""} onChange={(event) => setSelected(event.target.value)}>
+            {revisions.data.revisions.map((item) => (
+              <option value={item.revision} key={item.revision}>
+                {item.revision} · {item.producer.plugin_id}@{item.producer.plugin_version}
+              </option>
+            ))}
+          </select>
+        ) : null
+      }
+    >
+      {revisions.error ? (
+        <Hint>{revisions.error}</Hint>
+      ) : revisions.loading ? (
+        <div className="knowledge-loading">
+          <Loader2 className="spin" size={16} /> 读取发布版本…
+        </div>
+      ) : !revisions.data?.revisions.length ? (
+        <Hint>该快照还没有发布版本。任务完成语义分析并发布后，这里会列出不可变版本和来源。</Hint>
+      ) : facts.error ? (
+        <Hint>{facts.error}</Hint>
+      ) : facts.loading ? (
+        <div className="knowledge-loading">
+          <Loader2 className="spin" size={16} /> 读取已发布事实…
+        </div>
+      ) : !facts.data?.facts.length ? (
+        <EmptyState title="该版本没有事实">发布批次只包含覆盖说明。</EmptyState>
+      ) : (
+        <>
+          <div className="table-scroll">
+            <table className="standard-table knowledge-table">
+              <thead>
+                <tr>
+                  <th>事实</th>
+                  <th>类型</th>
+                  <th>代码位置</th>
+                  <th>来源</th>
+                </tr>
+              </thead>
+              <tbody>
+                {facts.data.facts.map((fact) => (
+                  <Fragment key={fact.id}>
+                    <tr>
+                      <td>
+                        <strong>{fact.label || fact.id}</strong>
+                        <span className="mono muted">{fact.id}</span>
+                      </td>
+                      <td>{fact.kind}</td>
+                      <td className="mono">{fact.location ? `${fact.location.file}:${fact.location.start_line}` : "—"}</td>
+                      <td>
+                        <button
+                          className="text-button"
+                          aria-expanded={expanded === fact.id}
+                          onClick={() => setExpanded(expanded === fact.id ? "" : fact.id)}
+                        >
+                          {fact.observations.length} 个观察
+                        </button>
+                      </td>
+                    </tr>
+                    {expanded === fact.id ? (
+                      <tr className="knowledge-observation-row">
+                        <td colSpan={4}>
+                          <ul className="knowledge-observations">
+                            {fact.observations.map((observation) => (
+                              <li key={observation.observation_id}>
+                                <span className="mono">
+                                  {observation.producer.plugin_id}@{observation.producer.plugin_version}
+                                </span>
+                                {observation.producer.task_id ? <span className="muted"> · 任务 {observation.producer.task_id}</span> : null}
+                                {observation.attributes ? (
+                                  <dl>
+                                    {Object.entries(observation.attributes).map(([key, value]) => (
+                                      <div key={key}>
+                                        <dt>{key}</dt>
+                                        <dd className="mono">{value}</dd>
+                                      </div>
+                                    ))}
+                                  </dl>
+                                ) : null}
+                              </li>
+                            ))}
+                          </ul>
+                        </td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="knowledge-meta">
+            <span>
+              版本固定 <code className="mono">{active?.revision}</code>
+            </span>
+            <span>共 {facts.data.facts.length} 条事实</span>
+            <span>批次 {active?.batch_id}</span>
+          </div>
+        </>
+      )}
+    </Panel>
   );
 }
 
