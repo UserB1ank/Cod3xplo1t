@@ -109,61 +109,20 @@ func (s *Server) handlePublishKnowledge(w http.ResponseWriter, r *http.Request) 
 		writePublicationError(w, err)
 		return
 	}
-	batch := publication.Batch{
-		ID:           request.BatchID,
-		Scope:        publication.Scope{ProjectID: scope.ProjectID, SnapshotID: scope.SnapshotID},
-		BaseRevision: request.BaseRevision,
-		Producer: artifact.Producer{
+	batch, omittedEdges := publication.BatchFromDiscovery(
+		request.BatchID,
+		publication.Scope{ProjectID: scope.ProjectID, SnapshotID: scope.SnapshotID},
+		artifact.Producer{
 			PluginID:      invocation.Request.PluginID,
 			PluginVersion: invocation.Request.PluginVersion,
 			InvocationID:  invocation.ID,
 			TaskID:        request.TaskID,
 			ConfigDigest:  invocation.ConfigDigest,
 		},
-		Layer:       "security",
-		Facts:       make([]publication.BatchFact, 0, len(document.Nodes)),
-		Edges:       make([]publication.BatchEdge, 0, len(document.Edges)),
-		Coverage:    publication.BatchCoverage{FilesSeen: document.Coverage.InputFiles, FilesAnalyzed: document.Coverage.ParsedFiles, FilesSkipped: document.Coverage.UnparsedFiles, Limitations: document.Limitations},
-		Limitations: document.Limitations,
-	}
-	for _, node := range document.Nodes {
-		attributes := map[string]string{
-			"subject":         node.Subject,
-			"generator":       node.Generator,
-			"evidence_status": string(node.Evidence),
-		}
-		for key, value := range node.Detail {
-			attributes[key] = value
-		}
-		location := &publication.Location{File: node.File, StartLine: node.Line, EndLine: node.Line}
-		if node.File == "" {
-			location = nil
-		}
-		batch.Facts = append(batch.Facts, publication.BatchFact{
-			ID:         node.ID,
-			Kind:       string(node.Kind),
-			Label:      node.Label,
-			Location:   location,
-			Confidence: string(node.Confidence),
-			Attributes: attributes,
-			Evidence:   node.SCGRefs,
-		})
-	}
-	// Cross-layer edges point at SCG call sites, which are not facts of this
-	// batch. Publishing them would name an endpoint the revision cannot resolve,
-	// so they are omitted and counted instead of silently inventing a fact.
-	published := make(map[string]bool, len(batch.Facts))
-	for _, fact := range batch.Facts {
-		published[fact.ID] = true
-	}
-	omittedEdges := 0
-	for _, edge := range document.Edges {
-		if !published[edge.From] || !published[edge.To] {
-			omittedEdges++
-			continue
-		}
-		batch.Edges = append(batch.Edges, publication.BatchEdge{From: edge.From, To: edge.To, Kind: string(edge.Kind)})
-	}
+		document,
+		request.BaseRevision,
+		"security",
+	)
 	if omittedEdges > 0 {
 		batch.Limitations = append(batch.Limitations, fmt.Sprintf("%d cross-layer edge(s) were omitted because their endpoints are not attack-surface facts in this batch", omittedEdges))
 	}

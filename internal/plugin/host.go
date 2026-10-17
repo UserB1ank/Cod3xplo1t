@@ -134,7 +134,11 @@ func NewHost(deps Deps) (*Host, error) {
 		if executor.Run == nil || len(executor.InputSchemas) == 0 {
 			return nil, ErrInvalid
 		}
-		if err := deps.Catalog.install(context.Background(), executor.Manifest, executor.PackageDigest); err != nil {
+		source := executor.Source
+		if source == "" {
+			source = "compiled adapter"
+		}
+		if err := deps.Catalog.install(context.Background(), executor.Manifest, executor.PackageDigest, source); err != nil {
 			return nil, err
 		}
 		var manifest Manifest
@@ -279,6 +283,7 @@ func (h *Host) run(ctx context.Context, cancel context.CancelFunc, inv Invocatio
 	if err != nil {
 		inv.Status = "FAILED"
 		inv.ErrorCode = "parse_failed"
+		var execution *ExecutionError
 		switch {
 		case errors.Is(err, context.Canceled):
 			inv.Status = "CANCELLED"
@@ -288,6 +293,15 @@ func (h *Host) run(ctx context.Context, cancel context.CancelFunc, inv Invocatio
 			inv.ErrorCode = "deadline"
 		case errors.Is(err, ErrBudget), errors.Is(err, artifact.ErrBudget):
 			inv.ErrorCode = "budget_exceeded"
+		case errors.Is(err, ErrProtocolViolation):
+			inv.ErrorCode = "protocol_violation"
+		case errors.As(err, &execution):
+			inv.ErrorCode = safeErrorCode(execution.Code)
+		case errors.Is(err, ErrExecutionFailed):
+			inv.ErrorCode = "execution_failed"
+		case errors.Is(err, ErrUnsupported):
+			inv.Status = "UNSUPPORTED"
+			inv.ErrorCode = "unsupported"
 		case errors.Is(err, artifact.ErrIntegrity), errors.Is(err, ErrInvalid):
 			inv.ErrorCode = "invalid_input"
 		}
@@ -323,7 +337,23 @@ func PublishableOutput(inv Invocation, ref artifact.Ref) bool {
 	if inv.Status == "SUCCEEDED" || inv.Status == "PARTIAL" {
 		return true
 	}
-	return ((inv.Status == "FAILED" && inv.ErrorCode == "normalization_failed") || (inv.Status == "UNSUPPORTED" && inv.ErrorCode == "unsupported_report_version")) && ref.Kind == "report.document" && ref.SchemaID == "codexploit/builtin-native/v1"
+	if !((inv.Status == "FAILED" && inv.ErrorCode == "normalization_failed") || (inv.Status == "UNSUPPORTED" && inv.ErrorCode == "unsupported_report_version")) {
+		return false
+	}
+	return (ref.Kind == "report.document" && ref.SchemaID == "codexploit/builtin-native/v1") ||
+		(ref.Kind == "scanner.alerts" && ref.SchemaID == "codexploit/scanner-alerts/v1")
+}
+
+func safeErrorCode(code string) string {
+	if code == "" || len(code) > 64 {
+		return "execution_failed"
+	}
+	for _, r := range code {
+		if !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_') {
+			return "execution_failed"
+		}
+	}
+	return code
 }
 
 func (h *Host) GetStatus(ctx context.Context, scope artifact.Scope, id string) (Invocation, error) {

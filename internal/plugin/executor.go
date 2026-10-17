@@ -17,11 +17,21 @@ var ErrReportVersion = errors.New("plugin: unsupported native report version")
 // Executor is a compiled adapter, supplied by the composition root. Imported
 // manifests cannot install code or add adapters through the HTTP API.
 type Executor struct {
-	Manifest      json.RawMessage
-	PackageDigest string
-	InputSchemas  []string
-	InputPlugins  []string
-	Run           func(context.Context, Invocation, [][]byte) ([]byte, error)
+	Manifest       json.RawMessage
+	PackageDigest  string
+	ManifestDigest string
+	// Source is the installation provenance shown in the catalog. An empty
+	// value means the adapter was compiled into this host.
+	Source       string
+	InputSchemas []string
+	InputPlugins []string
+	Run          func(context.Context, Invocation, [][]byte) ([]byte, error)
+	// Normalize turns this adapter's native document into the standard
+	// DiscoveryDocument. A nil value uses the built-in semantic/path normalizer.
+	Normalize func(Invocation, artifact.Ref, []byte) (DiscoveryDocument, error)
+	// NativeKind and NativeSchema label the raw evidence artifact.
+	NativeKind   string
+	NativeSchema string
 }
 
 func (h *Host) validateInputs(ctx context.Context, request Request) error {
@@ -109,11 +119,22 @@ func (h *Host) analyze(ctx context.Context, inv Invocation) ([]artifact.Ref, Cov
 	if err != nil {
 		return nil, Coverage{}, nil, err
 	}
-	native, err := h.prepareDocument(ctx, inv, "native", "report.document", "codexploit/builtin-native/v1", raw)
+	nativeKind, nativeSchema := executor.NativeKind, executor.NativeSchema
+	if nativeKind == "" {
+		nativeKind = "report.document"
+	}
+	if nativeSchema == "" {
+		nativeSchema = "codexploit/builtin-native/v1"
+	}
+	native, err := h.prepareDocument(ctx, inv, "native", nativeKind, nativeSchema, raw)
 	if err != nil {
 		return nil, Coverage{}, nil, err
 	}
-	document, err := (Normalizer{}).Normalize(inv, native, raw)
+	normalize := executor.Normalize
+	if normalize == nil {
+		normalize = Normalizer{}.Normalize
+	}
+	document, err := normalize(inv, native, raw)
 	if err == nil {
 		err = ValidateDiscovery(document)
 	}

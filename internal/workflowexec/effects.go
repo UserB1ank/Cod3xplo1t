@@ -105,32 +105,17 @@ func (e *Effects) publish(ctx context.Context, run workflow.Run, plan workflow.P
 		if err != nil {
 			return result, err
 		}
-		batch := publication.Batch{ID: "batch-" + run.ID + "-" + nr.NodeID, Scope: publication.Scope{ProjectID: run.Scope.ProjectID, SnapshotID: run.Scope.SnapshotID}, Producer: artifact.Producer{PluginID: inv.Request.PluginID, PluginVersion: inv.Request.PluginVersion, InvocationID: inv.ID, TaskID: run.TaskID, ConfigDigest: inv.ConfigDigest}, Layer: "security", Facts: []publication.BatchFact{}, Edges: []publication.BatchEdge{}, Limitations: append([]string{}, document.Limitations...)}
-		ids := map[string]bool{}
-		for _, fact := range document.Nodes {
-			attributes := map[string]string{"subject": fact.Subject, "generator": fact.Generator, "evidence_status": string(fact.Evidence)}
-			for k, v := range fact.Detail {
-				attributes[k] = v
-			}
-			var location *publication.Location
-			if fact.File != "" {
-				location = &publication.Location{File: fact.File, StartLine: fact.Line, EndLine: fact.Line}
-			}
-			batch.Facts = append(batch.Facts, publication.BatchFact{ID: fact.ID, Kind: string(fact.Kind), Label: fact.Label, Location: location, Confidence: string(fact.Confidence), Attributes: attributes, Evidence: fact.SCGRefs})
-			ids[fact.ID] = true
-		}
-		omitted := 0
-		for _, edge := range document.Edges {
-			if ids[edge.From] && ids[edge.To] {
-				batch.Edges = append(batch.Edges, publication.BatchEdge{From: edge.From, To: edge.To, Kind: string(edge.Kind)})
-			} else {
-				omitted++
-			}
-		}
+		batch, omitted := publication.BatchFromDiscovery(
+			"batch-"+run.ID+"-"+nr.NodeID,
+			publication.Scope{ProjectID: run.Scope.ProjectID, SnapshotID: run.Scope.SnapshotID},
+			artifact.Producer{PluginID: inv.Request.PluginID, PluginVersion: inv.Request.PluginVersion, InvocationID: inv.ID, TaskID: run.TaskID, ConfigDigest: inv.ConfigDigest},
+			document,
+			"",
+			"security",
+		)
 		if omitted > 0 {
 			batch.Limitations = append(batch.Limitations, fmt.Sprintf("%d cross-layer edges omitted because endpoints are outside this batch", omitted))
 		}
-		batch.Coverage = publication.BatchCoverage{FilesSeen: document.Coverage.InputFiles, FilesAnalyzed: document.Coverage.ParsedFiles, FilesSkipped: document.Coverage.UnparsedFiles, Limitations: document.Limitations}
 		var revision *publication.Revision
 		for attempt := 0; attempt < 5; attempt++ {
 			batch.BaseRevision, err = store.KnowledgeHead(ctx, batch.Scope)

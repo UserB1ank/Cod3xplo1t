@@ -12,6 +12,8 @@
 
 内置链路为 `parse → semantic → paths → $publish → $analyze`。最后两个是应用阶段，不能在 WorkflowSpec 中冒充插件：`$publish` 发布完成调用的标准结果并建立任务候选，`$analyze` 通过既有 Agent runtime 分析候选。未启用模型或没有候选时分析阶段明确 SKIPPED。
 
+部署目录提供进程包后，工作流也可以选择 `codexploit.static-patterns@1.0.0` 作为独立扫描节点（最小定义只需根输入 `source.snapshot`）。扫描器输出 `scanner.alerts` 原始报告与 `security.facts` 候选；`$publish` 把候选按独立观察写入不可变版本，事实 `kind=scanner.alert`。该节点不执行目标仓库代码，也不把告警位置升级为污点流或已确认漏洞。协议、限额与页面字段见 [进程扫描器](process-scanner.md)。
+
 ## 流程控制与恢复
 
 | 方法与地址 | 角色 | 行为 |

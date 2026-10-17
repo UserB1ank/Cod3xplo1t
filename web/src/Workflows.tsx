@@ -207,6 +207,9 @@ export function Workflows({
   const input = useRef<HTMLInputElement>(null);
   const draft = graphSpec(text);
   const node = draft?.nodes[selected];
+  const scanner = catalog.find(
+    (p) => p.executable && p.manifest.produces.includes("scanner.alerts"),
+  );
   const unchanged = !!saved && format(draft) === format(saved.spec);
   const cursor = cursors.at(-1) || "";
   const artifactEndpoint = `/v1/projects/${encodeURIComponent(projectID)}/snapshots/${encodeURIComponent(snapshot)}/artifacts`;
@@ -595,22 +598,63 @@ export function Workflows({
                       </button>
                     </div>
                   ))}
-                  <button
-                    className="button secondary workflow-add"
-                    disabled={draft.nodes.length >= 32}
-                    onClick={() => {
-                      let id = `step${draft.nodes.length + 1}`;
-                      while (draft.nodes.some((n) => n.id === id)) id += "x";
-                      update({
-                        ...draft,
-                        nodes: [...draft.nodes, { ...starter.nodes[0], id }],
-                      });
-                      setSelected(draft.nodes.length);
-                    }}
-                  >
-                    <Plus size={14} />
-                    添加节点
-                  </button>
+                  <div className="workflow-add-row">
+                    <button
+                      className="button secondary workflow-add"
+                      disabled={draft.nodes.length >= 32}
+                      onClick={() => {
+                        let id = `step${draft.nodes.length + 1}`;
+                        while (draft.nodes.some((n) => n.id === id)) id += "x";
+                        update({
+                          ...draft,
+                          nodes: [...draft.nodes, { ...starter.nodes[0], id }],
+                        });
+                        setSelected(draft.nodes.length);
+                      }}
+                    >
+                      <Plus size={14} />
+                      添加节点
+                    </button>
+                    {scanner && (
+                      <button
+                        className="button secondary workflow-add"
+                        disabled={
+                          draft.nodes.length >= 32 ||
+                          draft.nodes.some(
+                            (n) => n.plugin_id === scanner.manifest.id,
+                          )
+                        }
+                        onClick={() => {
+                          let id = "scan";
+                          while (draft.nodes.some((n) => n.id === id))
+                            id += "x";
+                          update({
+                            ...draft,
+                            nodes: [
+                              ...draft.nodes,
+                              {
+                                id,
+                                plugin_id: scanner.manifest.id,
+                                plugin_version: scanner.manifest.version,
+                                needs: [],
+                                config: { max_alerts: 200 },
+                                timeout_seconds: 60,
+                              },
+                            ],
+                          });
+                          setSelected(draft.nodes.length);
+                        }}
+                      >
+                        <Plus size={14} />
+                        加入进程扫描器
+                      </button>
+                    )}
+                  </div>
+                  <p className="workflow-canvas-note">
+                    {scanner
+                      ? `已安装 ${scanner.manifest.name}。扫描器读取固定快照并只报告告警位置，不执行目标代码。`
+                      : "未安装进程扫描器包；部署目录提供已登记包后此处会出现快捷入口。"}
+                  </p>
                   <p className="workflow-canvas-note">
                     按编辑顺序展示。编译器根据显式依赖生成拓扑顺序。
                   </p>

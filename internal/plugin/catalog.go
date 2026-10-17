@@ -15,11 +15,19 @@ import (
 )
 
 var (
-	ErrInvalid     = errors.New("plugin: invalid manifest, configuration or execution request")
-	ErrConflict    = errors.New("plugin: immutable version or invocation conflicts")
-	ErrNotFound    = errors.New("plugin: record not found in scope")
-	ErrUnsupported = errors.New("plugin: this version is not installed or executable")
+	ErrInvalid           = errors.New("plugin: invalid manifest, configuration or execution request")
+	ErrConflict          = errors.New("plugin: immutable version or invocation conflicts")
+	ErrNotFound          = errors.New("plugin: record not found in scope")
+	ErrUnsupported       = errors.New("plugin: this version is not installed or executable")
+	ErrExecutionFailed   = errors.New("plugin: executor reported failure")
+	ErrProtocolViolation = errors.New("plugin: process protocol violation")
 )
+
+// ExecutionError is a bounded, non-secret failure code reported by an executor.
+type ExecutionError struct{ Code string }
+
+func (e *ExecutionError) Error() string { return "plugin: execution failed: " + e.Code }
+func (e *ExecutionError) Unwrap() error { return ErrExecutionFailed }
 
 type Manifest struct {
 	APIVersion  string   `json:"api_version"`
@@ -47,6 +55,7 @@ type Record struct {
 	PackageDigest  string   `json:"package_digest"`
 	ManifestDigest string   `json:"manifest_digest"`
 	Source         string   `json:"source"`
+	Installed      bool     `json:"installed"`
 	Executable     bool     `json:"executable"`
 	Reason         string   `json:"reason,omitempty"`
 }
@@ -61,6 +70,7 @@ type Catalog struct {
 	Repository CatalogRepository
 	mu         sync.RWMutex
 	installed  map[string]string
+	executable map[string]bool
 }
 
 var manifestSchema = sync.OnceValues(func() (*jsonschema.Resolved, error) {
@@ -128,12 +138,18 @@ func (c *Catalog) Register(ctx context.Context, raw json.RawMessage, packageDige
 }
 
 func (c *Catalog) availability(record Record) Record {
+	key := record.Manifest.ID + "@" + record.Manifest.Version
+	identity := record.ManifestDigest + ":" + record.PackageDigest
 	c.mu.RLock()
-	record.Executable = c.installed[record.Manifest.ID+"@"+record.Manifest.Version] == record.ManifestDigest+":"+record.PackageDigest
+	record.Installed = c.installed[key] == identity
+	record.Executable = record.Installed && c.executable[key]
 	c.mu.RUnlock()
-	if record.Executable {
+	switch {
+	case record.Executable:
 		record.Reason = ""
-	} else {
+	case record.Installed:
+		record.Reason = "Package installed; this host has no execution adapter for its runtime"
+	default:
 		record.Reason = "Manifest registered; this package has no installed execution adapter"
 	}
 	return record
@@ -161,18 +177,38 @@ func (c *Catalog) List(ctx context.Context, cursor string, limit int) ([]Record,
 }
 
 func NewCatalog(ctx context.Context, repo CatalogRepository) (*Catalog, error) {
-	c := &Catalog{Repository: repo, installed: map[string]string{}}
-	err := c.install(ctx, BuiltinManifest(), BuiltinPackageDigest())
+	c := &Catalog{Repository: repo, installed: map[string]string{}, executable: map[string]bool{}}
+	err := c.install(ctx, BuiltinManifest(), BuiltinPackageDigest(), "compiled builtin")
 	return c, err
 }
 
-func (c *Catalog) install(ctx context.Context, manifest json.RawMessage, packageDigest string) error {
-	record, err := c.Register(ctx, manifest, packageDigest, "compiled builtin")
+func (c *Catalog) install(ctx context.Context, manifest json.RawMessage, packageDigest, source string) error {
+	record, err := c.Register(ctx, manifest, packageDigest, source)
 	if err != nil {
 		return err
 	}
 	c.mu.Lock()
 	c.installed[record.Manifest.ID+"@"+record.Manifest.Version] = record.ManifestDigest + ":" + record.PackageDigest
+	c.executable[record.Manifest.ID+"@"+record.Manifest.Version] = true
 	c.mu.Unlock()
 	return nil
+}
+
+// InstallPackage registers a verified local process package and marks it
+// installed. The manifest is the package's own canonical manifest, so the
+// caller cannot claim a different package digest than the bytes on disk.
+func (c *Catalog) InstallPackage(ctx context.Context, directory string) (Record, error) {
+	pkg, err := LoadPackage(directory)
+	if err != nil {
+		return Record{}, err
+	}
+	record, err := c.Register(ctx, pkg.RawManifest, pkg.PackageDigest, "local package "+pkg.Manifest.ID+"@"+pkg.Manifest.Version)
+	if err != nil {
+		return Record{}, err
+	}
+	c.mu.Lock()
+	c.installed[record.Manifest.ID+"@"+record.Manifest.Version] = record.ManifestDigest + ":" + record.PackageDigest
+	c.executable[record.Manifest.ID+"@"+record.Manifest.Version] = true
+	c.mu.Unlock()
+	return c.Get(ctx, record.Manifest.ID, record.Manifest.Version)
 }

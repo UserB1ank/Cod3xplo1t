@@ -2101,6 +2101,12 @@ pre {
 .workflow-execution-table details { margin-top: 8px; }
 .workflow-run-artifact { padding: 12px 0; border-bottom: 1px solid var(--border); }
 .workflow-run-events { border-top: 1px solid var(--border); }
+.workflow-run-scanner { border-top: 1px solid var(--border); padding: 4px 0 16px; }
+.workflow-run-scanner h3 { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 20px 24px 0; }
+.workflow-run-scanner .source-description { padding: 0 24px; }
+.workflow-run-scanner .table-scroll { padding: 0 24px; }
+.workflow-run-scanner .standard-table small { display: block; color: var(--muted); }
+.workflow-add-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .workflow-run-events h3 { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 20px 24px 0; }
 .workflow-task-option { display: flex; gap: 8px; align-items: flex-start; margin: 14px 0; }
 .workflow-task-option input { width: 16px; height: 16px; margin: 2px 0 0; flex-shrink: 0; }

@@ -406,9 +406,24 @@ may themselves contain `:`.
 | `--git` | `git` | git executable |
 | `--insecure-anonymous` | `false` | serve without authentication (local development only) |
 | `--idempotency-ttl` | `24h` | how long a stored write response may be replayed |
+| `--plugin-packages` | — | deployment directory of verified process plugin packages |
 | `--log-level` | `info` | `debug`, `info`, `warn` or `error` |
 
 Environment: `CODEXPLOIT_API_TOKENS` (used when no `--api-token` flag is given).
+
+A deployment-managed process package enables the fixed Go pattern scanner:
+
+```bash
+make build-scanner   # bin/plugin-packages/codexploit.static-patterns@1.0.0
+bin/server --plugin-packages=bin/plugin-packages ...
+```
+
+The scanner runs as a separate process over bounded NDJSON JSON-RPC, parses a
+frozen source tar and reports alert locations only. It does not build, test or
+execute the target repository and never writes confirmed findings. The package
+format, handshake, limits, cancellation and normalized candidates are documented
+in [`docs/process-scanner.md`](docs/process-scanner.md). The Docker Compose stack
+already installs the same package at `/app/plugin-packages`.
 
 ```bash
 # create or reuse a project for a repository
@@ -463,6 +478,7 @@ codes: [`docs/mcp-tools.md`](docs/mcp-tools.md).
 | [`docs/agent-runtime.md`](docs/agent-runtime.md) | agent runtime: task shape, answer protocol, bounded divergence, stop conditions, adapters, isolation |
 | [`docs/verification.md`](docs/verification.md) | verification: plan and scope model, evidence immutability and redaction, verdict derivation, executors, reports |
 | [`docs/scheduling.md`](docs/scheduling.md) | scheduler loop, lease-based concurrency, bounded retries with durable backoff, crash recovery, metrics |
+| [`docs/process-scanner.md`](docs/process-scanner.md) | deployment package format, NDJSON JSON-RPC process adapter, limits/cancellation, scanner rules and normalized alert candidates |
 | [`docs/known-issues.md`](docs/known-issues.md) | every gap, deviation and risk in the current tree, with evidence and a next action |
 | [`docs/api.md`](docs/api.md) | REST interface reference |
 | [`docs/mcp-tools.md`](docs/mcp-tools.md) | MCP tool catalogue |

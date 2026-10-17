@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/url"
 	"path"
@@ -47,8 +48,11 @@ func ValidateDiscovery(document DiscoveryDocument) error {
 		return err
 	}
 	var value any
-	if json.Unmarshal(raw, &value) != nil || schema.Validate(value) != nil {
-		return ErrInvalid
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalid, err)
+	}
+	if err := schema.Validate(value); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
 	return nil
 }

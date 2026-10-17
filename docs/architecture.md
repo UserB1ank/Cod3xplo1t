@@ -84,6 +84,7 @@ agent's internal reasoning is. See [`agent-runtime.md`](agent-runtime.md).
 | `internal/app` | Composition root: the single place where the SQLite driver, the migration set, the frontends, the store, the graph service, the attack-surface service and the path engine are chosen and wired | must stay free of HTTP and CLI concerns | `cmd/cli`, `cmd/server`, `cmd/mcp` |
 | `cmd/cli` | Developer entry point: `manifest`, `snapshot`, `snapshots list\|remove`, all `scg` subcommands; human summaries or `--json` | does not own a database (stateless commands use an in-memory store; `scg` commands open the file store) | operator |
 | `cmd/server` | REST process: flags, authentication construction, HTTP server timeouts, graceful shutdown | does not build tokens from anywhere but flags or `CODEXPLOIT_API_TOKENS` | operator |
+| `cmd/scanner` | fixed-version process scanner: bounded NDJSON JSON-RPC, frozen tar parsing, alert-only normalization input | never builds/tests/executes target code; never writes a verdict | `internal/scanner`, `internal/processplugin` |
 | `cmd/mcp` | stdio MCP process: flags, refuses any transport but stdio, logs to stderr so the protocol stream on stdout stays clean | never opens a listening socket | MCP client |
 | `migrations` | The SQL schema as Go-embedded `*.sql` files, applied in order | — | `internal/app` via `storage.EnsureSchema` |
 

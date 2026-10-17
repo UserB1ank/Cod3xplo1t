@@ -64,6 +64,57 @@ interface Execution {
   retry_of?: string;
   scope: ArtifactRef["scope"];
 }
+interface ScannerInvocation {
+  invocation_id: string;
+  status: string;
+  version: number;
+  error_code?: string;
+  outputs: ArtifactRef[];
+  coverage: {
+    input_files: number;
+    parsed_files: number;
+    unparsed_files: number;
+  };
+  limitations: string[];
+  request: {
+    plugin_id: string;
+    plugin_version: string;
+    package_digest: string;
+    inputs: ArtifactRef[];
+  };
+}
+interface ScannerCandidate {
+  id: string;
+  status: "candidate";
+  title: string;
+  severity_hint?: "high" | "medium" | "low";
+  file: string;
+  line: number;
+  path_refs: string[];
+  evidence_refs: string[];
+  limitations: string[];
+}
+interface ScannerResult {
+  kind: string;
+  candidates: ScannerCandidate[];
+  native_artifact: ArtifactRef;
+  limitations: string[];
+  coverage: {
+    input_files: number;
+    parsed_files: number;
+    partial_files: number;
+    unparsed_files: number;
+    unhandled_files: number;
+    descriptor_files: number;
+    input_bytes: number;
+  };
+}
+interface ScanView {
+  invocation?: ScannerInvocation;
+  result?: ScannerResult;
+  raw?: string;
+  error?: string;
+}
 const kinds: { [key: string]: string } = {
   plugin: "分析插件",
   knowledge_publish: "共享知识发布",
@@ -91,8 +142,18 @@ export function WorkflowRun({
   const [cursors, setCursors] = useState([0]);
   const [events, setEvents] = useState<Event[]>([]);
   const [next, setNext] = useState(0);
+  const [scans, setScans] = useState<{ [node: string]: ScanView }>({});
   const [busy, setBusy] = useState("");
   const endpoint = `/v1/projects/${encodeURIComponent(projectID)}/workflow-runs/${encodeURIComponent(runID)}`;
+  const scanKey =
+    run?.nodes
+      .filter(
+        (node) =>
+          node.invocation_id &&
+          node.outputs.some((ref) => ref.kind === "scanner.alerts"),
+      )
+      .map((node) => `${node.node_run_id}:${node.invocation_id}`)
+      .join("|") || "";
   const after = cursors.at(-1) || 0;
   useEffect(() => {
     const controller = new AbortController();
@@ -131,6 +192,56 @@ export function WorkflowRun({
       });
     return () => controller.abort();
   }, [api, endpoint, after, revision, tick]);
+  useEffect(() => {
+    if (!run || !scanKey) {
+      setScans({});
+      return;
+    }
+    const controller = new AbortController();
+    const scannerNodes = run.nodes.filter(
+      (node) =>
+        node.invocation_id &&
+        node.outputs.some((ref) => ref.kind === "scanner.alerts"),
+    );
+    const prefix = `/v1/projects/${encodeURIComponent(projectID)}/snapshots/${encodeURIComponent(run.scope.snapshot_id)}`;
+    void (async () => {
+      const next: { [node: string]: ScanView } = {};
+      for (const node of scannerNodes) {
+        if (!node.invocation_id) continue;
+        try {
+          const detail = await api.get<{ invocation: ScannerInvocation }>(
+            `${prefix}/plugin-invocations/${encodeURIComponent(node.invocation_id)}`,
+            controller.signal,
+          );
+          const view: ScanView = { invocation: detail.invocation };
+          if (["SUCCEEDED", "PARTIAL"].includes(detail.invocation.status)) {
+            view.result = await api.get<ScannerResult>(
+              `${prefix}/plugin-invocations/${encodeURIComponent(node.invocation_id)}/result`,
+              controller.signal,
+            );
+          }
+          const native = detail.invocation.outputs.find(
+            (ref) => ref.kind === "scanner.alerts",
+          );
+          if (native) {
+            const response = await api.response(
+              `${prefix}/artifacts/${encodeURIComponent(native.id)}/content?max_bytes=1048576`,
+              { signal: controller.signal },
+            );
+            view.raw = await response.text();
+          }
+          next[node.node_run_id] = view;
+        } catch (e) {
+          if (!controller.signal.aborted)
+            next[node.node_run_id] = {
+              error: e instanceof Error ? e.message : "扫描结果读取失败",
+            };
+        }
+      }
+      if (!controller.signal.aborted) setScans(next);
+    })();
+    return () => controller.abort();
+  }, [api, projectID, run?.workflow_run_id, scanKey, revision, tick]);
   const control = async (action: string) => {
     setBusy(action);
     setError("");
@@ -328,6 +439,140 @@ export function WorkflowRun({
               </tbody>
             </table>
           </div>
+          {run.nodes
+            .filter((node) => scans[node.node_run_id])
+            .map((node) => {
+              const scan = scans[node.node_run_id];
+              const candidates = scan.result?.candidates || [];
+              const grades: { [key: string]: string } = {
+                high: "高",
+                medium: "中",
+                low: "低",
+              };
+              return (
+                <div className="workflow-run-scanner" key={node.node_run_id}>
+                  <h3>
+                    <FileText size={15} />
+                    进程扫描告警 · {node.node_id}
+                  </h3>
+                  {scan.error && <Hint className="error-hint">{scan.error}</Hint>}
+                  {scan.invocation && (
+                    <>
+                      <p className="source-description mono">
+                        来源：{scan.invocation.request.plugin_id}@
+                        {scan.invocation.request.plugin_version} ·{" "}
+                        {scan.invocation.invocation_id} · 状态{" "}
+                        {flowStatus[scan.invocation.status] ||
+                          scan.invocation.status}
+                        {scan.invocation.error_code
+                          ? ` · ${scan.invocation.error_code}`
+                          : ""}
+                      </p>
+                      <p className="source-description mono">
+                        覆盖：输入 {scan.invocation.coverage.input_files} ·
+                        已解析 {scan.invocation.coverage.parsed_files} · 未解析{" "}
+                        {scan.invocation.coverage.unparsed_files} · 包{" "}
+                        {scan.invocation.request.package_digest.slice(0, 16)}…
+                      </p>
+                      <p className="source-description mono">
+                        知识发布：
+                        {run.nodes.find((n) => n.node_id === "$publish")
+                          ?.knowledge?.length
+                          ? run.nodes
+                              .find((n) => n.node_id === "$publish")!
+                              .knowledge!.map((k) => `${k.revision} · ${k.digest.slice(0, 16)}…`)
+                              .join(", ")
+                          : "尚未发布（$publish 被跳过或失败）"}
+                      </p>
+                    </>
+                  )}
+                  {scan.result && (
+                    <>
+                      <Hint>
+                        {candidates.length} 个标准候选 · 原始报告{" "}
+                        {scan.result.native_artifact.bytes} B · SHA-256{" "}
+                        {scan.result.native_artifact.sha256.slice(0, 16)}… ·
+                        原始产物 {scan.result.native_artifact.id}
+                      </Hint>
+                      {candidates.length ? (
+                        <div className="table-scroll">
+                          <table className="standard-table">
+                            <thead>
+                              <tr>
+                                <th>分级建议</th>
+                                <th>告警 / 位置</th>
+                                <th>证据与来源</th>
+                                <th>局限</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {candidates.map((candidate) => (
+                                <tr key={candidate.id}>
+                                  <td>
+                                    {candidate.severity_hint
+                                      ? `${grades[candidate.severity_hint]}危建议`
+                                      : "待评估"}
+                                  </td>
+                                  <td>
+                                    <strong>{candidate.title}</strong>
+                                    <code>
+                                      {candidate.file}:{candidate.line}
+                                    </code>
+                                    <small>{candidate.id}</small>
+                                  </td>
+                                  <td>
+                                    <code>
+                                      {candidate.evidence_refs.join(", ")}
+                                    </code>
+                                    <small>
+                                      插件{" "}
+                                      {scan.invocation?.request.plugin_id}@
+                                      {scan.invocation?.request.plugin_version}
+                                    </small>
+                                  </td>
+                                  <td>
+                                    <details>
+                                      <summary>
+                                        {candidate.limitations.length} 项
+                                      </summary>
+                                      <ul>
+                                        {candidate.limitations.map(
+                                          (note, index) => (
+                                            <li key={index}>{note}</li>
+                                          ),
+                                        )}
+                                      </ul>
+                                    </details>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <Hint>
+                          本次范围没有标准告警；这不代表目标代码不存在漏洞。
+                        </Hint>
+                      )}
+                      <details className="source-description">
+                        <summary>
+                          原始报告与覆盖局限 ·{" "}
+                          {scan.result.native_artifact.schema_id}
+                        </summary>
+                        <pre className="artifact-preview">
+                          {scan.raw || "原始报告不可用"}
+                        </pre>
+                        <ul>
+                          {scan.result.limitations.map((note, index) => (
+                            <li key={index}>{note}</li>
+                          ))}
+                        </ul>
+                      </details>
+                    </>
+                  )}
+                </div>
+              );
+            })}
           <div className="workflow-run-events">
             <h3>
               <GitBranch size={15} />

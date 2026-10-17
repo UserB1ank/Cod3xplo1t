@@ -59,6 +59,7 @@ func run() error {
 		anonymous       = flag.Bool("insecure-anonymous", false, "serve without authentication (local development only)")
 		webAuth         = flag.Bool("web-auth", false, "enable administrator account setup and password login in the WebUI")
 		localSourceRoot = flag.String("local-source-root", "/repos", "physical mount exposed as the logical /repos namespace for explicit folder sources")
+		pluginPackages  = flag.String("plugin-packages", "", "deployment-managed directory of verified process plugin packages")
 		idemTTL         = flag.Duration("idempotency-ttl", 24*time.Hour, "how long a stored write response may be replayed")
 
 		agentRuntime    = flag.String("agent-runtime", app.AgentRuntimeDisabled, "agent adapter: disabled, scripted, cli or llm (configured in WebUI)")
@@ -160,6 +161,7 @@ func run() error {
 		GitBin:             *gitBin,
 		GitCAFile:          *gitCAFile,
 		GitCredentialFiles: credentialFiles,
+		PluginPackages:     *pluginPackages,
 		Agent: app.AgentConfig{
 			ModelSettings:      modelSettings,
 			Enabled:            !strings.EqualFold(strings.TrimSpace(*agentRuntime), app.AgentRuntimeDisabled),

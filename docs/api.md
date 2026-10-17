@@ -3,7 +3,9 @@
 Versioned plugin registration, builtin Go parsing and scoped invocation records
 are documented in [Plugin interfaces](plugins.md#认证-http-api). Builtin semantic
 and path analysis with read-only candidate results are documented in
-[Builtin analysis](builtin-analysis.md).
+[Builtin analysis](builtin-analysis.md). The deployment-managed process scanner,
+its NDJSON JSON-RPC transport, package digest checks and normalized alert
+candidates are documented in [Process scanner](process-scanner.md).
 
 The project/task workbench endpoints, shared knowledge rules and high/medium/low
 grading API are documented in [Web UI and deployment](webui.md#new-api-surface).

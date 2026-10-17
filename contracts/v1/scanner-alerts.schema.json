@@ -1,0 +1,173 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codexploit.invalid/contracts/v1/scanner-alerts.schema.json",
+  "title": "Native process scanner alert report",
+  "type": "object",
+  "properties": {
+    "format": {
+      "const": "codexploit/scanner-alerts/v1"
+    },
+    "scope": {
+      "$ref": "common.schema.json#/$defs/Scope"
+    },
+    "tool": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "version": {
+          "$ref": "common.schema.json#/$defs/Version"
+        },
+        "ruleset": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        }
+      },
+      "required": ["id", "version", "ruleset"],
+      "additionalProperties": false
+    },
+    "capabilities": {
+      "type": "object",
+      "properties": {
+        "alerts": {
+          "type": "boolean"
+        },
+        "data_flow": {
+          "type": "boolean"
+        },
+        "call_reachability": {
+          "type": "boolean"
+        },
+        "network": {
+          "enum": ["none", "restricted"]
+        }
+      },
+      "required": ["alerts", "data_flow", "call_reachability", "network"],
+      "additionalProperties": false
+    },
+    "coverage": {
+      "$ref": "plugin-runtime.schema.json#/$defs/Invocation/properties/coverage"
+    },
+    "limitations": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "string",
+        "maxLength": 1000
+      }
+    },
+    "alerts": {
+      "type": "array",
+      "maxItems": 500,
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "common.schema.json#/$defs/ID"
+          },
+          "rule_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,63}$"
+          },
+          "rule_version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "severity_hint": {
+            "enum": ["high", "medium", "low"]
+          },
+          "file": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "pattern": "^[^/\\\\]",
+            "allOf": [
+              {
+                "not": {
+                  "pattern": "(^|/)\\.\\.?(/|$)"
+                }
+              },
+              {
+                "not": {
+                  "pattern": "[\\\\\u0000]"
+                }
+              },
+              {
+                "not": {
+                  "pattern": "//"
+                }
+              }
+            ]
+          },
+          "line": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "end_line": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "column": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "evidence": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "type": "string",
+              "maxLength": 500
+            }
+          },
+          "limitations": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "type": "string",
+              "maxLength": 1000
+            }
+          }
+        },
+        "required": [
+          "id",
+          "rule_id",
+          "rule_version",
+          "title",
+          "severity_hint",
+          "file",
+          "line",
+          "end_line",
+          "column",
+          "message",
+          "evidence",
+          "limitations"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "format",
+    "scope",
+    "tool",
+    "capabilities",
+    "coverage",
+    "limitations",
+    "alerts"
+  ],
+  "additionalProperties": false
+}

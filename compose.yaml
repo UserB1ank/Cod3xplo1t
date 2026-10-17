@@ -13,6 +13,7 @@ services:
       - --agent-runtime=llm
       - --scheduler
       - --allow-network=${CODEXPLOIT_ALLOW_NETWORK:-false}
+      - --plugin-packages=/app/plugin-packages
     volumes:
       - codexploit-data:/data
     init: true

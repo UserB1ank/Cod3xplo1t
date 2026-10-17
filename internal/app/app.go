@@ -25,6 +25,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/llm"
 	"github.com/open-mcp-ai/Codexploit/internal/path"
 	"github.com/open-mcp-ai/Codexploit/internal/plugin"
+	"github.com/open-mcp-ai/Codexploit/internal/processplugin"
 	"github.com/open-mcp-ai/Codexploit/internal/repository"
 	"github.com/open-mcp-ai/Codexploit/internal/scg"
 	"github.com/open-mcp-ai/Codexploit/internal/scg/gofrontend"
@@ -78,6 +79,9 @@ type Config struct {
 	// scheduler, which is the safe default: a server that is not asked to run work
 	// must not start spending an audit's budget on its own.
 	Scheduler SchedulerConfig
+	// PluginPackages is a deployment-managed directory of verified process
+	// plugin packages. It is empty when no external package is installed.
+	PluginPackages string
 }
 
 // SchedulerConfig describes the resident scheduler of a deployment.
@@ -265,6 +269,15 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 		Workspace:          mgr.Root,
 	}
 
+	executors := builtinanalysis.Executors()
+	if strings.TrimSpace(cfg.PluginPackages) != "" {
+		processExecutors, err := processplugin.Executors(cfg.PluginPackages)
+		if err != nil {
+			return nil, fmt.Errorf("load process plugin packages: %w", err)
+		}
+		executors = append(executors, processExecutors...)
+	}
+
 	path := strings.TrimSpace(cfg.DBPath)
 	if path == "" || path == "memory" {
 		memory := storage.NewMemory()
@@ -274,7 +287,7 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 		if err != nil {
 			return nil, err
 		}
-		if err := rt.wirePlugins(); err != nil {
+		if err := rt.wirePlugins(executors); err != nil {
 			return nil, err
 		}
 		if err := rt.wireAgent(rt.AgentConfig); err != nil {
@@ -311,7 +324,7 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 		sqlStore.Close()
 		return nil, err
 	}
-	if err := rt.wirePlugins(); err != nil {
+	if err := rt.wirePlugins(executors); err != nil {
 		sqlStore.Close()
 		return nil, err
 	}
@@ -334,7 +347,7 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 	return rt, nil
 }
 
-func (r *Runtime) wirePlugins() error {
+func (r *Runtime) wirePlugins(executors []plugin.Executor) error {
 	repo, ok := r.Store.(plugin.Repository)
 	if !ok {
 		return plugin.ErrUnsupported
@@ -347,7 +360,7 @@ func (r *Runtime) wirePlugins() error {
 	if err != nil {
 		return err
 	}
-	r.Plugins, err = plugin.NewHost(plugin.Deps{Catalog: r.PluginCatalog, Repository: repo, Artifacts: objects, Scopes: index, Executors: builtinanalysis.Executors()})
+	r.Plugins, err = plugin.NewHost(plugin.Deps{Catalog: r.PluginCatalog, Repository: repo, Artifacts: objects, Scopes: index, Executors: executors})
 	if err != nil {
 		return err
 	}
@@ -366,7 +379,7 @@ func (r *Runtime) wirePlugins() error {
 		return workflow.ErrInvalid
 	}
 	ports := map[string]workflow.AdapterInputs{plugin.BuiltinID + "@" + plugin.BuiltinVersion: {Schemas: []string{"codexploit/source-tar/v1"}}}
-	for _, executor := range builtinanalysis.Executors() {
+	for _, executor := range executors {
 		var manifest plugin.Manifest
 		if err := json.Unmarshal(executor.Manifest, &manifest); err != nil {
 			return err

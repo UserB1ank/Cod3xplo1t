@@ -4,10 +4,11 @@ TEST_FLAGS := -count=1 -shuffle=on -race -timeout 240s
 # Staticcheck is pinned: a new release may add checks and turn a green tree red.
 STATICCHECK_VERSION ?= v0.8.2
 
-.PHONY: help build build-web build-backend test-web check-contracts docker-build docker-up test test-stress lint fmt-check vet staticcheck fmt tidy clean run-server run-cli run-mcp
+.PHONY: help build build-web build-scanner build-backend test-web check-contracts docker-build docker-up test test-stress lint fmt-check vet staticcheck fmt tidy clean run-server run-cli run-mcp
 
 help:
-	@echo "make build        # build Web UI into bin/server, plus bin/cli and bin/mcp"
+	@echo "make build        # build Web UI into bin/server, bin/cli, bin/mcp and the scanner package"
+	@echo "make build-scanner # build the pinned process scanner package under bin/plugin-packages"
 	@echo "make build-web    # install locked frontend dependencies and build assets"
 	@echo "make test-web     # frontend domain and API tests"
 	@echo "make check-contracts # validate offline interface schemas and examples"
@@ -21,10 +22,17 @@ help:
 	@echo "make run-mcp      # serve the graph over MCP on stdio"
 	@echo "make run-cli ARGS=\"scan --source /path/to/repo\""
 
-build: build-web
+build: build-web build-scanner
 	$(GO) build -trimpath -tags embedui -o bin/server ./cmd/server
 	$(GO) build -trimpath -o bin/cli ./cmd/cli
 	$(GO) build -trimpath -o bin/mcp ./cmd/mcp
+
+build-scanner:
+	@mkdir -p "bin/plugin-packages/codexploit.static-patterns@1.0.0"
+	$(GO) build -trimpath -o "bin/plugin-packages/codexploit.static-patterns@1.0.0/scanner" ./cmd/scanner
+	@cp internal/scanner/manifest.json "bin/plugin-packages/codexploit.static-patterns@1.0.0/manifest.json"
+	@chmod 0755 "bin/plugin-packages/codexploit.static-patterns@1.0.0/scanner"
+	@chmod 0644 "bin/plugin-packages/codexploit.static-patterns@1.0.0/manifest.json"
 
 build-web:
 	npm --prefix web ci --no-audit --no-fund

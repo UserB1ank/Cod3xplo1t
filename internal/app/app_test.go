@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/analysis"
 	"github.com/open-mcp-ai/Codexploit/internal/path"
 	"github.com/open-mcp-ai/Codexploit/internal/repository"
+	"github.com/open-mcp-ai/Codexploit/internal/scanner"
 	"github.com/open-mcp-ai/Codexploit/internal/storage"
 	"github.com/open-mcp-ai/Codexploit/internal/verify"
 )
@@ -474,5 +476,44 @@ func TestBuildWiresSchedulerOnlyWhenEnabled(t *testing.T) {
 	}
 	if effective.IntervalSeconds != 60 {
 		t.Errorf("interval = %vs, want 60", effective.IntervalSeconds)
+	}
+}
+
+func TestBuildInstallsADeploymentProcessPackage(t *testing.T) {
+	t.Parallel()
+	packages := t.TempDir()
+	directory := filepath.Join(packages, "codexploit.static-patterns@1.0.0")
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	executable, err := os.ReadFile(os.Args[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := "scanner"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	if err := os.WriteFile(filepath.Join(directory, "manifest.json"), scanner.Manifest(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, name), executable, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	rt, err := Build(ctx, Config{Workspace: filepath.Join(t.TempDir(), "work"), PluginPackages: packages})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	defer rt.Close()
+	record, err := rt.PluginCatalog.Get(ctx, scanner.ID, scanner.Version)
+	if err != nil {
+		t.Fatalf("Get scanner: %v", err)
+	}
+	if !record.Installed || !record.Executable {
+		t.Fatalf("scanner status = %+v", record)
+	}
+	if _, ok := rt.WorkflowCompiler.AdapterInputs[scanner.ID+"@"+scanner.Version]; !ok {
+		t.Fatal("scanner adapter input contract was not wired into the workflow compiler")
 	}
 }

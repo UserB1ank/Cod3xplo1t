@@ -1,0 +1,47 @@
+{
+  "format": "codexploit/scanner-alerts/v1",
+  "scope": {
+    "project_id": "proj-example",
+    "source_id": "src-example",
+    "snapshot_id": "snap-example"
+  },
+  "tool": {
+    "id": "codexploit.static-patterns",
+    "version": "1.0.0",
+    "ruleset": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "capabilities": {
+    "alerts": true,
+    "data_flow": false,
+    "call_reachability": false,
+    "network": "none"
+  },
+  "coverage": {
+    "input_files": 3,
+    "parsed_files": 2,
+    "partial_files": 0,
+    "unparsed_files": 0,
+    "unhandled_files": 1,
+    "descriptor_files": 0,
+    "input_bytes": 1024
+  },
+  "limitations": [
+    "Scanner parses Go syntax only; selector-name heuristics do not establish taint flow or exploitability"
+  ],
+  "alerts": [
+    {
+      "id": "alert-0123456789abcdef01234567",
+      "rule_id": "CP001",
+      "rule_version": "1",
+      "title": "Command execution with a non-literal argument",
+      "severity_hint": "high",
+      "file": "cmd/server/main.go",
+      "line": 17,
+      "end_line": 17,
+      "column": 4,
+      "message": "os/exec.Command receives an argument that is not a string literal",
+      "evidence": ["call location cmd/server/main.go:17:4"],
+      "limitations": ["Selector-name heuristic; no type checking or data-flow analysis"]
+    }
+  ]
+}

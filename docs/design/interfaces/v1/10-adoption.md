@@ -11,7 +11,7 @@
 | Parser / Analyzer | 内置 Go 解析、ASG 语义和路径插件，固定上游产物、实际版本与覆盖范围 | 第三方工具执行器 |
 | Normalizer | plugin.Normalizer；公共 AnalysisResult、标准语义 / 路径候选、原始报告与 canonical ID 绑定 | 第三方工具格式适配和跨工具观察账本 |
 | KnowledgeReader / Publisher | graph.Service、ASGService、GraphStore、knowledge.Reader 固定视图 | 观察账本、增量批次 CAS 与外部图数据库 |
-| PluginHost | plugin.Catalog / Host、内置 Go 执行、持久化调用与原子产物发布 | 外部握手、安装与 process / worker 执行器 |
+| PluginHost | plugin.Catalog / Host、内置 Go 执行、持久化调用与原子产物发布 | container / remote worker 执行器与多实例租约；process 握手、包安装和扫描器已由 #12 接入 |
 | WorkflowRunner | schedule.Scheduler、path.Service | DAG 编译、节点状态、产物绑定、栅栏与恢复 |
 | FindingService | verify.Store / Verifier、项目发现 API | 适配公共 DTO，保留所有来源与现有裁定 |
 | ProjectService / TaskService | 当前 /api、WebUI、path.Audit | 归档分类等持久化、工作流引用、/api/v1 适配 |
@@ -44,6 +44,8 @@ Issue #3 的正式任务表已接通项目分类目录、置顶、归档/恢复�
 
 Issue #6 的正式插件中心已接入 Schema 校验的不可变目录与内置 Go 解析器。调用固定输入、版本、包和参数摘要，保存覆盖、局限及 AST / facts 产物，支持 CAS 取消、预算与单宿主重启中断状态。外部清单仅登记，不显示为已安装执行器。实际接口、版本指纹和部署限制见 [插件接口](../../../plugins.md)。
 
+Issue #12 已把部署目录中的 `codexploit.static-patterns@1.0.0` 接入正式插件目录、工作流与知识发布：包摘要和 entrypoint 校验后才显示 installed/executable；扫描器通过 NDJSON JSON-RPC 读取冻结 tar，只输出告警位置和 `security.facts` 候选；`$publish` 以 `scanner.alert` 事实进入不可变版本，任务页展示原始报告、标准告警、来源和发布版本。CodeQL 等重依赖工具因许可/构建约束未内置，后续可用同一适配器接入。详见 [进程扫描器](../../../process-scanner.md)。
+
 Issue #11 已把运行控制接到正式任务：`POST .../workflow-runs/{id}/pause|resume|cancel|retry`（writer）实现 PAUSING/PAUSED/CANCELLING 状态机与幂等控制，暂停只阻断新节点、活动节点到边界完成；只有可重试错误按退避与次数上限重试，取消不重试；节点写入租约与独立 attempt，迟到结果被拒；进程重启后 `Recover` 恢复非终态运行，已成功节点复用原产物不重复发布。运行并发与重试上限固定写入运行记录，事件游标保持 `after_seq` 语义。正式任务页新增暂停/继续/取消/重试与尝试次数、并发策略展示。
 
 Issue #8 已把插件标准结果接到不可变共享版本：新增 `POST .../knowledge/publications`（writer）与 `GET .../knowledge/revisions/{view}/facts`（reader），版本 CAS、幂等批次、scope / 孤立边校验、冲突观察保留和 outbox 同事务提交；同一事实的多工具来源保留为独立观察。正式图谱页的“共享知识版本”面板可选择任意已发布版本并展开来源。旧 `/api` 与 #5 的固定视图保持兼容；PostgreSQL 规范化索引仍属后续存储切片。
@@ -57,7 +59,7 @@ Issue #4 已接通正式产物目录、完整引用、预算校验、清单预�
 3. **独立存储**：接 PostgreSQL 驱动、迁移和事务验收，再接 ArtifactStore；最后迁移账号、会话和加密设置。通过恢复测试后才切换真实数据。
 4. **内置插件闭环**：将已有 Go AST、ASG、Path 包装成 builtin 插件，记录产物和调用；验证读写范围。
 5. **工作流闭环**：DAG 编译 → 固定执行计划 → 内置插件 → 原子发布 → 任务报告；验证暂停、取消与重试。
-6. **第三方插件**：交付一套 process adapter + normalizer + 测试报告，再开放容器/远程 worker；未具备隔离能力时返回 unsupported。
+6. **第三方插件**：process adapter + 第一个固定版本扫描器 + normalizer + 测试报告已由 #12 接入（[进程扫描器](../../../process-scanner.md)）；容器/远程 worker 和更多第三方工具仍待后续，未具备隔离能力时返回 unsupported。
 7. **正式界面接线**：把原型交互逐页接到应用服务，删除该页演示状态前必须完成相应后端验收。
 
 ## 必须保留的兼容行为

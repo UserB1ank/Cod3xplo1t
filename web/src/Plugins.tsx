@@ -24,6 +24,7 @@ export interface PluginRecord {
   package_digest: string;
   manifest_digest: string;
   source: string;
+  installed: boolean;
   executable: boolean;
   reason?: string;
 }
@@ -422,10 +423,10 @@ export function Plugins({
                     <td>
                       {p.manifest.runtime.kind}
                       <p>
-                        {p.executable
-                          ? "已安装 · 可执行"
-                          : "仅登记 · 未安装执行器"}
+                        已登记 · {p.installed ? "已安装" : "未安装"} ·{" "}
+                        {p.executable ? "可执行" : "不可执行"}
                       </p>
+                      {p.reason && <small>{p.reason}</small>}
                     </td>
                     <td>
                       <code className="plugin-digest">{p.package_digest}</code>
@@ -788,15 +789,20 @@ export function Plugins({
       {discovery && (
         <Panel
           title={
-            discovery.kind === "security.facts"
-              ? "安全语义事实"
-              : "候选观察与分析路径"
+            discovery.native_artifact.schema_id ===
+            "codexploit/scanner-alerts/v1"
+              ? "进程扫描告警"
+              : discovery.kind === "security.facts"
+                ? "安全语义事实"
+                : "候选观察与分析路径"
           }
         >
           <Hint>
-            {discovery.nodes.length} 个安全语义节点 · {discovery.edges.length}{" "}
-            条关系 · {discovery.paths.length} 条路径 ·{" "}
-            {discovery.candidates.length}{" "}
+            {discovery.native_artifact.schema_id ===
+            "codexploit/scanner-alerts/v1"
+              ? "进程扫描器报告告警位置；本切片不声明污点流或可利用性。"
+              : `${discovery.nodes.length} 个安全语义节点 · ${discovery.edges.length} 条关系`}{" "}
+            {discovery.paths.length} 条路径 · {discovery.candidates.length}{" "}
             个候选。严重性建议与确认状态独立，工具没有裁定权限。
           </Hint>
           {discovery.candidates.length ? (

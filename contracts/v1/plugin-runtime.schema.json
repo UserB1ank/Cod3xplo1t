@@ -67,6 +67,9 @@
           "minLength": 1,
           "maxLength": 200
         },
+        "installed": {
+          "type": "boolean"
+        },
         "executable": {
           "type": "boolean"
         },
@@ -79,6 +82,7 @@
         "package_digest",
         "manifest_digest",
         "source",
+        "installed",
         "executable"
       ],
       "additionalProperties": false

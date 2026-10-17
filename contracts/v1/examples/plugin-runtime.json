@@ -35,6 +35,7 @@
       "package_digest": "1111111111111111111111111111111111111111111111111111111111111111",
       "manifest_digest": "e0a046b09bee850a56812b0b5c649ad932eb8a50a4d4005923e2563991ea21aa",
       "source": "offline contract fixture",
+      "installed": false,
       "executable": false,
       "reason": "Manifest registered; no installed execution adapter"
     }

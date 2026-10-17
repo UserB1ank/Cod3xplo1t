@@ -52,6 +52,10 @@
     "schema": "discovery.schema.json"
   },
   {
+    "file": "examples/scanner-alerts.json",
+    "schema": "scanner-alerts.schema.json"
+  },
+  {
     "file": "examples/publication.json",
     "schema": "publication.schema.json"
   },

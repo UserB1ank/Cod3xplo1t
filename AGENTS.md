@@ -35,6 +35,8 @@
 
 - 2026-10-17 — #11 工作流暂停、取消、重试与重启恢复：`workflow.Runner` 新增 `Pause / Resume / Cancel / Retry / Recover` 与 PAUSING / PAUSED / CANCELLING 状态机；暂停只阻断新节点、活动节点到边界完成，取消等待执行器并把迟到结果记为 `node_result_rejected`。只有标记为可重试的错误与超时按指数退避重试，单节点上限取任务 `max_attempts`（默认 3，1–10），耗尽以 `retry_exhausted` 失败，取消与非法输入不重试；并发上限取 `max_active_leases`（默认 4，1–16）并固定写入运行记录。节点写入 `attempt` / 租约，重启时 `Recover` 回收 RUNNING 节点继续执行，已成功节点复用原调用与产物；`retry` 仅对 FAILED 生效，创建带 `retry_of` 的新运行并复用已完成节点，不重复发布产物。暂停 / 活动 / 取消中的运行继续阻止快照删除。新增 `POST .../workflow-runs/{id}/pause|resume|cancel|retry`（writer、幂等、项目隔离），正式任务页提供控制按钮、尝试次数与并发策略展示，运行 Schema 扩展新状态与字段，`docs/workflow-execution.md` 补充控制与恢复语义。已通过两个已确认边界的 TDD red/green（暂停边界与重复请求、取消迟到结果、可重试 / 不可重试 / 耗尽、重启复用、重试血缘）、完整乱序竞态回归、三轮 `make test-stress`、`make lint`、前端测试 / 构建与 Docker 构建；容器内验证“暂停 → 页面继续 → 完成”全链路（12 个有序事件、并发 4 / 重试上限 3），暂停时 parse 已完成、应用阶段未调度。按交付流程提交并关闭；未 push。
 
+- 2026-10-17 — #12 接入首个进程扫描器并在自定义工作流使用：部署目录中的固定版本包校验规范化清单、全文件摘要、安全相对 entrypoint 和可执行摘要后才登记为 installed / executable；新增版本化 NDJSON JSON-RPC 2.0 process adapter（握手、双向 `host.artifacts.read`、事件 / 输出块连续序号、1 MiB 消息、256 KiB 分块、16 MiB 报告限额、宿主环境隔离、取消与迟到输出栅栏）。`codexploit.static-patterns@1.0.0` 只解析冻结 Go 源码 tar，CP001 / CP002 告警产出 `scanner.alerts` 与仅含候选的 `security.facts`，经公共 scanner-alerts Schema 和独立 Normalizer 校验，未知版本 / 能力 / 受限网络返回 unsupported，不执行目标 build、test、hook。工作流可选择扫描节点，`$publish` 将 `scanner.alert` 候选作为独立观察发布到不可变知识版本；插件中心与任务页显示注册 / 安装 / 可执行状态、原始报告、标准告警、来源、覆盖与发布版本。已通过四个已确认边界的 TDD red/green、完整乱序竞态回归、三轮 `make test-stress`、`make lint`、前端测试 / 构建、Docker 构建，以及独立容器真实扫描、API 发布和浏览器任务页 / 插件页验收。已按交付流程提交并关闭；未 push。CodeQL 等第三方工具因许可 / 构建约束留待后续 process 适配器接入。
+
 ## Agent skills
 
 ### Issue tracker

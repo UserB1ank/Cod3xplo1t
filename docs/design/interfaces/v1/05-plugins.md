@@ -1,6 +1,6 @@
 # L5 统一插件层
 
-Issue #6 已实现目录、内置 Go 执行路径、原子产物发布、版本取消、持久化记录及正式插件页面。实际 Go 端口、HTTP、预算、源码指纹和单宿主恢复约定见 [插件接口](../../../plugins.md)。下文的外部进程 JSON-RPC、worker 安装与多实例租约仍是后续协议目标，不表示已具备这些执行能力。
+Issue #6 已实现目录、内置 Go 执行路径、原子产物发布、版本取消、持久化记录及正式插件页面。Issue #12 已实现部署目录安装的 process 适配器、双向 NDJSON JSON-RPC、事件/输出序号、消息与报告限额、取消迟到栅栏和首个固定版本扫描器；实际 Go 端口、HTTP、预算、包摘要、协议和单宿主恢复约定见 [插件接口](../../../plugins.md) 与 [进程扫描器](../../../process-scanner.md)。worker 安装、容器/远程执行与多实例租约仍是后续目标。
 
 接口：`PluginCatalog`、`PluginHost`。Schema：[plugin.schema.json](../../../../contracts/v1/plugin.schema.json)。示例：[plugin.json](../../../../contracts/v1/examples/plugin.json)。
 
@@ -54,3 +54,5 @@ config_schema 只使用本地注册 Schema。节点 config 必须通过该 Schem
 现有 `agent.Runtime`、`ToolExecutor`、`verify.Executor` 是各自领域接口，并未实现本协议。可用 adapter 保留现有语义；不得把新的 plugin.initialize 发给现有 Agent CLI。
 
 验收：握手拒绝不兼容版本、相同版本包冲突、参数 Schema、工具结果反馈、预算取消、失联恢复、越界与迟到提交，以及没有真实安装时的可用性说明。
+
+Issue #12 的实际 v1 子集：`plugin.initialize` / `execute` / `status` / `cancel`，插件反向 `plugin.event`、`plugin.output` 和 `host.artifacts.read`。单条消息 1 MiB，读取/输出块 256 KiB，原始报告 16 MiB，事件与输出块序号必须连续；不支持的能力、受限网络清单和未知原生格式返回 unsupported。事件只用于当前调用诊断，跨重启有序事件仍属工作流运行记录，不是插件事件账本。
