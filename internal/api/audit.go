@@ -686,6 +686,10 @@ func pageLimit(raw string) int {
 // (invalid_transition).
 func writeAuditError(w http.ResponseWriter, err error, id string) {
 	switch {
+	case errors.Is(err, path.ErrTaskArchived):
+		writeError(w, http.StatusConflict, "task_archived", err)
+	case errors.Is(err, path.ErrTaskActive):
+		writeError(w, http.StatusConflict, "task_not_idle", err)
 	case err == nil:
 		return
 	case errors.Is(err, path.ErrNoASG):

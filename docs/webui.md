@@ -276,6 +276,54 @@ Task creation accepts `name`, `objective`, `snapshot_id`, optional `scope`,
 Omitting the snapshot selects the newest project snapshot. Workbench requests
 have bounded budgets (at most 2,000 paths and 16 concurrent leases).
 
+### Task organization
+
+The formal project task table has **当前任务 / 已归档** tabs, project categories,
+pinning, archive/restore and existing pause/resume controls. Search, state/category
+filters and pages are fetched from the server. Task state and progress use current
+path records; unfinished Agent/verification runs also prevent archiving. The
+table refreshes every five seconds while visible and not editing categories.
+
+Archive only after pausing scheduling and waiting for active paths and unfinished
+runs to settle. Archived tasks retain their snapshot, graph, paths, findings and
+evidence. Restoring leaves scheduling paused; resume it explicitly. Categories
+are shared within the project (up to 32 names, 1–30 characters each); remove task
+assignments before deleting an in-use category. Changing a name can be performed
+by adding the new category, reassigning tasks and removing the old unused name.
+
+All task organization writes use the displayed task's ETag. A stale edit returns
+412 and refreshes the table rather than silently replacing another client's
+changes. Category management captures its own ETag when opened and uses the same
+CAS rule. Reader access can filter and inspect data but cannot mutate it.
+
+| Method and path | Capability / behavior |
+|---|---|
+| `PATCH /api/projects/{id}/tasks/{taskID}` | writer; optional `pinned`, `category`, `archived`; at least one property and `If-Match` required |
+| `GET /api/projects/{id}/task-categories` | reader; category array, version and ETag |
+| `PUT /api/projects/{id}/task-categories` | writer; `{categories:[...]}` and `If-Match`; rejects deletion of assigned categories |
+
+`GET /api/projects/{id}/tasks` additionally accepts `q` (up to 200 characters),
+`state`, `category`, `archived`, `sort=organized`, `limit` and `offset`. Omit
+`category` for all categories or pass an empty value for uncategorized tasks.
+`state` is one of `QUEUED`, `RUNNING`, `PAUSED`, `CONCLUDED`, `BLOCKED`, `FAILED`,
+`EMPTY`, `ARCHIVED`. Organization sorting is pinned first, then newest creation,
+then audit ID for deterministic ties. Filters apply before counting and paging.
+Unchanged data gives stable pages; after an edit the page is refreshed and an
+out-of-range page is clamped. Lists without these filters keep their earlier
+behavior, including archived tasks, for existing clients.
+
+Task list/detail adds `pinned`, `category`, `archived`, `etag`, `can_archive` and
+`archive_block_reason`. ETags/version describe editable task metadata; live path
+counts may change without changing that version. Archive eligibility is a read
+hint; the write rechecks actual activity under the store lock/transaction. New
+Agent/verification runs are refused for archived tasks. Missing versions return
+428, stale edits 412, an in-use category 409 `category_in_use`, and an invalid
+archive 409 `task_not_idle`. A task outside the project path returns 404.
+
+SQLite migration 0014 preserves existing IDs and defaults tasks to unpinned,
+uncategorized and unarchived. These additive endpoints extend the existing task
+service; they do not claim the target workflow-based `/api/v1/tasks` contract.
+
 Project findings accept `severity`, `status`, `task_id`, `limit` and `offset`.
 Counts are confirmed findings before display filters. The project predicate is
 applied in storage, including for legacy audit rows. Existing snapshot, audit,

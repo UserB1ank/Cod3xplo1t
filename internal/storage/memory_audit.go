@@ -3,7 +3,9 @@ package storage
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
+	"strings"
 
 	"github.com/open-mcp-ai/Codexploit/internal/path"
 )
@@ -110,6 +112,22 @@ func (m *Memory) ListAudits(q path.AuditQuery) ([]path.Audit, int, error) {
 	defer m.mu.RUnlock()
 	out := make([]path.Audit, 0, len(m.audits))
 	for _, doc := range m.audits {
+		if q.Archived != nil && doc.audit.Archived != *q.Archived {
+			continue
+		}
+		if q.CategorySet && doc.audit.Category != q.Category {
+			continue
+		}
+		if q.TaskState != "" {
+			live := doc.audit
+			live.CountsByStatus = m.taskActivityLocked(doc.audit.ID).Counts
+			if path.TaskState(live) != q.TaskState {
+				continue
+			}
+		}
+		if q.Search != "" && !strings.Contains(strings.ToLower(doc.audit.Name+" "+doc.audit.Objective+" "+doc.audit.ID), strings.ToLower(q.Search)) {
+			continue
+		}
 		if q.ProjectID != "" && m.snapshots[doc.audit.SnapshotID].projectID != q.ProjectID {
 			continue
 		}
@@ -125,7 +143,17 @@ func (m *Memory) ListAudits(q path.AuditQuery) ([]path.Audit, int, error) {
 		}
 		out = append(out, stored)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	sort.Slice(out, func(i, j int) bool {
+		if q.Organized {
+			if out[i].Pinned != out[j].Pinned {
+				return out[i].Pinned
+			}
+			if out[i].CreatedAt != out[j].CreatedAt {
+				return out[i].CreatedAt > out[j].CreatedAt
+			}
+		}
+		return out[i].ID < out[j].ID
+	})
 	total := len(out)
 	return page(out, max(q.Offset, 0), normaliseLimit(q.Limit, 100, 1000)), total, nil
 }
@@ -148,6 +176,29 @@ func (m *Memory) UpdateAudit(audit path.Audit, expectedVersion int64) error {
 	if expectedVersion > 0 && doc.audit.Version != expectedVersion {
 		return fmt.Errorf("%w: audit %s is at version %d, expected %d",
 			path.ErrConflict, audit.ID, doc.audit.Version, expectedVersion)
+	}
+	if expectedVersion == 0 {
+		stored.Pinned, stored.Archived = doc.audit.Pinned, doc.audit.Archived
+		stored.Category = doc.audit.Category
+	}
+	if stored.Category != "" && !slices.Contains(m.categoriesLocked(m.snapshots[audit.SnapshotID].projectID).Categories, stored.Category) {
+		return invalidTaskCategory()
+	}
+	if stored.Archived && !stored.Paused {
+		if doc.audit.Archived {
+			return path.ErrTaskArchived
+		}
+		return path.ErrTaskActive
+	}
+	if stored.Archived && !doc.audit.Archived {
+		if m.taskActivityLocked(audit.ID).ActiveRuns {
+			return path.ErrTaskActive
+		}
+		for _, p := range doc.paths {
+			if p.Status.Active() {
+				return path.ErrTaskActive
+			}
+		}
 	}
 	// A caller that did not advance the counter still gets a fresh version: a
 	// stored document whose version never moves cannot be updated concurrently.

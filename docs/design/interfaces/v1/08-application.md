@@ -38,6 +38,8 @@ Schema：[application.schema.json](../../../../contracts/v1/application.schema.j
 
 ## HTTP 目标映射
 
+已实现的任务整理子集：正式任务表连接现有 `/api/projects/{id}/tasks` 的服务端搜索、状态/分类/归档过滤和分页；`PATCH /api/projects/{id}/tasks/{taskID}` 对置顶、分类、归档/恢复做 CAS；`GET/PUT /api/projects/{id}/task-categories` 管理项目分类目录。分类目录与任务分别版本化，使用中的分类不能删除。归档要求暂停且无活动路径和未结束运行，恢复后保持暂停，不删除任何证据或图谱引用。实时状态来自路径记录，归档写入会在存储锁/事务内再次检查。此子集已实现 Memory / SQLite，不等于后续完整 v1 workflow task DTO。详见[任务整理 API](../../../webui.md#task-organization)。
+
 统一扩展 API 预留 `/api/v1`；现有 `/api` 不迁移、不改错误结构。以下是**待接线设计路由**，不是当前可用端点：
 
 | 路由 | 用途 |

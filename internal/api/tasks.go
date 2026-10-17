@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -114,6 +115,56 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 type sourceTask struct {
 	path.Audit
 	storage.SourceSnapshot
+	ETag               string `json:"etag,omitempty"`
+	CanArchive         bool   `json:"can_archive"`
+	ArchiveBlockReason string `json:"archive_block_reason,omitempty"`
+}
+
+func (s *Server) taskViews(ctx context.Context, tasks []path.Audit) ([]sourceTask, error) {
+	ids := make([]string, len(tasks))
+	for i, task := range tasks {
+		ids[i] = task.ID
+	}
+	activities := map[string]storage.TaskActivity{}
+	if reader, ok := s.Store.(storage.TaskActivityReader); ok {
+		var err error
+		activities, err = reader.TaskActivities(ctx, ids)
+		if err != nil {
+			return nil, err
+		}
+	}
+	result := make([]sourceTask, 0, len(tasks))
+	for _, task := range tasks {
+		binding, err := s.snapshotSource(ctx, task.SnapshotID)
+		if err != nil {
+			return nil, err
+		}
+		activity, known := activities[task.ID]
+		if known {
+			task.CountsByStatus = activity.Counts
+		}
+		view := sourceTask{Audit: task, SourceSnapshot: binding, ETag: taskETag(&task), CanArchive: known && task.Paused && !task.Archived}
+		switch {
+		case !known:
+			view.ArchiveBlockReason = "Task activity is unavailable"
+		case task.Archived:
+			view.ArchiveBlockReason = "Restore the archived task first"
+		case !task.Paused:
+			view.ArchiveBlockReason = "Pause scheduling before archiving"
+		case activity.ActiveRuns:
+			view.ArchiveBlockReason = "Wait for unfinished agent or verification runs"
+		}
+		for _, status := range []path.Status{path.StatusAnalyzing, path.StatusLocalExploring, path.StatusVerifying} {
+			if activity.Counts[string(status)] > 0 {
+				view.ArchiveBlockReason = "Wait for active paths to finish"
+			}
+		}
+		if view.ArchiveBlockReason != "" {
+			view.CanArchive = false
+		}
+		result = append(result, view)
+	}
+	return result, nil
 }
 
 func (s *Server) snapshotSource(ctx context.Context, id string) (storage.SourceSnapshot, error) {
@@ -135,19 +186,35 @@ func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
 		writeStorageError(w, err)
 		return
 	}
-	tasks, total, err := s.Audit.Audits(path.AuditQuery{ProjectID: projectID, Limit: pageLimit(r.URL.Query().Get("limit")), Offset: max(0, queryInt(r.URL.Query().Get("offset"), 0))})
+	values := r.URL.Query()
+	query := path.AuditQuery{ProjectID: projectID, Limit: pageLimit(values.Get("limit")), Offset: max(0, queryInt(values.Get("offset"), 0)), Search: strings.TrimSpace(values.Get("q")), TaskState: values.Get("state"), Category: values.Get("category"), CategorySet: values.Has("category"), Organized: values.Get("sort") == "organized"}
+	validState := query.TaskState == ""
+	for _, state := range []string{"ARCHIVED", "FAILED", "RUNNING", "PAUSED", "EMPTY", "QUEUED", "BLOCKED", "CONCLUDED"} {
+		if query.TaskState == state {
+			validState = true
+		}
+	}
+	if !validState || len([]rune(query.Search)) > 200 || len([]rune(query.Category)) > 30 || (values.Get("sort") != "" && !query.Organized) {
+		writeError(w, 400, "invalid_request", errors.New("invalid task filter"))
+		return
+	}
+	if values.Has("archived") {
+		archived, err := strconv.ParseBool(values.Get("archived"))
+		if err != nil {
+			writeError(w, 400, "invalid_request", errors.New("archived must be true or false"))
+			return
+		}
+		query.Archived = &archived
+	}
+	tasks, total, err := s.Audit.Audits(query)
 	if err != nil {
 		writeAuditError(w, err, "")
 		return
 	}
-	result := make([]sourceTask, 0, len(tasks))
-	for _, task := range tasks {
-		binding, err := s.snapshotSource(r.Context(), task.SnapshotID)
-		if err != nil {
-			writeStorageError(w, err)
-			return
-		}
-		result = append(result, sourceTask{Audit: task, SourceSnapshot: binding})
+	result, err := s.taskViews(r.Context(), tasks)
+	if err != nil {
+		writeStorageError(w, err)
+		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"tasks": result, "total": total, "project_id": projectID})
 }
@@ -164,12 +231,12 @@ func (s *Server) handleGetTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("ETag", taskETag(task))
-	binding, err := s.snapshotSource(r.Context(), task.SnapshotID)
+	views, err := s.taskViews(r.Context(), []path.Audit{*task})
 	if err != nil {
 		writeStorageError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, sourceTask{Audit: *task, SourceSnapshot: binding})
+	writeJSON(w, http.StatusOK, views[0])
 }
 
 func (s *Server) handlePauseTask(paused bool) http.HandlerFunc {
@@ -193,7 +260,9 @@ func (s *Server) handlePauseTask(paused bool) http.HandlerFunc {
 		task.Paused, task.UpdatedAt = paused, path.NowString(time.Now().UTC())
 		task.Version++
 		if err := s.Store.UpdateAudit(*task, version); err != nil {
-			if errors.Is(err, path.ErrConflict) {
+			if errors.Is(err, path.ErrTaskArchived) {
+				writeError(w, http.StatusConflict, "task_archived", err)
+			} else if errors.Is(err, path.ErrConflict) {
 				writeError(w, http.StatusPreconditionFailed, "precondition_failed", err)
 			} else {
 				writeAuditError(w, err, "")

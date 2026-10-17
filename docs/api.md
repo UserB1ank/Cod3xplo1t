@@ -2,6 +2,8 @@
 
 The project/task workbench endpoints, shared knowledge rules and high/medium/low
 grading API are documented in [Web UI and deployment](webui.md#new-api-surface).
+Task classification, pin/archive CAS writes, live status filters and stable
+pagination are documented in [Task organization](webui.md#task-organization).
 
 The API exposes the P1 snapshot chain and the P2 Source Code Graph. Every
 endpoint is read-only except project creation, snapshot creation and graph

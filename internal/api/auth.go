@@ -334,6 +334,12 @@ func requiredCapability(method, path string) (Capability, bool) {
 			return CapRead, true
 		case action == "tasks" && method == http.MethodPost:
 			return CapWrite, true
+		case strings.HasPrefix(action, "tasks/") && method == http.MethodPatch:
+			return CapWrite, true
+		case action == "task-categories" && method == http.MethodGet:
+			return CapRead, true
+		case action == "task-categories" && method == http.MethodPut:
+			return CapWrite, true
 		}
 		_ = id
 

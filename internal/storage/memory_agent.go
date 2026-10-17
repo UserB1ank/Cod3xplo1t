@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/open-mcp-ai/Codexploit/internal/agent"
+	"github.com/open-mcp-ai/Codexploit/internal/path"
 )
 
 // agentRunDocument is the in-memory aggregate of one agent run: the run itself,
@@ -59,6 +60,9 @@ func (m *Memory) CreateRun(run agent.Run) error {
 	defer m.mu.Unlock()
 	if err := m.snapshotWritableLocked(run.SnapshotID); err != nil {
 		return err
+	}
+	if doc, ok := m.audits[run.AuditID]; ok && doc.audit.Archived {
+		return path.ErrTaskArchived
 	}
 	if _, exists := m.agentRuns[run.ID]; exists {
 		return fmt.Errorf("%w: run %s already exists", agent.ErrConflict, run.ID)

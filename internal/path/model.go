@@ -362,6 +362,9 @@ type Audit struct {
 	Objective    string   `json:"objective,omitempty"`
 	Scope        []string `json:"scope,omitempty"`
 	Paused       bool     `json:"paused"`
+	Pinned       bool     `json:"pinned"`
+	Archived     bool     `json:"archived"`
+	Category     string   `json:"category"`
 	ID           string   `json:"audit_id"`
 	SnapshotID   string   `json:"snapshot_id"`
 	SCGVersion   string   `json:"scg_version"`

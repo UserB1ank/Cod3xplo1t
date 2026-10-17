@@ -19,6 +19,8 @@ var (
 	ErrNotClaimable      = errors.New("path: not claimable in its current status")
 	ErrBudgetExceeded    = errors.New("path: budget exceeded")
 	ErrNoASG             = errors.New("path: snapshot has no attack surface")
+	ErrTaskActive        = errors.New("path: pause scheduling and finish active paths or runs before archiving")
+	ErrTaskArchived      = errors.New("path: restore the archived task before resuming scheduling")
 )
 
 // transitions is the audit state machine of the design (§7) and the

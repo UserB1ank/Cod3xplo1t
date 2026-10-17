@@ -1972,3 +1972,8 @@ pre {
 .source-actions .button { white-space: nowrap; }
 .source-snapshot { display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 14px; margin-bottom: 24px; }
 .source-snapshot dd { margin: 0; overflow-wrap: anywhere; }
+.task-archive-tabs{padding:0 22px;margin-bottom:0}
+.task-category-select{min-width:110px;max-width:160px}
+.task-organization-actions{display:flex;gap:5px;align-items:center}
+.task-category-draft{display:flex;flex-wrap:wrap;gap:8px;margin:20px 0}
+.task-category-draft>span{display:flex;align-items:center;gap:8px;padding:5px 8px;border:1px solid var(--border);border-radius:5px}

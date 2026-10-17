@@ -335,6 +335,9 @@ func (s *SQL) CreateVerificationRun(run verify.Run) error {
 		return err
 	}
 	return s.snapshotWrite(context.Background(), run.SnapshotID, func(tx *sql.Tx) error {
+		if err := s.taskRunAllowedTx(context.Background(), tx, run.AuditID); err != nil {
+			return err
+		}
 		_, err := tx.ExecContext(context.Background(), s.rebind(verificationRunInsertSQL), values...)
 		return mapVerifySQLError(err)
 	})

@@ -25,6 +25,7 @@ type Memory struct {
 	projects        map[string]Project
 	sources         map[string]SourceDefinition
 	sourceSnapshots map[string]SourceSnapshot
+	taskCategories  map[string]TaskCategories
 	snapshots       map[string]memorySnapshot
 	manifests       map[string][]byte
 	analyses        map[string]string // analysis_id -> analysis document

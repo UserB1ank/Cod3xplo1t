@@ -13,6 +13,11 @@ export interface Task extends Audit {
   objective?: string;
   scope?: string[];
   paused: boolean;
+  pinned?: boolean;
+  archived?: boolean;
+  category?: string;
+  etag?: string;
+  can_archive?: boolean;
   version: number;
   budget: { max_tool_calls: number; max_depth: number; max_branches: number };
   counts_by_path_status?: Record<string, number>;
@@ -73,6 +78,7 @@ export function routeHash(route: Route): string {
     : `#/projects/${project}/${route.view}`;
 }
 export function taskState(task: Task) {
+  if (task.archived) return "ARCHIVED";
   const counts = task.counts_by_status || {};
   if (task.status === "FAILED") return "FAILED";
   if (["ANALYZING", "LOCAL_EXPLORING", "VERIFYING"].some((s) => counts[s] > 0))

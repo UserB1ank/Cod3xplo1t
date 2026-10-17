@@ -286,6 +286,9 @@ func (s *SQL) CreateRun(run agent.Run) error {
 	query := "INSERT INTO agent_runs (" + strings.Join(agentRunColumnNames, ", ") +
 		") VALUES (" + placeholders(len(values)) + ")"
 	return s.snapshotWrite(context.Background(), run.SnapshotID, func(tx *sql.Tx) error {
+		if err := s.taskRunAllowedTx(context.Background(), tx, run.AuditID); err != nil {
+			return err
+		}
 		_, err := tx.ExecContext(context.Background(), s.rebind(query), values...)
 		return mapAgentSQLError(err)
 	})

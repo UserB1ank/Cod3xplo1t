@@ -13,7 +13,7 @@ type Store interface {
 	GetAudit(auditID string) (*Audit, error)
 	ListAudits(q AuditQuery) ([]Audit, int, error)
 	// UpdateAudit writes an audit with optimistic concurrency; expectedVersion 0
-	// skips the check.
+	// skips the check and preserves the current pin, archive, and category fields.
 	UpdateAudit(audit Audit, expectedVersion int64) error
 
 	// ReplacePaths replaces every path of an audit in one transaction. Generation
@@ -99,11 +99,17 @@ type TransitionRequest struct {
 
 // AuditQuery filters audit listings.
 type AuditQuery struct {
-	ProjectID  string
-	SnapshotID string
-	Status     string
-	Limit      int
-	Offset     int
+	Search      string
+	TaskState   string
+	Category    string
+	CategorySet bool
+	Archived    *bool
+	Organized   bool
+	ProjectID   string
+	SnapshotID  string
+	Status      string
+	Limit       int
+	Offset      int
 }
 
 // PathQuery filters path listings.

@@ -19,6 +19,7 @@ var auditColumnNames = []string{
 	"score_version", "config_hash", "path_count", "counts_by_status_json", "counts_by_path_status_json",
 	"coverage_json", "limitations_json", "created_at", "updated_at", "version",
 	"task_name", "objective", "scope_json", "paused",
+	"task_pinned", "task_archived", "task_category",
 }
 
 var pathColumnNames = []string{
@@ -154,6 +155,7 @@ func auditWriteValues(audit path.Audit) ([]any, error) {
 		audit.ScoreVersion, audit.ConfigHash, audit.PathCount, counts, countsByPath, coverage, limitations,
 		audit.CreatedAt, audit.UpdatedAt, audit.Version,
 		audit.Name, audit.Objective, scope, audit.Paused,
+		audit.Pinned, audit.Archived, audit.Category,
 	}, nil
 }
 
@@ -167,7 +169,7 @@ func scanAuditRow(scan func(...any) error) (path.Audit, error) {
 	if err := scan(&audit.ID, &audit.SnapshotID, &audit.SCGVersion, &audit.ASGVersion, &audit.Status, &budget,
 		&limits, &audit.ScoreVersion, &audit.ConfigHash, &audit.PathCount, &counts, &countsByPath, &coverage,
 		&limitations, &audit.CreatedAt, &audit.UpdatedAt, &audit.Version,
-		&audit.Name, &audit.Objective, &scope, &audit.Paused); err != nil {
+		&audit.Name, &audit.Objective, &scope, &audit.Paused, &audit.Pinned, &audit.Archived, &audit.Category); err != nil {
 		return path.Audit{}, err
 	}
 	for _, column := range []struct {
@@ -414,6 +416,23 @@ func (s *SQL) ListAudits(q path.AuditQuery) ([]path.Audit, int, error) {
 	ctx := context.Background()
 	clauses := []string{}
 	args := []any{}
+	if q.Archived != nil {
+		clauses = append(clauses, "task_archived = ?")
+		args = append(args, *q.Archived)
+	}
+	if q.CategorySet {
+		clauses = append(clauses, "task_category = ?")
+		args = append(args, q.Category)
+	}
+	if q.Search != "" {
+		clauses = append(clauses, `LOWER(task_name || ' ' || objective || ' ' || audit_id) LIKE ? ESCAPE '\'`)
+		escaped := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(strings.ToLower(q.Search))
+		args = append(args, "%"+escaped+"%")
+	}
+	if q.TaskState != "" {
+		clauses = append(clauses, s.taskStateSQL()+" = ?")
+		args = append(args, q.TaskState)
+	}
 	if q.ProjectID != "" {
 		clauses = append(clauses, "snapshot_id IN (SELECT snapshot_id FROM snapshots WHERE project_id = ?)")
 		args = append(args, q.ProjectID)
@@ -432,7 +451,11 @@ func (s *SQL) ListAudits(q path.AuditQuery) ([]path.Audit, int, error) {
 	if err := s.db.QueryRowContext(ctx, s.rebind("SELECT COUNT(1) FROM audits"+where), args...).Scan(&total); err != nil {
 		return nil, 0, mapAuditSQLError(err)
 	}
-	query := "SELECT " + auditSelectColumns + " FROM audits" + where + " ORDER BY audit_id LIMIT ? OFFSET ?"
+	order := "audit_id"
+	if q.Organized {
+		order = "task_pinned DESC, created_at DESC, audit_id"
+	}
+	query := "SELECT " + auditSelectColumns + " FROM audits" + where + " ORDER BY " + order + " LIMIT ? OFFSET ?"
 	args = append(args, normaliseLimit(q.Limit, 100, 1000), max(q.Offset, 0))
 	rows, err := s.db.QueryContext(ctx, s.rebind(query), args...)
 	if err != nil {
@@ -448,6 +471,13 @@ func (s *SQL) ListAudits(q path.AuditQuery) ([]path.Audit, int, error) {
 		out = append(out, audit)
 	}
 	return out, total, rows.Err()
+}
+
+func (s *SQL) taskStateSQL() string {
+	count := func(status string) string {
+		return "(SELECT COUNT(*) FROM audit_paths activity WHERE activity.audit_id=audits.audit_id AND activity.status='" + status + "')"
+	}
+	return "CASE WHEN task_archived = 1 THEN 'ARCHIVED' WHEN status = 'FAILED' THEN 'FAILED' WHEN " + count("ANALYZING") + " + " + count("LOCAL_EXPLORING") + " + " + count("VERIFYING") + " > 0 THEN 'RUNNING' WHEN paused = 1 THEN 'PAUSED' WHEN path_count = 0 THEN 'EMPTY' WHEN " + count("QUEUED") + " > 0 THEN 'QUEUED' WHEN " + count("BLOCKED") + " + " + count("FAILED") + " + " + count("INTERRUPTED") + " > 0 THEN 'BLOCKED' ELSE 'CONCLUDED' END"
 }
 
 // UpdateAudit implements path.Store.
@@ -469,6 +499,38 @@ func (s *SQL) UpdateAudit(audit path.Audit, expectedVersion int64) error {
 	}
 	if expectedVersion > 0 && current != expectedVersion {
 		return fmt.Errorf("%w: audit %s is at version %d, expected %d", path.ErrConflict, audit.ID, current, expectedVersion)
+	}
+	var pinned, archived bool
+	var category string
+	if err := tx.QueryRowContext(ctx, s.rebind("SELECT task_pinned, task_archived, task_category FROM audits WHERE audit_id = ?"), audit.ID).Scan(&pinned, &archived, &category); err != nil {
+		return mapAuditSQLError(err)
+	}
+	if expectedVersion == 0 {
+		audit.Pinned, audit.Archived = pinned, archived
+		audit.Category = category
+	}
+	if err := s.validateTaskCategoryTx(ctx, tx, audit.SnapshotID, audit.Category); err != nil {
+		return err
+	}
+	if audit.Archived && !audit.Paused {
+		if archived {
+			return path.ErrTaskArchived
+		}
+		return path.ErrTaskActive
+	}
+	if audit.Archived && !archived {
+		if active, err := s.taskHasRunsTx(ctx, tx, audit.ID); err != nil {
+			return err
+		} else if active {
+			return path.ErrTaskActive
+		}
+		var active int
+		if err := tx.QueryRowContext(ctx, s.rebind("SELECT COUNT(*) FROM audit_paths WHERE audit_id = ? AND status IN (?, ?, ?)"), audit.ID, path.StatusAnalyzing, path.StatusLocalExploring, path.StatusVerifying).Scan(&active); err != nil {
+			return err
+		}
+		if active > 0 {
+			return path.ErrTaskActive
+		}
 	}
 	if audit.Version <= current {
 		audit.Version = current + 1

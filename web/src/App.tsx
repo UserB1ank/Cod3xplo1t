@@ -35,6 +35,7 @@ import {
 import { ApiClient } from "./api";
 import { LLMSettings } from "./LLMSettings";
 import { Sources, sourceInput, readSources, type CodeSource } from "./Sources";
+import { ProjectTasks } from "./TaskList";
 import {
   Badge,
   CodeBlock,
@@ -570,16 +571,18 @@ export default function App() {
                       <Network size={88} strokeWidth={0.7} />
                     </div>
                   )}
-                  <TaskList
-                    tasks={tasks.data?.tasks || []}
-                    total={tasks.data?.total || 0}
+                  <ProjectTasks
+                    key={project.id}
+                    api={api}
+                    projectID={project.id}
+                    revision={revision}
+                    onChanged={() => refresh((n) => n + 1)}
                     findings={findings.data?.findings || []}
                     partial={
                       !!findings.data?.truncated ||
                       (findings.data?.total || 0) >
                         (findings.data?.findings.length || 0)
                     }
-                    loading={tasks.loading}
                     onOpen={(id) =>
                       navigate({
                         project: project.id,
@@ -1141,177 +1144,6 @@ function Metrics({
   );
 }
 
-function TaskList({
-  tasks,
-  total,
-  findings,
-  partial,
-  loading,
-  onOpen,
-  onCreate,
-  canWrite,
-}: {
-  tasks: Task[];
-  total: number;
-  findings: ProjectFinding[];
-  partial: boolean;
-  loading: boolean;
-  onOpen: (id: string) => void;
-  onCreate: () => void;
-  canWrite: boolean;
-}) {
-  const [query, setQuery] = useState("");
-  const [state, setState] = useState("");
-  const [page, setPage] = useState(0);
-  const selected = tasks.filter(
-    (t) =>
-      (!state || taskState(t) === state) &&
-      `${t.name} ${t.objective} ${t.audit_id}`
-        .toLowerCase()
-        .includes(query.toLowerCase()),
-  );
-  return (
-    <Panel
-      title="挖掘任务"
-      action={<span className="subtle-label">{total} 个任务</span>}
-    >
-      <div className="section-toolbar inset">
-        <div className="search-input">
-          <Search size={15} />
-          <input
-            aria-label="搜索任务"
-            placeholder="搜索任务名称或目标…"
-            value={query}
-            onChange={(e) => {
-              setQuery(e.target.value);
-              setPage(0);
-            }}
-          />
-        </div>
-        <select
-          aria-label="任务状态筛选"
-          value={state}
-          onChange={(e) => {
-            setState(e.target.value);
-            setPage(0);
-          }}
-        >
-          <option value="">全部状态</option>
-          <option value="QUEUED">待处理</option>
-          <option value="RUNNING">运行中</option>
-          <option value="PAUSED">已暂停</option>
-          <option value="CONCLUDED">已完成</option>
-          <option value="BLOCKED">受阻</option>
-        </select>
-      </div>
-      {loading ? (
-        <Loading />
-      ) : !selected.length ? (
-        <EmptyState
-          title="暂无匹配任务"
-          action={
-            <button
-              className="button secondary"
-              disabled={!canWrite}
-              onClick={onCreate}
-            >
-              <Plus size={15} />
-              新建任务
-            </button>
-          }
-        >
-          为项目设定挖掘目标，任务将复用已有源码图谱和攻击面。
-        </EmptyState>
-      ) : (
-        <div className="table-scroll">
-          <table className="standard-table task-table">
-            <thead>
-              <tr>
-                <th>任务 / 目标</th>
-                <th>代码版本</th>
-                <th>状态</th>
-                <th>路径进度</th>
-                <th>高 / 中 / 低危</th>
-                <th>创建时间</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {selected.slice(page * 50, (page + 1) * 50).map((task) => {
-                const grades = taskGradeCounts(findings, task.audit_id);
-                const complete =
-                  (task.counts_by_status.CONCLUDED || 0) +
-                  (task.counts_by_status.HYPOTHESIS_FORMED || 0) +
-                  (task.counts_by_status.CANCELLED || 0);
-                return (
-                  <tr key={task.audit_id}>
-                    <td>
-                      <button
-                        className="table-title"
-                        onClick={() => onOpen(task.audit_id)}
-                      >
-                        {taskName(task)}
-                      </button>
-                      <p className="cell-subtitle" title={task.objective}>
-                        {task.objective || "基于攻击面生成的候选路径"}
-                      </p>
-                    </td>
-                    <td className="mono">{shortId(task.snapshot_id, 7)}</td>
-                    <td>
-                      <Badge
-                        status={taskState(task)}
-                        label={
-                          taskState(task) === "EMPTY" ? "无候选路径" : undefined
-                        }
-                      />
-                    </td>
-                    <td>
-                      <span className="mono">
-                        {complete} / {task.path_count}
-                      </span>
-                    </td>
-                    <td>
-                      <div className="grade-counts">
-                        {(["high", "medium", "low"] as Grade[]).map((grade) => (
-                          <span className={grade} key={grade}>
-                            {partial ? "…" : grades[grade]}
-                          </span>
-                        ))}
-                      </div>
-                    </td>
-                    <td>{dateLabel(task.created_at)}</td>
-                    <td>
-                      <button
-                        className="icon-button"
-                        aria-label={`打开任务 ${taskName(task)}`}
-                        onClick={() => onOpen(task.audit_id)}
-                      >
-                        <ChevronRight size={17} />
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-      <Pager page={page} total={selected.length} onChange={setPage} />
-      {tasks.length < total && (
-        <Hint>
-          当前载入前 {tasks.length} 个任务；完整列表可通过项目任务 API
-          分页查询。
-        </Hint>
-      )}
-      {partial && (
-        <Hint>
-          漏洞来源尚未全部载入，任务行暂不显示不完整的等级计数。项目级统计使用后端去重汇总。
-        </Hint>
-      )}
-    </Panel>
-  );
-}
-
 type Action = (
   label: string,
   work: () => Promise<unknown>,
@@ -1415,7 +1247,13 @@ function TaskWorkbench({
             <h1>{taskName(current)}</h1>
             <Badge
               status={taskState(current)}
-              label={taskState(current) === "EMPTY" ? "无候选路径" : undefined}
+              label={
+                current.archived
+                  ? "已归档"
+                  : taskState(current) === "EMPTY"
+                    ? "无候选路径"
+                    : undefined
+              }
             />
           </div>
           <p>{current.objective || "从攻击面出发，挖掘并验证代码漏洞。"}</p>
@@ -1440,7 +1278,7 @@ function TaskWorkbench({
         <div className="heading-actions">
           <button
             className="button secondary"
-            disabled={!canWrite || !!busy}
+            disabled={!canWrite || !!busy || current.archived}
             onClick={changeScheduling}
           >
             {current.paused ? <Play size={15} /> : <Pause size={15} />}
@@ -1452,6 +1290,7 @@ function TaskWorkbench({
               !canWrite ||
               !!busy ||
               current.paused ||
+              current.archived ||
               !identity.features.agent ||
               !(current.counts_by_status.QUEUED > 0)
             }
@@ -1470,6 +1309,11 @@ function TaskWorkbench({
         <Hint>
           Agent 未配置。可以查看图谱和审计路径；启动服务时配置 CLI Agent
           适配器后可执行挖掘。
+        </Hint>
+      )}
+      {current.archived && (
+        <Hint>
+          任务已归档，任务、证据与图谱仍可查看。请到项目任务列表恢复归档后再恢复调度。
         </Hint>
       )}
       {current.paused && (

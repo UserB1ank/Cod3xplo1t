@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/open-mcp-ai/Codexploit/internal/path"
 	"github.com/open-mcp-ai/Codexploit/internal/verify"
 )
 
@@ -33,6 +34,9 @@ func (m *Memory) CreateVerificationRun(run verify.Run) error {
 	defer m.mu.Unlock()
 	if err := m.snapshotWritableLocked(run.SnapshotID); err != nil {
 		return err
+	}
+	if doc, ok := m.audits[run.AuditID]; ok && doc.audit.Archived {
+		return path.ErrTaskArchived
 	}
 	if _, exists := m.verificationRuns[prepared.ID]; exists {
 		return fmt.Errorf("%w: verification run %s already exists", verify.ErrConflict, prepared.ID)
