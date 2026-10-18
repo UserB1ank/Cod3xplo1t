@@ -6,6 +6,11 @@ covers explicit source types, plugin workflows and an independent PostgreSQL
 data service. It distinguishes target interfaces from the implemented system
 described below. The design prototype is available at `/prototype/` after building.
 
+The implemented PostgreSQL catalog profile and its limits are documented in
+[postgres-catalog.md](postgres-catalog.md). It persists projects, source definitions,
+snapshots, base inventories and artifact indexes; graph, plugin and task domain
+ports remain unavailable in that profile. SQLite retains the complete runtime.
+
 How the implemented system is put together: the pipeline, what each package is
 responsible for, what is stored where, which way dependencies point, and where
 configuration is wired. Interface references live in [`api.md`](api.md) (REST)
@@ -114,8 +119,10 @@ lexicographic order by `internal/storage`. One line per table:
 | `0006_audit_paths.sql` | `audits`, `audit_paths`, `path_features`, `path_events` | P4 audits, their paths (steps, signature, cluster, evidence, score, lease), append-only score snapshots and the audit-scoped event log |
 | created by the runner | `schema_migrations` | applied migration versions, so a rerun is a no-op |
 
-The DDL is deliberately dialect-neutral (`TEXT`/`INTEGER`/`BIGINT`, timestamps as
-fixed-width RFC3339 UTC strings), so the same files run on SQLite and PostgreSQL.
+These are the complete SQLite migrations. PostgreSQL uses its own catalog-only
+set under `migrations/postgres/`, with transaction-level migration and snapshot
+locks. Both sets use `TEXT`/`INTEGER`/`BIGINT` and UTC timestamp strings; shared
+column types alone do not imply that every domain port supports PostgreSQL.
 The graph is stored relationally because queries filter and traverse it by id and
 kind; the full documents (snapshot metadata, manifest, SCG artifact) stay as JSON
 text and on disk next to the frozen tree. Later phases add their own tables in
@@ -175,6 +182,8 @@ The rules behind that order:
 |---|---|
 | `Workspace` | snapshot root; required, made absolute |
 | `DBPath` | `""` or `memory` selects the in-process store, any other value a SQLite file (its directory is created, the schema is migrated) |
+| `StorageDriver` | empty / `sqlite` retains the complete runtime; `postgres` selects only the wired catalog profile and rejects a simultaneous `DBPath` |
+| `PostgresDSNFile` | runtime credential file required for `postgres`; connection and migration failures stop startup without a SQLite fallback |
 | `AllowNetwork` | forwarded to the repository manager: remote git URLs are refused without it |
 | `GitBin` | overrides the git executable |
 | `Freeze` | `*bool`; the tree is made read-only unless a caller explicitly disables it |

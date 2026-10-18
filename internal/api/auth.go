@@ -276,6 +276,8 @@ func requiredCapability(method, path string) (Capability, bool) {
 	rest := strings.TrimPrefix(path, "/api/")
 
 	switch {
+	case rest == "v1/storage/status" && method == http.MethodGet:
+		return CapAdmin, true
 	case rest == "v1/plugins" && method == http.MethodGet:
 		return CapRead, true
 	case rest == "v1/plugins" && method == http.MethodPost:

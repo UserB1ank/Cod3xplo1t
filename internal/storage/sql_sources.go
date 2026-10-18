@@ -36,6 +36,11 @@ func (s *SQL) RegisterSourceSnapshot(ctx context.Context, source SourceDefinitio
 		return mapSQLError(err)
 	}
 	defer tx.Rollback()
+	// Always acquire the snapshot fence before the source row, including replay.
+	// Deletion uses the same order when clearing a source's latest snapshot.
+	if err := s.snapshotRegistrationTx(ctx, tx, snapshot); err != nil {
+		return err
+	}
 	result, err := tx.ExecContext(ctx, s.rebind(`UPDATE project_sources SET version = version WHERE source_id = ? AND project_id = ? AND version = ?`), source.ID, source.ProjectID, source.Version)
 	if err != nil {
 		return mapSQLError(err)
@@ -53,10 +58,6 @@ func (s *SQL) RegisterSourceSnapshot(ctx context.Context, source SourceDefinitio
 	}
 	var current SourceDefinition
 	if err := json.Unmarshal([]byte(document), &current); err != nil {
-		return err
-	}
-	// Replays must respect the same deletion fence as new registrations.
-	if err := s.snapshotRegistrationTx(ctx, tx, snapshot); err != nil {
 		return err
 	}
 	var binding SourceSnapshot

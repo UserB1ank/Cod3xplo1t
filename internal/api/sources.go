@@ -67,6 +67,9 @@ func (s *Server) handleCaptureSource(w http.ResponseWriter, r *http.Request) {
 	if !s.decode(w, r, &request) {
 		return
 	}
+	if !s.snapshotCapabilities(w, request.createSnapshotRequest) {
+		return
+	}
 	if request.ProjectID != source.ProjectID {
 		writeError(w, http.StatusBadRequest, "invalid_scope", errors.New("source belongs to a different project"))
 		return

@@ -110,6 +110,22 @@ Writes to mutable state are optimistic: `GET /api/projects/{id}` returns an
 is missing, `412` when the ETag is stale). The `ETag` changes whenever the
 project does.
 
+## Storage status
+
+`GET /api/v1/storage/status` is admin-only and returns the redacted, non-cacheable
+`storage-status.schema.json` document: driver, profile, durability, schema version,
+readiness, wired capabilities and abstract data locations. It returns 200 when
+the declared database profile is ready and the same document with 503 when the
+connection or required catalog structure is unavailable. No DSN, address,
+credential, local path or driver error is returned.
+
+The experimental PostgreSQL catalog profile supports projects, source definitions,
+snapshots, base inventories and artifact indexes. Other operations return
+`501 storage_capability_unavailable`; snapshot requests that ask for graph or ASG
+construction are refused before capture. `/api/me.features` advertises the actual
+profile to every authenticated role. Deployment and limitations are documented in
+[postgres-catalog.md](postgres-catalog.md).
+
 ## Projects and snapshots
 
 ### Explicit project sources (implemented v1 subset)

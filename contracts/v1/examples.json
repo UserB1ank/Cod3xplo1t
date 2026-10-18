@@ -74,5 +74,9 @@
   {
     "file": "examples/report-runtime.json",
     "schema": "report-runtime.schema.json"
+  },
+  {
+    "file": "examples/storage-status.json",
+    "schema": "storage-status.schema.json"
   }
 ]

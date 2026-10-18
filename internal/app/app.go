@@ -1,5 +1,5 @@
 // Package app wires the P1 components into a runnable runtime. Both binaries use
-// it, so the SQLite driver, the migration set and the workspace layout are
+// it, so storage profiles, migration sets and the workspace layout are
 // configured in exactly one place.
 package app
 
@@ -52,6 +52,10 @@ type Config struct {
 	Workspace string
 	// DBPath is a SQLite file, or "" / "memory" for an in-process store.
 	DBPath string
+	// StorageDriver selects the complete sqlite mode (default) or the limited
+	// postgres catalog profile. PostgreSQL credentials are read from a file.
+	StorageDriver   string
+	PostgresDSNFile string
 	// AllowNetwork permits cloning remote git URLs.
 	AllowNetwork bool
 	// GitBin overrides the git executable.
@@ -272,6 +276,33 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 		VerificationConfig: cfg.Verification,
 		SchedulerConfig:    cfg.Scheduler,
 		Workspace:          mgr.Root,
+	}
+	if cfg.StorageDriver != "" && cfg.StorageDriver != "sqlite" && cfg.StorageDriver != "postgres" {
+		return nil, errors.New("app: unsupported storage driver")
+	}
+	if cfg.StorageDriver == "postgres" {
+		if cfg.DBPath != "" || cfg.PostgresDSNFile == "" {
+			return nil, errors.New("app: postgres requires a DSN file and cannot be combined with a SQLite path")
+		}
+		raw, err := os.ReadFile(cfg.PostgresDSNFile)
+		if err != nil || strings.TrimSpace(string(raw)) == "" || len(raw) > 16384 {
+			return nil, errors.New("app: PostgreSQL credential file is unavailable or invalid")
+		}
+		store, err := storage.OpenSQL(ctx, "pgx", strings.TrimSpace(string(raw)))
+		if err != nil {
+			return nil, errors.New("app: PostgreSQL connection failed")
+		}
+		if err := store.EnsureSchema(ctx, migrations.Postgres); err != nil {
+			store.Close()
+			return nil, errors.New("app: PostgreSQL catalog migration failed")
+		}
+		rt.Store = store
+		rt.Snapshots = lifecycle.Snapshots{Store: store, Manager: mgr}
+		rt.closers = append(rt.closers, store.Close)
+		return rt, nil
+	}
+	if cfg.PostgresDSNFile != "" {
+		return nil, errors.New("app: PostgreSQL credential file requires postgres storage")
 	}
 
 	executors := builtinanalysis.Executors()

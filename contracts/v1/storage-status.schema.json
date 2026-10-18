@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codexploit.invalid/contracts/v1/storage-status.schema.json",
+  "title": "Redacted storage readiness and wired capabilities",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "api_version",
+    "driver",
+    "profile",
+    "readiness",
+    "durable",
+    "schema_version",
+    "capabilities",
+    "locations"
+  ],
+  "properties": {
+    "api_version": {
+      "const": "codexploit/v1"
+    },
+    "driver": {
+      "enum": [
+        "memory",
+        "sqlite",
+        "postgres"
+      ]
+    },
+    "profile": {
+      "enum": [
+        "complete",
+        "catalog"
+      ]
+    },
+    "readiness": {
+      "enum": [
+        "ready",
+        "unavailable"
+      ]
+    },
+    "durable": {
+      "type": "boolean"
+    },
+    "schema_version": {
+      "type": "string",
+      "pattern": "^(memory|unknown|[0-9]{4})$"
+    },
+    "capabilities": {
+      "type": "object",
+      "required": [
+        "projects",
+        "sources",
+        "snapshots",
+        "artifacts",
+        "inventory",
+        "knowledge",
+        "plugins",
+        "tasks",
+        "findings",
+        "workflows",
+        "reports"
+      ],
+      "properties": {
+        "projects": {
+          "type": "boolean"
+        },
+        "sources": {
+          "type": "boolean"
+        },
+        "snapshots": {
+          "type": "boolean"
+        },
+        "artifacts": {
+          "type": "boolean"
+        },
+        "inventory": {
+          "type": "boolean"
+        },
+        "knowledge": {
+          "type": "boolean"
+        },
+        "plugins": {
+          "type": "boolean"
+        },
+        "tasks": {
+          "type": "boolean"
+        },
+        "findings": {
+          "type": "boolean"
+        },
+        "workflows": {
+          "type": "boolean"
+        },
+        "reports": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "locations": {
+      "type": "object",
+      "required": [
+        "catalog",
+        "artifact_content",
+        "accounts",
+        "model_settings"
+      ],
+      "properties": {
+        "catalog": {
+          "enum": [
+            "memory",
+            "sqlite",
+            "postgres"
+          ]
+        },
+        "artifact_content": {
+          "const": "workspace"
+        },
+        "accounts": {
+          "const": "workspace"
+        },
+        "model_settings": {
+          "const": "workspace"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

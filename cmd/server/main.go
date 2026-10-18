@@ -52,6 +52,8 @@ func run() error {
 		addr            = flag.String("addr", ":8080", "listen address")
 		workspace       = flag.String("workspace", ".codexploit", "workspace directory for snapshots")
 		dbPath          = flag.String("db", "", "SQLite database file (default <workspace>/codexploit.db, \"memory\" for an in-process store)")
+		storageDriver   = flag.String("storage", "sqlite", "storage profile: sqlite or postgres (catalog only)")
+		postgresDSNFile = flag.String("postgres-dsn-file", "", "runtime PostgreSQL credential file; never put a DSN in arguments")
 		allowNetwork    = flag.Bool("allow-network", false, "permit cloning remote git URLs")
 		gitBin          = flag.String("git", "git", "git executable")
 		gitCAFile       = flag.String("git-ca-file", "", "deployment-owned HTTPS CA bundle for Git")
@@ -124,7 +126,7 @@ func run() error {
 		return err
 	}
 	path := *dbPath
-	if path == "" {
+	if path == "" && *storageDriver == "sqlite" {
 		path = filepath.Join(absWorkspace, "codexploit.db")
 	}
 	if *webAuth && *anonymous {
@@ -157,6 +159,8 @@ func run() error {
 	rt, err := app.Build(ctx, app.Config{
 		Workspace:          absWorkspace,
 		DBPath:             path,
+		StorageDriver:      *storageDriver,
+		PostgresDSNFile:    *postgresDSNFile,
 		AllowNetwork:       *allowNetwork,
 		GitBin:             *gitBin,
 		GitCAFile:          *gitCAFile,
@@ -264,7 +268,7 @@ func run() error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		logger.Info("listening", "addr", httpServer.Addr, "workspace", rt.Workspace, "db", path)
+		logger.Info("listening", "addr", httpServer.Addr, "storage", *storageDriver)
 		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}

@@ -13,6 +13,7 @@ import {
   Check,
   ChevronRight,
   Code2,
+  Database,
   FileCode2,
   FileText,
   FolderGit2,
@@ -42,6 +43,7 @@ import { Workflows, type Plan } from "./Workflows";
 import { WorkflowRun, flowStatus } from "./WorkflowRun";
 import { Knowledge } from "./Knowledge";
 import { Reports } from "./Reports";
+import { Storage } from "./Storage";
 import {
   Badge,
   CodeBlock,
@@ -203,7 +205,7 @@ export default function App() {
   const tasks = useResource(
     async (signal) => {
       const tasks: Task[] = [];
-      if (!api || !route.project) return { tasks, total: 0 };
+      if (!api || !route.project || identity?.features.tasks === false) return { tasks, total: 0 };
       let total = 0;
       do {
         const page = await api.get<{ tasks: Task[]; total: number }>(
@@ -216,17 +218,17 @@ export default function App() {
       } while (tasks.length < total);
       return { tasks, total };
     },
-    [api, route.project, revision],
+    [api, route.project, revision, identity?.features.tasks],
   );
   const findings = useResource(
     async (signal) =>
-      api && route.project
+      api && route.project && identity?.features.findings !== false
         ? api.get<FindingPage>(
             `/projects/${encodeURIComponent(route.project)}/findings?limit=1000`,
             signal,
           )
         : { findings: [], total: 0, counts: {}, truncated: false },
-    [api, route.project, revision],
+    [api, route.project, revision, identity?.features.findings],
   );
   const task = tasks.data?.tasks.find((t) => t.audit_id === route.task);
   const action = async (
@@ -259,6 +261,7 @@ export default function App() {
       />
     );
   const canWrite = identity.can_write;
+  const catalogOnly = identity.features.storage_postgres;
   const navItems = [
     { id: "overview", label: "项目概览", icon: Layers },
     { id: "tasks", label: "挖掘任务", icon: Workflow },
@@ -283,13 +286,14 @@ export default function App() {
           </span>
         </a>
         <button
-          className={`nav-item all-projects ${!route.project && route.view !== "settings" ? "selected" : ""}`}
+          className={`nav-item all-projects ${!route.project && route.view === "projects" ? "selected" : ""}`}
           onClick={() => navigate({ view: "projects" })}
         >
           <FolderGit2 size={17} />
           全部项目
           <ChevronRight size={14} />
         </button>
+        {identity.role === "admin" && <button className={`nav-item ${!route.project && route.view === "storage" ? "selected" : ""}`} onClick={() => navigate({ view: "storage" })}><Database size={17} />数据存储</button>}
         {identity.role === "admin" && identity.features.llm_settings && (
           <button
             className={`nav-item ${!route.project && route.view === "settings" ? "selected" : ""}`}
@@ -310,6 +314,8 @@ export default function App() {
               {navItems.map((item) => (
                 <button
                   key={item.id}
+                  disabled={catalogOnly && !["sources", "artifacts", "settings"].includes(item.id)}
+                  title={catalogOnly && !["sources", "artifacts", "settings"].includes(item.id) ? "PostgreSQL 目录模式尚未接线" : undefined}
                   className={`nav-item ${route.task ? (item.id === "tasks" ? "selected" : "") : route.view === item.id ? "selected" : ""}`}
                   onClick={() =>
                     navigate({ project: route.project, view: item.id })
@@ -322,8 +328,8 @@ export default function App() {
             </nav>
             <div className="sidebar-note">
               <BookOpen size={16} />
-              <strong>知识在项目内共享</strong>
-              <p>任务独立运行，代码事实与证据保留版本和来源。</p>
+              <strong>{catalogOnly ? "固定输入保留在项目内" : "知识在项目内共享"}</strong>
+              <p>{catalogOnly ? "当前支持代码源、快照和产物目录。研究功能尚未接线。" : "任务独立运行，代码事实与证据保留版本和来源。"}</p>
             </div>
           </>
         )}
@@ -358,7 +364,7 @@ export default function App() {
               <>
                 <ChevronRight size={13} />
                 <a
-                  href={routeHash({ project: route.project, view: "overview" })}
+                  href={routeHash({ project: route.project, view: catalogOnly ? "sources" : "overview" })}
                 >
                   {project?.name || "…"}
                 </a>
@@ -426,7 +432,9 @@ export default function App() {
               {busy}中，请保持页面打开…
             </div>
           )}
-          {!route.project && route.view === "settings" ? (
+          {!route.project && route.view === "storage" ? (
+            <Storage api={api} isAdmin={identity.role === "admin"} />
+          ) : !route.project && route.view === "settings" ? (
             <LLMSettings
               api={api}
               identity={identity}
@@ -442,8 +450,9 @@ export default function App() {
               projects={projects.data || []}
               loading={projects.loading}
               canWrite={canWrite}
+              catalogOnly={catalogOnly}
               onCreate={() => setDialog("project")}
-              onOpen={(id) => navigate({ project: id, view: "tasks" })}
+              onOpen={(id) => navigate({ project: id, view: catalogOnly ? "sources" : "tasks" })}
             />
           ) : projects.loading && !project ? (
             <Loading />
@@ -451,6 +460,8 @@ export default function App() {
             <EmptyState title="项目不存在">
               返回项目列表选择一个可用项目。
             </EmptyState>
+          ) : catalogOnly && !["sources", "artifacts", "settings"].includes(route.view) ? (
+            <EmptyState title="当前存储模式尚未接线此功能" action={<button className="button secondary" onClick={() => navigate({ project: project.id, view: "sources" })}>查看代码源</button>}>PostgreSQL 目录模式支持项目、代码源、快照和产物。图谱、任务与研究记录将在后续版本接通。</EmptyState>
           ) : route.task && !tasks.loading && tasks.data && !task ? (
             <EmptyState title="任务不属于当前项目">
               返回项目任务列表选择一个可用任务。
@@ -495,7 +506,7 @@ export default function App() {
                             : route.view === "findings"
                               ? "汇总任务发现，按证据结论与漏洞严重度查看。"
                               : route.view === "sources"
-                                ? "管理文件夹与 Git 仓库，固定源码版本，再选择代码基线创建任务。"
+                                ? catalogOnly ? "管理文件夹与 Git 仓库，固定源码版本并校验产物。" : "管理文件夹与 Git 仓库，固定源码版本，再选择代码基线创建任务。"
                                 : project.source || "项目代码源独立管理。"}
                   </p>
                 </div>
@@ -512,7 +523,7 @@ export default function App() {
                   )}
                   <button
                     className="button primary"
-                    disabled={!canWrite || !!busy || !snapshots.data?.length}
+                    disabled={!canWrite || !!busy || !snapshots.data?.length || catalogOnly}
                     onClick={() => {
                       setTaskSnapshot(undefined);
                       setDialog("task");
@@ -530,6 +541,7 @@ export default function App() {
                   project={project}
                   revision={revision}
                   canWrite={canWrite && !busy}
+                  canResearch={!catalogOnly}
                   onRefresh={() => refresh((n) => n + 1)}
                   onLegacySnapshot={() => setDialog("snapshot")}
                   onArtifacts={(snapshot) =>
@@ -684,9 +696,10 @@ export default function App() {
         <ProjectForm
           busy={!!busy}
           network={identity.features.network}
+          buildKnowledge={!catalogOnly}
           onSubmit={(values) =>
             action(
-              "建立项目与图谱",
+              catalogOnly ? "建立项目与快照" : "建立项目与图谱",
               async () => {
                 if (values.kind !== "legacy_auto") {
                   const created = await api.post<{ project: Project }>(
@@ -708,8 +721,8 @@ export default function App() {
                   await api.post(`/v1/sources/${input.source.id}/snapshots`, {
                     project_id: created.project.id,
                     source_version: input.source.version,
-                    build_graph: true,
-                    build_asg: true,
+                    build_graph: !catalogOnly,
+                    build_asg: !catalogOnly,
                   });
                   return;
                 }
@@ -720,8 +733,8 @@ export default function App() {
                 navigate({ project: created.project.id, view: "tasks" });
                 await api.post(`/projects/${created.project.id}/snapshots`, {
                   ref: values.ref || "HEAD",
-                  build_graph: true,
-                  build_asg: true,
+                  build_graph: !catalogOnly,
+                  build_asg: !catalogOnly,
                 });
               },
               () => setDialog(""),
@@ -739,12 +752,12 @@ export default function App() {
           onSubmit={(ref) =>
             project &&
             action(
-              "构建快照与共享图谱",
+              catalogOnly ? "构建快照" : "构建快照与共享图谱",
               () =>
                 api.post(`/projects/${project.id}/snapshots`, {
                   ref: ref || "HEAD",
-                  build_graph: true,
-                  build_asg: true,
+                  build_graph: !catalogOnly,
+                  build_asg: !catalogOnly,
                 }),
               () => setDialog(""),
             )
@@ -1034,6 +1047,7 @@ function Projects({
   projects,
   loading,
   canWrite,
+  catalogOnly,
   onCreate,
   onOpen,
 }: {
@@ -1042,6 +1056,7 @@ function Projects({
   projects: Project[];
   loading: boolean;
   canWrite: boolean;
+  catalogOnly: boolean;
   onCreate: () => void;
   onOpen: (id: string) => void;
 }) {
@@ -1096,7 +1111,7 @@ function Projects({
             )
           }
         >
-          导入仓库后，建立共享图谱，再按目标创建挖掘任务。
+          {catalogOnly ? "导入文件夹或 Git 定义，固定源码快照并保存产物目录。" : "导入仓库后，建立共享图谱，再按目标创建挖掘任务。"}
         </EmptyState>
       ) : (
         <div className="project-grid">
@@ -1106,6 +1121,7 @@ function Projects({
               api={api}
               project={project}
               revision={revision}
+              catalogOnly={catalogOnly}
               onOpen={() => onOpen(project.id)}
             />
           ))}
@@ -1119,15 +1135,18 @@ function ProjectCard({
   api,
   project,
   revision,
+  catalogOnly,
   onOpen,
 }: {
   api: ApiClient;
   project: Project;
   revision: number;
+  catalogOnly: boolean;
   onOpen: () => void;
 }) {
   const summary = useResource(
     async (signal) => {
+      if (catalogOnly) return undefined;
       const [tasks, findings] = await Promise.all([
         api.get<{ total: number }>(
           `/projects/${project.id}/tasks?limit=1`,
@@ -1140,7 +1159,7 @@ function ProjectCard({
       ]);
       return { tasks: tasks.total, findings };
     },
-    [api, project.id, revision],
+    [api, project.id, revision, catalogOnly],
   );
   return (
     <button className="project-card" onClick={onOpen}>
@@ -1153,14 +1172,14 @@ function ProjectCard({
       <h2>{project.name}</h2>
       <p className="mono">{project.source}</p>
       <div className="project-card-stats">
-        <span>{summary.data?.tasks ?? "—"} 个任务</span>
-        <div className="grade-counts">
+        <span>{catalogOnly ? "目录模式 · 研究功能尚未接线" : `${summary.data?.tasks ?? "—"} 个任务`}</span>
+        {!catalogOnly && <div className="grade-counts">
           {(["high", "medium", "low"] as Grade[]).map((grade) => (
             <span title={gradeNames[grade]} className={grade} key={grade}>
               {summary.data?.findings.counts[grade] ?? "—"}
             </span>
           ))}
-        </div>
+        </div>}
       </div>
       {summary.error && (
         <small className="muted">统计读取失败，进入项目后可重试</small>
@@ -1171,7 +1190,7 @@ function ProjectCard({
       <div className="project-card-footer">
         <span>
           <Network size={13} />
-          项目共享图谱
+          {catalogOnly ? "代码源与固定快照" : "项目共享图谱"}
         </span>
         <span>{dateLabel(project.updated_at)}</span>
       </div>
@@ -2341,9 +2360,9 @@ function ProjectSettings({
           <dt>代码版本</dt>
           <dd>{snapshots.length} 个快照</dd>
           <dt>存储方式</dt>
-          <dd>服务端工作区 · SQLite</dd>
+          <dd>{identity.features.storage_postgres ? "PostgreSQL · 目录模式" : identity.features.storage_memory ? "内存 · 进程退出后目录丢失" : "服务端工作区 · SQLite"}</dd>
           <dt>知识共享</dt>
-          <dd>项目内共享，任务固定代码版本</dd>
+          <dd>{identity.features.storage_postgres ? "图谱与任务尚未接线" : "项目内共享，任务固定代码版本"}</dd>
         </dl>
       </Panel>
       <Panel title="服务能力">
@@ -2389,10 +2408,12 @@ function FormFooter({ busy, label }: { busy: boolean; label: string }) {
 function ProjectForm({
   busy,
   network,
+  buildKnowledge,
   onSubmit,
 }: {
   busy: boolean;
   network: boolean;
+  buildKnowledge: boolean;
   onSubmit: (values: {
     name: string;
     source: string;
@@ -2485,11 +2506,11 @@ function ProjectForm({
         </label>
       )}
       <Hint>
-        创建项目后，将固定代码快照并构建共享图谱。分析过程只读取源码。
+        {buildKnowledge ? "创建项目后，将固定代码快照并构建共享图谱。" : "创建项目后，将固定代码快照并保存产物目录；研究功能尚未接线。"}分析过程只读取源码。
         {kind === "local_folder" &&
           "包含未提交修改；目录内的 .git 不会切换读取方式。"}
       </Hint>
-      <FormFooter busy={busy} label="创建项目并建立图谱" />
+      <FormFooter busy={busy} label={buildKnowledge ? "创建项目并建立图谱" : "创建项目并固定快照"} />
     </form>
   );
 }

@@ -28,6 +28,24 @@ func TestBuildRejectsEmptyWorkspace(t *testing.T) {
 	}
 }
 
+func TestPostgresBlankCredentialsCannotUseAmbientDefaults(t *testing.T) {
+	t.Parallel()
+	file := filepath.Join(t.TempDir(), "dsn")
+	if err := os.WriteFile(file, []byte(" \n\t"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	rt, err := Build(ctx, Config{Workspace: t.TempDir(), StorageDriver: "postgres", PostgresDSNFile: file})
+	if rt != nil {
+		rt.Close()
+		t.Fatal("blank PostgreSQL credential file accepted")
+	}
+	if err == nil || !strings.Contains(err.Error(), "credential file") {
+		t.Fatalf("blank credentials reached a driver: %v", err)
+	}
+}
+
 func TestBuildDefaultsToInMemoryStore(t *testing.T) {
 	t.Parallel()
 	workspace := filepath.Join(t.TempDir(), "work")

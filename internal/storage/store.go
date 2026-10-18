@@ -1,7 +1,7 @@
 // Package storage persists the P1 documents: projects, snapshots and analysis
-// manifests. It is deliberately driver agnostic: the SQL implementation takes an
-// already registered database/sql driver name and only rebinds placeholders per
-// dialect, so switching from SQLite to PostgreSQL is a configuration change.
+// manifests. SQLite implements the complete runtime; PostgreSQL currently wires
+// only the explicit catalog profile. Its remaining domain ports are unavailable
+// until their migrations and transaction semantics have been integrated.
 package storage
 
 import (

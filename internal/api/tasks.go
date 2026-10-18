@@ -24,7 +24,11 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	if ready && s.LLMSettings != nil {
 		ready = s.Agent.Ready() == nil
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"name": p.Name, "role": p.Capabilities.String(), "can_write": p.Capabilities.Allows(CapWrite), "features": map[string]bool{"agent": ready, "llm_settings": s.LLMSettings != nil, "verification": s.Verifier != nil && s.VerifyPlanner != nil, "scheduler": s.Scheduler != nil, "network": s.AllowNetwork}})
+	features := storage.StorageCapabilities(s.Store)
+	features["agent"], features["llm_settings"], features["verification"], features["scheduler"], features["network"] = ready, s.LLMSettings != nil, s.Verifier != nil && s.VerifyPlanner != nil, s.Scheduler != nil, s.AllowNetwork
+	features["storage_postgres"] = storage.CatalogOnly(s.Store)
+	_, features["storage_memory"] = s.Store.(*storage.Memory)
+	writeJSON(w, http.StatusOK, map[string]any{"name": p.Name, "role": p.Capabilities.String(), "can_write": p.Capabilities.Allows(CapWrite), "features": features})
 }
 
 type taskRequest struct {

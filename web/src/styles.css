@@ -2470,3 +2470,24 @@ pre {
 .workflow-plan-table th { color: var(--muted); background: var(--panel-raised); font-weight: 500; }
 .workflow-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 0 22px 14px; font-size: 11px; }
 .workflow-controls .button { padding: 5px 10px; }
+
+.storage-metrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.storage-metrics > div {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 22px 25px;
+  border-right: 1px solid var(--border);
+}
+.storage-metrics > div:last-child { border-right: 0; }
+.storage-metrics span, .storage-metrics small { color: var(--muted); font-size: 11px; }
+.storage-metrics strong { font-size: 27px; font-weight: 450; }
+.storage-columns { margin-top: 24px; align-items: start; }
+.storage-columns dl > div { margin-bottom: 20px; }
+@media (max-width: 700px) {
+  .storage-metrics { grid-template-columns: 1fr; }
+  .storage-metrics > div { border-right: 0; border-bottom: 1px solid var(--border); }
+  .storage-metrics > div:last-child { border-bottom: 0; }
+}

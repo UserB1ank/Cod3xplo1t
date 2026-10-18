@@ -93,6 +93,7 @@ export function readRoute(hash: string): Route {
       .split("/")
       .map(decodeURIComponent);
     if (root === "settings") return { view: "settings" };
+    if (root === "storage") return { view: "storage" };
     if (root !== "projects" || !project) return { view: "projects" };
     if (page === "artifacts")
       return {
@@ -124,6 +125,7 @@ export function readRoute(hash: string): Route {
 }
 export function routeHash(route: Route): string {
   if (!route.project && route.view === "settings") return "#/settings";
+  if (!route.project && route.view === "storage") return "#/storage";
   if (!route.project) return "#/projects";
   const project = encodeURIComponent(route.project);
   return route.task

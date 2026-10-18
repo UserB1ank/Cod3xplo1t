@@ -30,14 +30,14 @@ export class ApiClient {
   private fetcher: typeof fetch;
   constructor(connection: Connection, fetcher: typeof fetch = fetch) { this.connection = { ...connection, base: normalizeBase(connection.base) }; this.fetcher = fetcher.bind(globalThis); }
 
-  async response(path: string, options: RequestInit = {}) {
+  async response(path: string, options: RequestInit = {}, acceptedStatuses: readonly number[] = []) {
     if (!path.startsWith('/') || path.includes('..') || path.startsWith('//')) throw new Error('无效的 API 路径。');
     const headers = new Headers(options.headers);
     headers.set('Accept', 'application/json');
     if (this.connection.token) headers.set('Authorization', `Bearer ${this.connection.token}`);
     if (options.body) headers.set('Content-Type', 'application/json');
     const response = await this.fetcher(this.connection.base + path, { ...options, headers, credentials: 'same-origin', redirect: 'error', cache: 'no-store' });
-    if (!response.ok) {
+    if (!response.ok && !acceptedStatuses.includes(response.status)) {
       const body = await response.json().catch(() => ({})) as { error?: string; code?: string; diagnostics?: {path: string; code: string; message: string}[] };
       const message = response.status === 401 ? (body.code === 'invalid_credentials' ? '账号或密码不正确。' : '登录已过期或访问凭据无效，请重新登录。') : response.status === 403 ? '当前凭据没有执行该操作的权限。' : response.status === 412 ? '数据已被其他操作更新，请刷新后重试。' : body.error || `请求失败（${response.status}）`;
       throw new ApiError(response.status, body.code || 'request_failed', message, body.diagnostics);

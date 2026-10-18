@@ -11,6 +11,7 @@ comment, not a contract.
 |---|---|
 | `make test` | `go test ./... -count=1 -shuffle=on -race -timeout 240s` — identical to CI |
 | `make test-stress` | the same suite with `-count=3`, for filesystem and lifecycle races the race detector cannot see |
+| `make test-postgres` | real PostgreSQL catalog acceptance in an isolated Compose project; temporary runtime credentials, no database host port; see [catalog deployment](postgres-catalog.md) |
 | `make lint` | `make fmt-check` + `go vet ./...` + Staticcheck at the pinned version — identical to the CI `lint` job |
 | `make fmt-check` | `gofmt -l` over the Go files `git ls-files` returns; fails on any diff or parse error |
 | `make vet` | `go vet ./...` |

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/open-mcp-ai/Codexploit/internal/analysis"
 	"github.com/open-mcp-ai/Codexploit/internal/repository"
 )
@@ -35,6 +36,10 @@ func OpenSQL(ctx context.Context, driver, dsn string) (*SQL, error) {
 	// a single connection keeps behaviour predictable on every platform.
 	if !isPostgresDriver(driver) {
 		db.SetMaxOpenConns(1)
+	} else {
+		db.SetMaxOpenConns(16)
+		db.SetMaxIdleConns(4)
+		db.SetConnMaxIdleTime(5 * time.Minute)
 	}
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
@@ -186,11 +191,11 @@ func (s *SQL) PutSnapshot(ctx context.Context, projectID string, snap *repositor
 		return err
 	}
 
-	var existing string
-	err = tx.QueryRowContext(ctx, s.rebind(`SELECT metadata_json FROM snapshots WHERE snapshot_id = ?`), snap.SnapshotID).Scan(&existing)
+	var existing, owner string
+	err = tx.QueryRowContext(ctx, s.rebind(`SELECT metadata_json, project_id FROM snapshots WHERE snapshot_id = ?`), snap.SnapshotID).Scan(&existing, &owner)
 	switch {
 	case err == nil:
-		if !sameDocument([]byte(existing), doc) {
+		if owner != projectID || !sameDocument([]byte(existing), doc) {
 			return fmt.Errorf("%w: snapshot %s already exists with different content", ErrConflict, snap.SnapshotID)
 		}
 		return tx.Commit()
@@ -273,6 +278,9 @@ FROM snapshots`
 
 // DeleteSnapshot implements Store.
 func (s *SQL) DeleteSnapshot(ctx context.Context, id string) error {
+	if s.postgres {
+		return s.deleteCatalogSnapshot(ctx, id)
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return mapSQLError(err)

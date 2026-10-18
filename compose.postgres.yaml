@@ -1,0 +1,95 @@
+# Independent experimental catalog deployment; the default SQLite deployment
+# and its volumes are unaffected. Secrets are supplied as runtime file references.
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: codexploit
+      POSTGRES_USER: catalog
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - postgres-catalog:/var/lib/postgresql/data
+    networks:
+      - catalog
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U catalog -d codexploit"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    stop_grace_period: 30s
+
+  codexploit:
+    image: codexploit:postgres-catalog
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${CODEXPLOIT_PG_PORT:-18095}:8080"
+    command:
+      - --addr=:8080
+      - --workspace=/data
+      - --storage=postgres
+      - --postgres-dsn-file=/run/secrets/postgres_dsn
+      - --web-auth
+      - --agent-runtime=llm
+      - --allow-network=${CODEXPLOIT_ALLOW_NETWORK:-false}
+    secrets:
+      - postgres_dsn
+    volumes:
+      - catalog-workspace:/data
+      - type: bind
+        source: ${CODEXPLOIT_SOURCE_ROOT:?provide an absolute read-only source directory}
+        target: /repos
+        read_only: true
+    networks:
+      - catalog
+      - web
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    stop_grace_period: 30s
+
+  tests:
+    profiles: [acceptance]
+    image: golang:1.26-bookworm
+    working_dir: /src
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["go", "test", "./internal/storage", "./internal/api", "-run", "^TestPostgres", "-count=1", "-shuffle=on", "-race", "-timeout", "240s"]
+    environment:
+      CODEXPLOIT_TEST_POSTGRES_DSN_FILE: /run/secrets/postgres_dsn
+    secrets:
+      - postgres_dsn
+    volumes:
+      - .:/src:ro
+      - acceptance-modules:/go/pkg/mod
+      - acceptance-cache:/root/.cache/go-build
+    networks:
+      - catalog
+      - web
+
+networks:
+  catalog:
+    internal: true
+  web: {}
+
+volumes:
+  postgres-catalog:
+  catalog-workspace:
+  acceptance-modules:
+  acceptance-cache:
+
+secrets:
+  postgres_password:
+    file: ${CODEXPLOIT_POSTGRES_PASSWORD_FILE:?provide a runtime password file}
+  postgres_dsn:
+    file: ${CODEXPLOIT_POSTGRES_DSN_FILE:?provide a runtime DSN file}

@@ -101,6 +101,7 @@ export function Sources({
   project,
   revision,
   canWrite,
+  canResearch,
   onRefresh,
   onTask,
   onLegacySnapshot,
@@ -110,6 +111,7 @@ export function Sources({
   project: Project;
   revision: number;
   canWrite: boolean;
+  canResearch: boolean;
   onRefresh: () => void;
   onTask: (snapshot: string) => void;
   onLegacySnapshot: () => void;
@@ -195,7 +197,7 @@ export function Sources({
         <div className="source-description">
           <Hint>
             文件夹读取当前文件；Git
-            按分支、标签或提交固定版本。每次更新生成不可变快照，已有任务继续使用原版本。
+            按分支、标签或提交固定版本。每次更新生成不可变快照。{canResearch ? "已有任务继续使用原版本。" : "当前目录模式不提供任务与图谱。"}
           </Hint>
         </div>
         {loading ? (
@@ -282,8 +284,8 @@ export function Sources({
                                 {
                                   project_id: project.id,
                                   source_version: source.version,
-                                  build_graph: true,
-                                  build_asg: true,
+                                  build_graph: canResearch,
+                                  build_asg: canResearch,
                                 },
                               );
                               setNotice(
@@ -299,12 +301,12 @@ export function Sources({
                             <GitBranch size={14} />
                           )}
                           {source.snapshot
-                            ? "更新快照与图谱"
-                            : "生成快照与图谱"}
+                            ? canResearch ? "更新快照与图谱" : "更新快照"
+                            : canResearch ? "生成快照与图谱" : "生成快照"}
                         </button>
                         <button
                           className="button secondary"
-                          disabled={!canWrite || !!busy || !source.snapshot}
+                          disabled={!canWrite || !!busy || !source.snapshot || !canResearch}
                           onClick={() =>
                             source.snapshot && onTask(source.snapshot)
                           }
@@ -369,7 +371,7 @@ export function Sources({
               );
               form.reset();
               setAdding(false);
-              setNotice("代码源已保存，可生成快照并创建任务。");
+              setNotice(canResearch ? "代码源已保存，可生成快照并创建任务。" : "代码源已保存，可生成固定快照并查看产物。");
             });
           }}
         >
@@ -499,7 +501,7 @@ export function Sources({
               </button>
               <button
                 className="button primary"
-                disabled={!canWrite}
+                disabled={!canWrite || !canResearch}
                 onClick={() => {
                   setSelected(undefined);
                   onTask(details.snapshot_id);

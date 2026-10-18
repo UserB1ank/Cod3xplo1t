@@ -58,6 +58,11 @@ docker-up:
 test:
 	$(GO) test $(PKG) $(TEST_FLAGS)
 
+# Real PostgreSQL in a fresh isolated Compose project; credentials are temporary.
+.PHONY: test-postgres
+test-postgres:
+	python3 scripts/test-postgres.py
+
 # The race detector cannot see filesystem and lifecycle races; repeat the suite
 # on a dirty machine instead.
 test-stress:

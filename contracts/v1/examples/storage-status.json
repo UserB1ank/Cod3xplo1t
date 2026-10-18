@@ -1,0 +1,27 @@
+{
+  "api_version": "codexploit/v1",
+  "driver": "postgres",
+  "profile": "catalog",
+  "readiness": "ready",
+  "durable": true,
+  "schema_version": "0001",
+  "capabilities": {
+    "projects": true,
+    "sources": true,
+    "snapshots": true,
+    "artifacts": true,
+    "inventory": true,
+    "knowledge": false,
+    "plugins": false,
+    "tasks": false,
+    "findings": false,
+    "workflows": false,
+    "reports": false
+  },
+  "locations": {
+    "catalog": "postgres",
+    "artifact_content": "workspace",
+    "accounts": "workspace",
+    "model_settings": "workspace"
+  }
+}

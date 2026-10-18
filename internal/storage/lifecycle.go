@@ -89,6 +89,9 @@ func validateSnapshotRevival(snap *repository.Snapshot) error {
 }
 
 func (s *SQL) snapshotRegistrationTx(ctx context.Context, tx *sql.Tx, snap *repository.Snapshot) error {
+	if err := s.lockSnapshotTx(ctx, tx, snap.SnapshotID); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, s.rebind("UPDATE snapshot_deletions SET created_at = created_at WHERE snapshot_id = ?"), snap.SnapshotID); err != nil {
 		return mapSQLError(err)
 	}
@@ -113,6 +116,9 @@ func (s *SQL) snapshotRegistrationTx(ctx context.Context, tx *sql.Tx, snap *repo
 // snapshotWritableTx obtains the SQLite write lock before checking the marker.
 // A deletion and a snapshot writer cannot both pass their checks and commit.
 func (s *SQL) snapshotWritableTx(ctx context.Context, tx *sql.Tx, id string) error {
+	if err := s.lockSnapshotTx(ctx, tx, id); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, s.rebind("UPDATE snapshot_deletions SET created_at = created_at WHERE snapshot_id = ?"), id); err != nil {
 		return mapSQLError(err)
 	}
@@ -198,9 +204,15 @@ func (s *SQL) BeginSnapshotDeletion(ctx context.Context, id string) error {
 		return mapSQLError(err)
 	}
 	defer tx.Rollback()
+	if err := s.lockSnapshotTx(ctx, tx, id); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, s.rebind(`INSERT INTO snapshot_deletions(snapshot_id,created_at)
 VALUES (?, ?) ON CONFLICT(snapshot_id) DO UPDATE SET completed = 0`), id, formatTime(time.Now().UTC())); err != nil {
 		return mapSQLError(err)
+	}
+	if s.postgres {
+		return mapSQLError(tx.Commit())
 	}
 	for _, query := range []string{
 		`SELECT COUNT(*) FROM workflow_runs WHERE snapshot_id=? AND status IN ('CREATED','RUNNING','PAUSING','PAUSED','CANCELLING')`,

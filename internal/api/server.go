@@ -176,7 +176,7 @@ func NewServer(store storage.FullStore, mgr *repository.Manager, analyzer *analy
 			s.Artifacts, _ = artifact.NewLocal(filepath.Join(s.Manager.Root, "artifacts"), index)
 		}
 	}
-	if publisher, ok := store.(publication.Store); ok {
+	if publisher, ok := store.(publication.Store); ok && !storage.CatalogOnly(store) {
 		s.Publications = publication.NewPublisher(publisher)
 	}
 	if s.Graph != nil {
@@ -192,7 +192,7 @@ func NewServer(store storage.FullStore, mgr *repository.Manager, analyzer *analy
 			Artifacts: artifacts,
 		})
 	}
-	if s.Findings == nil && store != nil {
+	if s.Findings == nil && store != nil && !storage.CatalogOnly(store) {
 		s.Findings = findings.NewService(store)
 	}
 	s.snapshots = lifecycle.Snapshots{Store: s.Store, Manager: s.Manager}
@@ -205,11 +205,12 @@ func NewServer(store storage.FullStore, mgr *repository.Manager, analyzer *analy
 // into the same JSON error shape as every other failure, so clients only ever
 // parse one format.
 func (s *Server) Handler() http.Handler {
-	return s.recoverer(s.logRequests(s.authenticate(s.jsonErrors(s.handler))))
+	return s.recoverer(s.logRequests(s.authenticate(s.guardStorage(s.jsonErrors(s.handler)))))
 }
 
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/storage/status", s.handleStorageStatus)
 	mux.HandleFunc("POST /api/v1/projects/{projectID}/reports", s.withIdempotency(s.handleCreateReport))
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/reports", s.handleListReports)
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/reports/{reportID}", s.handleGetReport)
@@ -557,6 +558,9 @@ func (s *Server) handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 	}
 	var req createSnapshotRequest
 	if !s.decode(w, r, &req) {
+		return
+	}
+	if !s.snapshotCapabilities(w, req) {
 		return
 	}
 	snap, err := s.Manager.Create(r.Context(), repository.Source{

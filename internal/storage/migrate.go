@@ -21,6 +21,9 @@ func (s *SQL) Migrate(ctx context.Context, fsys fs.FS) error {
 	if fsys == nil {
 		return errors.New("storage: nil migration filesystem")
 	}
+	if s.postgres {
+		return s.migratePostgres(ctx, fsys)
+	}
 	if _, err := s.db.ExecContext(ctx, `
 CREATE TABLE IF NOT EXISTS `+migrationTable+` (
     version    TEXT PRIMARY KEY,
