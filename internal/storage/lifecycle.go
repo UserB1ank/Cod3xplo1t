@@ -212,6 +212,13 @@ VALUES (?, ?) ON CONFLICT(snapshot_id) DO UPDATE SET completed = 0`), id, format
 		return mapSQLError(err)
 	}
 	if s.postgres {
+		var active int
+		if err := tx.QueryRowContext(ctx, s.rebind(`SELECT COUNT(*) FROM plugin_invocations WHERE snapshot_id=? AND status IN ('CREATED','RUNNING')`), id).Scan(&active); err != nil {
+			return err
+		}
+		if active != 0 {
+			return fmt.Errorf("%w: snapshot has unfinished plugin invocations", ErrConflict)
+		}
 		return mapSQLError(tx.Commit())
 	}
 	for _, query := range []string{

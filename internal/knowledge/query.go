@@ -7,6 +7,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/asg"
 	"github.com/open-mcp-ai/Codexploit/internal/graph"
 	"github.com/open-mcp-ai/Codexploit/internal/path"
+	"github.com/open-mcp-ai/Codexploit/internal/publication"
 	"github.com/open-mcp-ai/Codexploit/internal/scg"
 	"github.com/open-mcp-ai/Codexploit/internal/storage"
 )
@@ -87,6 +88,7 @@ type SlicePage struct {
 // PathQuery filters the path layer. Every path is pinned to the view's snapshot
 // and layer versions.
 type PathQuery struct {
+	AnalysisID   string
 	AuditID      string
 	EntryNodeID  string
 	TargetNodeID string
@@ -104,10 +106,11 @@ type AuditRef struct {
 
 // PathPage is one page of pinned AuditPaths plus the tasks that own them.
 type PathPage struct {
-	Paths      []path.Path `json:"paths"`
-	Audits     []AuditRef  `json:"audits"`
-	NextCursor string      `json:"next_cursor,omitempty"`
-	Meta       Meta        `json:"meta"`
+	Analyses   []publication.AnalysisSummary `json:"analyses,omitempty"`
+	Paths      []path.Path                   `json:"paths"`
+	Audits     []AuditRef                    `json:"audits"`
+	NextCursor string                        `json:"next_cursor,omitempty"`
+	Meta       Meta                          `json:"meta"`
 }
 
 func metaFor(view *View, layer string, total int) Meta {
@@ -245,6 +248,9 @@ func (r *Reader) Paths(ctx context.Context, scope Scope, viewID string, q PathQu
 		return nil, err
 	}
 	limit := clampLimit(q.Limit)
+	if page, handled, err := r.analysisPaths(ctx, scope, view, d, q, offset, limit); handled || err != nil {
+		return page, err
+	}
 	pinned, err := r.pinnedAudits(ctx, scope.SnapshotID, d)
 	if err != nil {
 		return nil, err
@@ -296,6 +302,9 @@ func (r *Reader) Paths(ctx context.Context, scope Scope, viewID string, q PathQu
 
 // pinnedAudits returns the audits whose layers match the view pin.
 func (r *Reader) pinnedAudits(ctx context.Context, snapshotID string, d descriptor) ([]path.Audit, error) {
+	if r.Queue == nil {
+		return []path.Audit{}, nil
+	}
 	audits, _, err := r.Queue.Audits(path.AuditQuery{SnapshotID: snapshotID, Limit: 1000})
 	if err != nil {
 		return nil, err
@@ -397,16 +406,17 @@ type ArtifactRef struct {
 
 // Provenance answers where a fact came from and which tasks share it.
 type Provenance struct {
-	FactID    string             `json:"fact_id"`
-	Kind      string             `json:"kind"` // "symbol" or "asg_node"
-	Scope     Scope              `json:"scope"`
-	Versions  map[string]string  `json:"versions"`
-	Producer  Producer           `json:"producer"`
-	Location  *Location          `json:"location,omitempty"`
-	Symbol    *scg.Symbol        `json:"symbol,omitempty"`
-	Node      *graph.ASGNodeView `json:"node,omitempty"`
-	Tasks     []AuditRef         `json:"tasks"`
-	Artifacts []ArtifactRef      `json:"artifacts,omitempty"`
+	Analyses  []publication.AnalysisSummary `json:"analyses,omitempty"`
+	FactID    string                        `json:"fact_id"`
+	Kind      string                        `json:"kind"` // "symbol" or "asg_node"
+	Scope     Scope                         `json:"scope"`
+	Versions  map[string]string             `json:"versions"`
+	Producer  Producer                      `json:"producer"`
+	Location  *Location                     `json:"location,omitempty"`
+	Symbol    *scg.Symbol                   `json:"symbol,omitempty"`
+	Node      *graph.ASGNodeView            `json:"node,omitempty"`
+	Tasks     []AuditRef                    `json:"tasks"`
+	Artifacts []ArtifactRef                 `json:"artifacts,omitempty"`
 }
 
 // Provenance resolves one fact id inside the view and reports its origin. The
@@ -457,6 +467,10 @@ func (r *Reader) Provenance(ctx context.Context, scope Scope, viewID, factID str
 		out.Producer = Producer{PluginID: "builtin.asg", PluginVersion: node.Meta.ASGVersion, InvocationID: "asg:" + d.ASG, ConfigDigest: d.ASG}
 	}
 	out.Tasks = []AuditRef{}
+	out.Analyses, err = r.pinnedAnalyses(ctx, scope, d.SCG, d.ASG)
+	if err != nil {
+		return nil, err
+	}
 	if view.Has(LayerPaths) && r.Queue != nil {
 		pinned, err := r.pinnedAudits(ctx, scope.SnapshotID, d)
 		if err != nil {

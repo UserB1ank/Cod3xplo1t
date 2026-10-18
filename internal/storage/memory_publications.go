@@ -162,6 +162,12 @@ func (m *Memory) PublishKnowledge(ctx context.Context, expectedHead string, docu
 	if _, exists := state.batches[document.Revision.BatchID]; exists {
 		return publication.ErrBatchConflict
 	}
+	if document.Analysis != nil && document.Analysis.Summary.ID != document.Revision.Producer.InvocationID {
+		return publication.ErrInvalidBatch
+	}
+	if err := m.indexAnalysisLocked(scope, document.Analysis); err != nil {
+		return err
+	}
 	state.revisions[document.Revision.ID] = cloneRevisionDocument(document)
 	state.batches[document.Revision.BatchID] = document.Revision
 	state.head = document.Revision.ID
@@ -171,6 +177,7 @@ func (m *Memory) PublishKnowledge(ctx context.Context, expectedHead string, docu
 
 func cloneRevisionDocument(document publication.RevisionDocument) publication.RevisionDocument {
 	clone := document
+	clone.Analysis = nil
 	clone.Facts = make([]publication.Fact, len(document.Facts))
 	for i, fact := range document.Facts {
 		clone.Facts[i] = fact

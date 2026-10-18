@@ -238,6 +238,7 @@ func (s *Server) handleKnowledgePaths(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page, err := reader.Paths(r.Context(), scope, r.PathValue("viewID"), knowledge.PathQuery{
+		AnalysisID:   r.URL.Query().Get("analysis_id"),
 		AuditID:      r.URL.Query().Get("audit_id"),
 		EntryNodeID:  r.URL.Query().Get("entry_node_id"),
 		TargetNodeID: r.URL.Query().Get("target_node_id"),
@@ -256,7 +257,7 @@ func (s *Server) handleKnowledgePaths(w http.ResponseWriter, r *http.Request) {
 	if audits == nil {
 		audits = []knowledge.AuditRef{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"api_version": "codexploit/v1", "paths": paths, "audits": audits, "next_cursor": page.NextCursor, "meta": page.Meta})
+	writeJSON(w, http.StatusOK, map[string]any{"api_version": "codexploit/v1", "paths": paths, "audits": audits, "analyses": page.Analyses, "next_cursor": page.NextCursor, "meta": page.Meta})
 }
 
 func (s *Server) handleKnowledgeSlice(w http.ResponseWriter, r *http.Request) {

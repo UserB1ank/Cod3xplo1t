@@ -6,10 +6,11 @@ covers explicit source types, plugin workflows and an independent PostgreSQL
 data service. It distinguishes target interfaces from the implemented system
 described below. The design prototype is available at `/prototype/` after building.
 
-The implemented PostgreSQL catalog profile and its limits are documented in
+The implemented PostgreSQL knowledge profile and its limits are documented in
 [postgres-catalog.md](postgres-catalog.md). It persists projects, source definitions,
-snapshots, base inventories and artifact indexes; graph, plugin and task domain
-ports remain unavailable in that profile. SQLite retains the complete runtime.
+snapshots, base inventories, artifact indexes, direct plugin calls, SCG/ASG,
+candidate paths and atomic knowledge revisions with outbox events. Task execution,
+workflows, findings and reports remain unavailable. SQLite retains the complete runtime.
 
 How the implemented system is put together: the pipeline, what each package is
 responsible for, what is stored where, which way dependencies point, and where
@@ -119,7 +120,7 @@ lexicographic order by `internal/storage`. One line per table:
 | `0006_audit_paths.sql` | `audits`, `audit_paths`, `path_features`, `path_events` | P4 audits, their paths (steps, signature, cluster, evidence, score, lease), append-only score snapshots and the audit-scoped event log |
 | created by the runner | `schema_migrations` | applied migration versions, so a rerun is a no-op |
 
-These are the complete SQLite migrations. PostgreSQL uses its own catalog-only
+These are the complete SQLite migrations. PostgreSQL uses its own partial-profile
 set under `migrations/postgres/`, with transaction-level migration and snapshot
 locks. Both sets use `TEXT`/`INTEGER`/`BIGINT` and UTC timestamp strings; shared
 column types alone do not imply that every domain port supports PostgreSQL.
@@ -182,7 +183,7 @@ The rules behind that order:
 |---|---|
 | `Workspace` | snapshot root; required, made absolute |
 | `DBPath` | `""` or `memory` selects the in-process store, any other value a SQLite file (its directory is created, the schema is migrated) |
-| `StorageDriver` | empty / `sqlite` retains the complete runtime; `postgres` selects only the wired catalog profile and rejects a simultaneous `DBPath` |
+| `StorageDriver` | empty / `sqlite` retains the complete runtime; `postgres` selects the wired knowledge profile and rejects a simultaneous `DBPath` |
 | `PostgresDSNFile` | runtime credential file required for `postgres`; connection and migration failures stop startup without a SQLite fallback |
 | `AllowNetwork` | forwarded to the repository manager: remote git URLs are refused without it |
 | `GitBin` | overrides the git executable |

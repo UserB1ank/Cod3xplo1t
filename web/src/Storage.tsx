@@ -89,8 +89,8 @@ export function Storage({
               <span>数据库</span>
               <strong>{driverNames[status.driver]}</strong>
               <small>
-                {status.profile === "catalog"
-                  ? "目录模式 · 实验部署"
+                {status.profile !== "complete"
+                  ? "知识模式 · 实验部署"
                   : "完整开发模式"}
               </small>
             </div>
@@ -118,10 +118,9 @@ export function Storage({
               存储未就绪，请检查数据库服务与迁移状态后重新探测。
             </div>
           )}
-          {status.profile === "catalog" && (
+          {status.profile !== "complete" && (
             <Hint>
-              PostgreSQL
-              当前仅接通项目、代码源、快照、源码清单和产物索引。图谱、任务、插件、工作流、发现和报告尚未接线，对应操作会被拒绝。
+              PostgreSQL 已接通目录、直接插件分析、固定图谱与多来源发布。任务、工作流、发现分级和报告尚未接线，对应操作会被拒绝。
             </Hint>
           )}
           <div className="two-columns storage-columns">
@@ -157,7 +156,7 @@ export function Storage({
               </dl>
               <Hint>
                 账号、会话和模型设置继续由应用工作区管理。
-                {status.profile === "catalog" &&
+                {status.profile !== "complete" &&
                   "当前 PostgreSQL 模式仅用于单应用实例。"}
                 产物内容保留在工作区，目录保存不可变索引。
               </Hint>

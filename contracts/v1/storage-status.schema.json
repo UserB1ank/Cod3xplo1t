@@ -28,7 +28,8 @@
     "profile": {
       "enum": [
         "complete",
-        "catalog"
+        "catalog",
+        "knowledge"
       ]
     },
     "readiness": {

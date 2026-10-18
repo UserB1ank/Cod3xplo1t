@@ -26,7 +26,7 @@ func (s *SQL) deleteCatalogSnapshot(ctx context.Context, id string) error {
 	if err := s.lockSnapshotTx(ctx, tx, id); err != nil {
 		return err
 	}
-	for _, table := range []string{"analyses", "artifact_refs"} {
+	for _, table := range []string{"knowledge_analysis_paths", "knowledge_analyses", "knowledge_revisions", "knowledge_outbox", "plugin_invocations", "analyses", "artifact_refs", "scg_modules", "scg_files", "scg_symbols", "scg_call_sites", "scg_edges", "graph_builds", "asg_nodes", "asg_edges", "asg_builds"} {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE snapshot_id=$1`, id); err != nil {
 			return mapSQLError(err)
 		}

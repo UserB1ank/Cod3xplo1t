@@ -48,10 +48,10 @@ func TestPostgresStatusIsRedactedAndUnwiredOperationsAreRefused(t *testing.T) {
 		Capabilities               map[string]bool
 	}
 	status.decode(t, &result)
-	if result.Driver != "postgres" || result.Profile != "catalog" || result.Readiness != "ready" || !result.Capabilities["sources"] || result.Capabilities["tasks"] {
+	if result.Driver != "postgres" || result.Profile != "knowledge" || result.Readiness != "ready" || !result.Capabilities["sources"] || result.Capabilities["tasks"] {
 		t.Fatalf("false capabilities: %s", status.body)
 	}
-	for _, endpoint := range []string{"/api/projects/any/tasks", "/api/v1/projects/any/findings", "/api/v1/plugins", "/api/v1/projects/any/workflows", "/api/snapshots/any/graph", "/api/v1/projects/any/reports", "/api/audits", "/api/runs", "/api/scheduler"} {
+	for _, endpoint := range []string{"/api/projects/any/tasks", "/api/v1/projects/any/findings", "/api/v1/projects/any/workflows", "/api/v1/projects/any/reports", "/api/audits", "/api/runs", "/api/scheduler"} {
 		if r := do(t, ts, "GET", endpoint, nil, nil); r.status != 501 || !strings.Contains(string(r.body), "storage_capability_unavailable") {
 			t.Fatalf("unwired %s: %d %s", endpoint, r.status, r.body)
 		}

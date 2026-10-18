@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -17,14 +18,12 @@ func (s *SQL) ReplaceASG(ctx context.Context, snapshotID string, doc *asg.Docume
 	if err := validateASG(snapshotID, doc); err != nil {
 		return err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return mapSQLError(err)
-	}
-	defer tx.Rollback()
-	if err := s.snapshotWritableTx(ctx, tx, snapshotID); err != nil {
-		return err
-	}
+	return s.snapshotWrite(ctx, snapshotID, func(tx *sql.Tx) error {
+		return s.replaceASGTx(ctx, tx, snapshotID, doc)
+	})
+}
+
+func (s *SQL) replaceASGTx(ctx context.Context, tx *sql.Tx, snapshotID string, doc *asg.Document) error {
 
 	for _, table := range []string{"asg_nodes", "asg_edges", "asg_builds"} {
 		if _, err := tx.ExecContext(ctx, s.rebind(`DELETE FROM `+table+` WHERE snapshot_id = ?`), snapshotID); err != nil {
@@ -119,7 +118,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 		string(evidence), string(coverage), string(limitations), summary.BuiltAt, summary.BuildDurationMS); err != nil {
 		return mapSQLError(err)
 	}
-	return tx.Commit()
+	return nil
 }
 
 // DeleteASG implements ASGStore. Deleting an absent ASG is a no-op: the derived

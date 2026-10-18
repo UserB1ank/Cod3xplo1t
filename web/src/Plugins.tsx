@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Box, Play, Plus, RefreshCw } from "lucide-react";
-import { ApiClient } from "./api";
+import { ApiClient, ApiError } from "./api";
+import { preparePublication, type PublicationRequest } from "./knowledgeData";
 import { Badge, EmptyState, Hint, Modal, Panel } from "./components";
 import type { Snapshot } from "./types";
 import { latestSnapshot } from "./workbench";
@@ -122,6 +123,7 @@ export function Plugins({
   canRegister,
   revision,
   onArtifacts,
+  onKnowledge,
 }: {
   api: ApiClient;
   projectID: string;
@@ -130,6 +132,7 @@ export function Plugins({
   canRegister: boolean;
   revision: number;
   onArtifacts: (snapshot: string) => void;
+  onKnowledge: () => void;
 }) {
   const [catalog, setCatalog] = useState<PluginRecord[]>([]);
   const [catalogCursor, setCatalogCursor] = useState([""]);
@@ -157,6 +160,9 @@ export function Plugins({
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const publications = useRef(new Map<string, PublicationRequest>());
+  const [published, setPublished] = useState("");
+  useEffect(() => setPublished(""), [selectedRun, snapshot]);
   const [importing, setImporting] = useState(false);
   const [manifest, setManifest] = useState("");
   const [packageDigest, setPackageDigest] = useState("");
@@ -778,6 +784,61 @@ export function Plugins({
             >
               查看 / 下载产物
             </button>
+            <button
+              className="button primary"
+              disabled={
+                !canWrite ||
+                !!busy ||
+                !discovery ||
+                !["SUCCEEDED", "PARTIAL"].includes(detail.status)
+              }
+              onClick={() =>
+                work("发布共享图谱", async () => {
+                  const id = detail.invocation_id;
+                  try {
+                    let request = publications.current.get(id);
+                    if (!request) {
+                      request = await preparePublication(
+                        api,
+                        projectID,
+                        detail.request.scope.snapshot_id,
+                        id,
+                        `batch-${crypto.randomUUID()}`,
+                      );
+                      publications.current.set(id, request);
+                    }
+                    const result = await api.post<{
+                      publication: { revision: string };
+                    }>(
+                      `/v1/projects/${encodeURIComponent(projectID)}/knowledge/publications`,
+                      request,
+                    );
+                    setPublished(result.publication.revision);
+                  } catch (error) {
+                    if (
+                      error instanceof ApiError &&
+                      error.code === "version_conflict"
+                    )
+                      publications.current.delete(id);
+                    throw error;
+                  }
+                })
+              }
+            >
+              {detail.status === "PARTIAL"
+                ? "发布部分覆盖结果"
+                : "发布到共享图谱"}
+            </button>
+            {published && (
+              <button className="text-button" onClick={onKnowledge}>
+                查看已发布图谱 · {published}
+              </button>
+            )}
+            {discovery && (
+              <Hint>
+                发布保留原始产物、调用来源、候选与覆盖局限。并发版本冲突会明确失败，可刷新后重试。
+              </Hint>
+            )}
           </div>
         </Panel>
       )}

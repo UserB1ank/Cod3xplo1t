@@ -119,10 +119,10 @@ the declared database profile is ready and the same document with 503 when the
 connection or required catalog structure is unavailable. No DSN, address,
 credential, local path or driver error is returned.
 
-The experimental PostgreSQL catalog profile supports projects, source definitions,
-snapshots, base inventories and artifact indexes. Other operations return
-`501 storage_capability_unavailable`; snapshot requests that ask for graph or ASG
-construction are refused before capture. `/api/me.features` advertises the actual
+The experimental PostgreSQL knowledge profile supports projects, source definitions,
+snapshots, base inventories, artifact indexes, SCG/ASG queries, direct plugin
+invocations and atomic knowledge publication. Tasks, workflows, findings and reports
+return `501 storage_capability_unavailable`. `/api/me.features` advertises the actual
 profile to every authenticated role. Deployment and limitations are documented in
 [postgres-catalog.md](postgres-catalog.md).
 

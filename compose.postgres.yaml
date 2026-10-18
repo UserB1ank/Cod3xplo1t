@@ -1,4 +1,4 @@
-# Independent experimental catalog deployment; the default SQLite deployment
+# Independent experimental knowledge deployment; the default SQLite deployment
 # and its volumes are unaffected. Secrets are supplied as runtime file references.
 services:
   postgres:

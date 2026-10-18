@@ -471,7 +471,7 @@ codes: [`docs/mcp-tools.md`](docs/mcp-tools.md).
 | [`docs/design/interfaces/v1/README.md`](docs/design/interfaces/v1/README.md) | 分层接口方案、代码源、统一插件与工作流、独立 PostgreSQL 存储和 ARTEX 参考原型 |
 | [`contracts/v1/README.md`](contracts/v1/README.md) | JSON Schema、完整示例与离线契约校验；`make check-contracts` |
 | [`docs/architecture.md`](docs/architecture.md) | pipeline, package responsibilities, storage schema, layering rules, configuration wiring |
-| [`docs/postgres-catalog.md`](docs/postgres-catalog.md) | experimental PostgreSQL catalog profile, runtime secret references, actual readiness and isolated `make test-postgres` acceptance |
+| [`docs/postgres-catalog.md`](docs/postgres-catalog.md) | experimental PostgreSQL knowledge profile, independent database container, direct analysis/publication, actual readiness and isolated `make test-postgres` acceptance |
 | [`docs/contracts.md`](docs/contracts.md) | every invariant the code enforces, with the file that enforces it |
 | [`docs/scg.md`](docs/scg.md) | Source Code Graph: nodes, edges, ids, resolution classes, query budgets, coverage, limits |
 | [`docs/asg.md`](docs/asg.md) | Attack Surface Graph: node and edge kinds, rule tables, evidence model, reachability, limits |

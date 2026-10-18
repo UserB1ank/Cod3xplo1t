@@ -140,6 +140,12 @@ func (s *SQL) PublishKnowledge(ctx context.Context, expectedHead string, documen
 		if headNo != document.Revision.Number-1 || expectedHead != "rev-"+strconv.Itoa(headNo) {
 			return publication.ErrVersionConflict
 		}
+		if document.Analysis != nil && document.Analysis.Summary.ID != document.Revision.Producer.InvocationID {
+			return publication.ErrInvalidBatch
+		}
+		if err := s.indexAnalysisTx(ctx, tx, scope, document.Analysis); err != nil {
+			return err
+		}
 		if _, err := tx.ExecContext(ctx, s.rebind(`INSERT INTO knowledge_revisions (project_id, snapshot_id, revision, revision_no, batch_id, digest, base_revision, document_json, created_at) VALUES (?,?,?,?,?,?,?,?,?)`),
 			scope.ProjectID, scope.SnapshotID, document.Revision.ID, document.Revision.Number, document.Revision.BatchID, document.Revision.Digest, document.Revision.BaseRevision, string(raw), document.Revision.CreatedAt); err != nil {
 			return mapSQLError(err)

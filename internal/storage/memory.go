@@ -44,6 +44,7 @@ type Memory struct {
 	snapshots         map[string]memorySnapshot
 	manifests         map[string][]byte
 	analyses          map[string]string // analysis_id -> analysis document
+	knowledgeAnalyses map[string]indexedMemoryAnalysis
 	graphs            map[string]*memoryGraph
 	// asgDocuments holds the derived attack surface of a snapshot, keyed by
 	// snapshot id and kept separate from graphs: the ASG is derived data and can
@@ -296,6 +297,11 @@ func (m *Memory) DeleteSnapshot(_ context.Context, id string) error {
 	for key := range m.knowledge {
 		if strings.HasSuffix(key, "\x00"+id) {
 			delete(m.knowledge, key)
+		}
+	}
+	for key, analysis := range m.knowledgeAnalyses {
+		if analysis.Scope.SnapshotID == id {
+			delete(m.knowledgeAnalyses, key)
 		}
 	}
 	if binding, exists := m.sourceSnapshots[id]; exists {

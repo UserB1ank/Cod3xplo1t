@@ -18,16 +18,16 @@ type Status struct {
 	Locations     map[string]string `json:"locations"`
 }
 
-func CatalogOnly(store Store) bool {
+func LimitedPostgres(store Store) bool {
 	s, ok := store.(*SQL)
 	return ok && s.postgres
 }
 
 func StorageCapabilities(store Store) map[string]bool {
-	full := !CatalogOnly(store)
+	full := !LimitedPostgres(store)
 	return map[string]bool{
 		"projects": true, "sources": true, "snapshots": true, "artifacts": true, "inventory": true,
-		"knowledge": full, "plugins": full, "tasks": full, "findings": full, "workflows": full, "reports": full,
+		"knowledge": true, "plugins": true, "tasks": full, "findings": full, "workflows": full, "reports": full,
 	}
 }
 
@@ -46,7 +46,7 @@ func ProbeStatus(ctx context.Context, store Store) Status {
 	result.Driver, result.Durable = "sqlite", true
 	result.Locations["catalog"] = "sqlite"
 	if s.postgres {
-		result.Driver, result.Profile = "postgres", "catalog"
+		result.Driver, result.Profile = "postgres", "knowledge"
 		result.Locations["catalog"] = "postgres"
 	}
 	result.SchemaVersion = "unknown"
@@ -65,6 +65,15 @@ func ProbeStatus(ctx context.Context, store Store) Status {
 		`SELECT snapshot_id, completed FROM snapshot_deletions LIMIT 0`,
 		`SELECT scope, key, status, body FROM idempotency_keys LIMIT 0`,
 		`SELECT analysis_id, snapshot_id, document_json FROM analyses LIMIT 0`,
+		`SELECT snapshot_id, graph_version FROM graph_builds LIMIT 0`,
+		`SELECT symbol_id, snapshot_id FROM scg_symbols LIMIT 0`,
+		`SELECT snapshot_id, asg_version FROM asg_builds LIMIT 0`,
+		`SELECT plugin_id, version, record_json FROM plugin_versions LIMIT 0`,
+		`SELECT invocation_id, status, document_json FROM plugin_invocations LIMIT 0`,
+		`SELECT project_id, snapshot_id, revision_no FROM knowledge_revisions LIMIT 0`,
+		`SELECT event_id, revision FROM knowledge_outbox LIMIT 0`,
+		`SELECT analysis_id, scg_version FROM knowledge_analyses LIMIT 0`,
+		`SELECT analysis_id, path_id FROM knowledge_analysis_paths LIMIT 0`,
 	} {
 		rows, err := s.db.QueryContext(ctx, query)
 		if err != nil {

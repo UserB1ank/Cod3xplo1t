@@ -22,6 +22,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/asg"
 	"github.com/open-mcp-ai/Codexploit/internal/graph"
 	"github.com/open-mcp-ai/Codexploit/internal/path"
+	"github.com/open-mcp-ai/Codexploit/internal/publication"
 	"github.com/open-mcp-ai/Codexploit/internal/repository"
 	"github.com/open-mcp-ai/Codexploit/internal/scg"
 	"github.com/open-mcp-ai/Codexploit/internal/storage"
@@ -73,8 +74,9 @@ type LayerInfo struct {
 	BuiltAt string `json:"built_at,omitempty"`
 	Detail  string `json:"detail,omitempty"`
 	// Tasks and Items count the path layer's audits and paths for this pin.
-	Tasks int `json:"tasks,omitempty"`
-	Items int `json:"items,omitempty"`
+	Tasks    int `json:"tasks,omitempty"`
+	Analyses int `json:"analyses,omitempty"`
+	Items    int `json:"items,omitempty"`
 }
 
 // View is one immutable pin of a scope's layer versions.
@@ -142,6 +144,7 @@ type Deps struct {
 
 // Reader answers view-scoped knowledge queries.
 type Reader struct {
+	Analyses  publication.AnalysisReader
 	Store     ScopeStore
 	Graph     GraphReader
 	ASG       SurfaceReader
@@ -153,7 +156,9 @@ type Reader struct {
 // in which case the corresponding capability is reported unavailable instead of
 // skipped.
 func New(deps Deps) *Reader {
-	return &Reader{Store: deps.Store, Graph: deps.Graph, ASG: deps.ASG, Queue: deps.Queue, Artifacts: deps.Artifacts}
+	r := &Reader{Store: deps.Store, Graph: deps.Graph, ASG: deps.ASG, Queue: deps.Queue, Artifacts: deps.Artifacts}
+	r.Analyses, _ = deps.Store.(publication.AnalysisReader)
+	return r
 }
 
 // Describe validates an existing pin without replacing it with the current view.
@@ -306,7 +311,7 @@ func (r *Reader) OpenView(ctx context.Context, scope Scope, layers []string) (*V
 		case LayerASG:
 			info[LayerASG] = r.surfaceState(ctx, scope.SnapshotID, &d)
 		case LayerPaths:
-			info[LayerPaths] = r.pathsState(ctx, scope.SnapshotID, summary.GraphVersion, d.ASG)
+			info[LayerPaths] = r.pathsState(ctx, scope, summary.GraphVersion, d.ASG)
 		}
 	}
 	id, revision, err := encodeDescriptor(d)
@@ -343,11 +348,27 @@ func (r *Reader) surfaceState(ctx context.Context, snapshotID string, d *descrip
 }
 
 // pathsState counts the audits and paths pinned to the view's versions.
-func (r *Reader) pathsState(ctx context.Context, snapshotID, scgVersion, asgVersion string) LayerInfo {
+func (r *Reader) pathsState(ctx context.Context, scope Scope, scgVersion, asgVersion string) LayerInfo {
+	analyses, err := r.pinnedAnalyses(ctx, scope, scgVersion, asgVersion)
+	if err != nil {
+		return LayerInfo{Status: StatusUnavailable, Detail: "direct analysis indexes are unavailable"}
+	}
+	countAnalyses := 0
+	for _, a := range analyses {
+		if a.HasPaths {
+			countAnalyses++
+		}
+	}
+	if r.Queue == nil && r.Analyses != nil {
+		if countAnalyses == 0 {
+			return LayerInfo{Status: StatusNotBuilt, Detail: "no path analysis has been published"}
+		}
+		return LayerInfo{Status: StatusAvailable, Analyses: countAnalyses}
+	}
 	if r.Queue == nil {
 		return LayerInfo{Status: StatusUnavailable, Detail: "this deployment does not serve the path engine"}
 	}
-	audits, _, err := r.Queue.Audits(path.AuditQuery{SnapshotID: snapshotID, Limit: 1000})
+	audits, _, err := r.Queue.Audits(path.AuditQuery{SnapshotID: scope.SnapshotID, Limit: 1000})
 	if err != nil {
 		return LayerInfo{Status: StatusUnavailable, Detail: "the path engine is unavailable"}
 	}
@@ -358,7 +379,7 @@ func (r *Reader) pathsState(ctx context.Context, snapshotID, scgVersion, asgVers
 		}
 		count++
 	}
-	return LayerInfo{Status: StatusAvailable, Tasks: count}
+	return LayerInfo{Status: StatusAvailable, Tasks: count, Analyses: countAnalyses}
 }
 
 func pinnedAudit(audit path.Audit, scgVersion, asgVersion string) bool {
@@ -418,7 +439,7 @@ func (r *Reader) loadView(ctx context.Context, scope Scope, viewID string) (*Vie
 			}
 			info[LayerASG] = LayerInfo{Status: StatusAvailable, Version: d.ASG}
 		case LayerPaths:
-			info[LayerPaths] = r.pathsState(ctx, scope.SnapshotID, d.SCG, d.ASG)
+			info[LayerPaths] = r.pathsState(ctx, scope, d.SCG, d.ASG)
 		}
 	}
 	return &View{

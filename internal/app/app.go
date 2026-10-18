@@ -53,7 +53,7 @@ type Config struct {
 	// DBPath is a SQLite file, or "" / "memory" for an in-process store.
 	DBPath string
 	// StorageDriver selects the complete sqlite mode (default) or the limited
-	// postgres catalog profile. PostgreSQL credentials are read from a file.
+	// postgres knowledge profile. PostgreSQL credentials are read from a file.
 	StorageDriver   string
 	PostgresDSNFile string
 	// AllowNetwork permits cloning remote git URLs.
@@ -299,6 +299,17 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 		rt.Store = store
 		rt.Snapshots = lifecycle.Snapshots{Store: store, Manager: mgr}
 		rt.closers = append(rt.closers, store.Close)
+		rt.PluginCatalog, err = plugin.NewCatalog(ctx, store)
+		if err != nil {
+			rt.Close()
+			return nil, err
+		}
+		rt.wireGraphServices(store)
+		rt.Audit = nil // Direct analysis indexes do not enable execution tasks.
+		if err := rt.wirePlugins(builtinanalysis.Executors()); err != nil {
+			rt.Close()
+			return nil, err
+		}
 		return rt, nil
 	}
 	if cfg.PostgresDSNFile != "" {
@@ -404,6 +415,9 @@ func (r *Runtime) wirePlugins(executors []plugin.Executor) error {
 		return err
 	}
 	r.closers = append(r.closers, r.Plugins.Close)
+	if storage.LimitedPostgres(r.Store) {
+		return nil
+	}
 	workflowRepo, ok := r.Store.(workflow.Repository)
 	if !ok {
 		return workflow.ErrInvalid

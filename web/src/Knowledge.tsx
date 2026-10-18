@@ -1,9 +1,23 @@
-import { Fragment, useCallback, useEffect, useState, type KeyboardEvent } from "react";
-import { ArrowDown, ArrowUp, Loader2, Network, RefreshCw, Search } from "lucide-react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useState,
+  type KeyboardEvent,
+} from "react";
+import {
+  ArrowDown,
+  ArrowUp,
+  Loader2,
+  Network,
+  RefreshCw,
+  Search,
+} from "lucide-react";
 import { ApiClient, ApiError } from "./api";
 import { CodeBlock, EmptyState, Hint, Modal, Panel } from "./components";
 import type { Snapshot } from "./types";
 import { latestSnapshot } from "./workbench";
+import { readRevisionDirectory } from "./knowledgeData";
 
 type Layer = "scg" | "asg" | "paths";
 
@@ -13,6 +27,7 @@ interface LayerInfo {
   built_at?: string;
   detail?: string;
   tasks?: number;
+  analyses?: number;
   items?: number;
 }
 
@@ -73,15 +88,41 @@ interface AuditPath {
   target_subject: string;
   target_kind: string;
   status: string;
-  steps?: { layer: string; subject?: string; file?: string; line?: number; kind: string }[];
+  steps?: {
+    layer: string;
+    subject?: string;
+    file?: string;
+    line?: number;
+    kind: string;
+  }[];
   scg_refs?: string[];
+  entry_node_id?: string;
+}
+
+interface AnalysisRef {
+  analysis_id: string;
+  producer: {
+    plugin_id: string;
+    plugin_version: string;
+    invocation_id: string;
+  };
+  path_count: number;
+  has_paths: boolean;
+  native_artifact: { id: string; sha256: string };
+  limitations: string[];
 }
 
 interface Provenance {
+  analyses?: AnalysisRef[];
   fact_id: string;
   kind: "symbol" | "asg_node";
   versions: Record<string, string>;
-  producer: { plugin_id: string; plugin_version: string; invocation_id: string; config_digest: string };
+  producer: {
+    plugin_id: string;
+    plugin_version: string;
+    invocation_id: string;
+    config_digest: string;
+  };
   location?: { file: string; start_line: number; end_line: number };
   tasks: AuditRef[];
   artifacts?: { id: string; kind: string; sha256: string; bytes: number }[];
@@ -108,28 +149,38 @@ interface Slice {
 const layerLabels: Record<Layer, string> = {
   scg: "源码图谱",
   asg: "攻击面",
-  paths: "审计路径",
+  paths: "候选路径",
 };
 
 const layerHints: Record<Layer, string> = {
   scg: "符号、调用关系与真实源码位置。",
   asg: "从源码事实提取的入口、敏感操作与控制。",
-  paths: "共享该快照的任务生成的审计路径。",
+  paths: "固定快照的任务与直接插件分析发布的候选路径。",
 };
 
 function failureText(error: unknown) {
   if (error instanceof ApiError) {
-    if (error.code === "view_superseded") return "图谱在该视图固定之后已重建，请重新固定版本。";
-    if (error.code === "knowledge_unavailable") return "该快照尚未构建代码图谱。";
+    if (error.code === "view_superseded")
+      return "图谱在该视图固定之后已重建，请重新固定版本。";
+    if (error.code === "knowledge_unavailable")
+      return "该快照尚未构建代码图谱。";
     if (error.code === "layer_unavailable") return error.message;
-    if (error.code === "knowledge_not_found") return "视图不存在，或不属于当前项目与快照。";
+    if (error.code === "knowledge_not_found")
+      return "视图不存在，或不属于当前项目与快照。";
     return error.message;
   }
   return error instanceof Error ? error.message : "图谱查询失败";
 }
 
-function useQuery<T>(load: (signal: AbortSignal) => Promise<T>, deps: unknown[]) {
-  const [state, setState] = useState<{ data?: T; error?: string; loading: boolean }>({ loading: true });
+function useQuery<T>(
+  load: (signal: AbortSignal) => Promise<T>,
+  deps: unknown[],
+) {
+  const [state, setState] = useState<{
+    data?: T;
+    error?: string;
+    loading: boolean;
+  }>({ loading: true });
   useEffect(() => {
     const controller = new AbortController();
     setState({ loading: true });
@@ -148,15 +199,21 @@ function MetaBar({ meta }: { meta: Meta }) {
   return (
     <div className="knowledge-meta">
       <span>
-        版本固定 <code className="mono">{meta.versions.scg || meta.revision}</code>
+        版本固定{" "}
+        <code className="mono">{meta.versions.scg || meta.revision}</code>
       </span>
       <span>共 {meta.total} 条</span>
       {meta.truncated ? (
         <span className="knowledge-warning">
-          结果被截断{meta.truncation_reason ? `（${meta.truncation_reason}）` : ""}
+          结果被截断
+          {meta.truncation_reason ? `（${meta.truncation_reason}）` : ""}
         </span>
       ) : null}
-      {meta.omitted ? <span className="knowledge-warning">已省略 {meta.omitted} 条旧版本记录</span> : null}
+      {meta.omitted ? (
+        <span className="knowledge-warning">
+          已省略 {meta.omitted} 条旧版本记录
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -173,7 +230,9 @@ export function Knowledge({
   revision: number;
 }) {
   const [selectedSnapshot, setSelectedSnapshot] = useState("");
-  const snapshot = snapshots.find((item) => item.snapshot_id === selectedSnapshot) || latestSnapshot(snapshots);
+  const snapshot =
+    snapshots.find((item) => item.snapshot_id === selectedSnapshot) ||
+    latestSnapshot(snapshots);
   const snapshotID = snapshot?.snapshot_id || "";
   const [layer, setLayer] = useState<Layer>("scg");
   const [view, setView] = useState<View>();
@@ -252,7 +311,13 @@ export function Knowledge({
               >
                 {layerLabels[name]}
                 {state ? (
-                  <span className={`layer-dot ${state.status}`}>{state.status === "available" ? "" : state.status === "not_built" ? "未构建" : "不可用"}</span>
+                  <span className={`layer-dot ${state.status}`}>
+                    {state.status === "available"
+                      ? ""
+                      : state.status === "not_built"
+                        ? "未构建"
+                        : "不可用"}
+                  </span>
                 ) : null}
               </button>
             );
@@ -262,8 +327,13 @@ export function Knowledge({
           <ArrowUp size={12} />
           <ArrowDown size={12} /> 选择节点，回车打开
         </span>
-        <button className="button" onClick={() => setOpenCount((n) => n + 1)} disabled={viewLoading}>
-          <RefreshCw size={15} className={viewLoading ? "spin" : ""} /> 重新固定版本
+        <button
+          className="button"
+          onClick={() => setOpenCount((n) => n + 1)}
+          disabled={viewLoading}
+        >
+          <RefreshCw size={15} className={viewLoading ? "spin" : ""} />{" "}
+          重新固定版本
         </button>
       </div>
 
@@ -283,14 +353,20 @@ export function Knowledge({
       ) : view ? (
         <>
           <CoverageStrip view={view} />
-          <PublicationPanel api={api} projectID={projectID} snapshotID={snapshotID} />
+          <PublicationPanel
+            api={api}
+            projectID={projectID}
+            snapshotID={snapshotID}
+          />
           {layerState && layerState.status !== "available" ? (
             <Panel title={layerLabels[layer]}>
-              <EmptyState title={layerState.detail || `${layerLabels[layer]}不可用`}>
+              <EmptyState
+                title={layerState.detail || `${layerLabels[layer]}不可用`}
+              >
                 {layer === "asg"
                   ? "构建代码源快照时勾选攻击面，或等待后续版本补齐。"
                   : layer === "paths"
-                    ? "路径来自共享该快照的任务；先创建任务生成审计路径。"
+                    ? "可从插件中心发布路径分析结果，或从任务生成候选路径。"
                     : null}
               </EmptyState>
             </Panel>
@@ -303,9 +379,21 @@ export function Knowledge({
               selected={selectedSymbol}
             />
           ) : layer === "asg" ? (
-            <NodePanel api={api} projectID={projectID} view={view} onSelect={setSelectedNode} selected={selectedNode} />
+            <NodePanel
+              api={api}
+              projectID={projectID}
+              view={view}
+              onSelect={setSelectedNode}
+              selected={selectedNode}
+            />
           ) : (
-            <PathPanel api={api} projectID={projectID} view={view} onSelect={setSelectedPath} selected={selectedPath} />
+            <PathPanel
+              api={api}
+              projectID={projectID}
+              view={view}
+              onSelect={setSelectedPath}
+              selected={selectedPath}
+            />
           )}
           {view.limitations.length ? (
             <details className="limitations">
@@ -328,7 +416,12 @@ export function Knowledge({
         variant="drawer"
       >
         {selectedSymbol && view ? (
-          <SymbolInspector api={api} projectID={projectID} view={view} symbol={selectedSymbol} />
+          <SymbolInspector
+            api={api}
+            projectID={projectID}
+            view={view}
+            symbol={selectedSymbol}
+          />
         ) : null}
       </Modal>
       <Modal
@@ -339,7 +432,12 @@ export function Knowledge({
         variant="drawer"
       >
         {selectedNode && view ? (
-          <NodeInspector api={api} projectID={projectID} view={view} node={selectedNode} />
+          <NodeInspector
+            api={api}
+            projectID={projectID}
+            view={view}
+            node={selectedNode}
+          />
         ) : null}
       </Modal>
       <Modal
@@ -350,7 +448,12 @@ export function Knowledge({
         variant="drawer"
       >
         {selectedPath && view ? (
-          <PathInspector api={api} projectID={projectID} view={view} row={selectedPath} />
+          <PathInspector
+            api={api}
+            projectID={projectID}
+            view={view}
+            row={selectedPath}
+          />
         ) : null}
       </Modal>
     </>
@@ -370,15 +473,20 @@ function CoverageStrip({ view }: { view: View }) {
       </div>
       <div>
         <span>未解析</span>
-        <strong>{(view.coverage.files_unparsed ?? 0) + (view.coverage.files_partial ?? 0)}</strong>
+        <strong>
+          {(view.coverage.files_unparsed ?? 0) +
+            (view.coverage.files_partial ?? 0)}
+        </strong>
       </div>
       <div>
         <span>跳过符号</span>
         <strong>{view.coverage.symbols_skipped ?? 0}</strong>
       </div>
       <div>
-        <span>共享任务</span>
-        <strong>{view.layers.paths?.tasks ?? 0}</strong>
+        <span>共享任务 / 直接路径分析</span>
+        <strong>
+          {view.layers.paths?.tasks ?? 0} / {view.layers.paths?.analyses ?? 0}
+        </strong>
       </div>
       <div>
         <span>引擎</span>
@@ -386,15 +494,6 @@ function CoverageStrip({ view }: { view: View }) {
       </div>
     </div>
   );
-}
-
-interface RevisionSummary {
-  revision: string;
-  revision_no: number;
-  batch_id: string;
-  producer: { plugin_id: string; plugin_version: string; task_id?: string };
-  created_at: string;
-  view: { view_id: string; revision: string; scope: { project_id: string; snapshot_id: string } };
 }
 
 interface PublishedFact {
@@ -405,7 +504,13 @@ interface PublishedFact {
   confidence?: string;
   observations: {
     observation_id: string;
-    producer: { plugin_id: string; plugin_version: string; invocation_id: string; task_id?: string; config_digest: string };
+    producer: {
+      plugin_id: string;
+      plugin_version: string;
+      invocation_id: string;
+      task_id?: string;
+      config_digest: string;
+    };
     attributes?: Record<string, string>;
     evidence_refs?: string[];
   }[];
@@ -413,34 +518,54 @@ interface PublishedFact {
 
 // PublicationPanel shows the immutable versions a producer published and every
 // observation behind one fact, so two tools that disagree stay visible.
-function PublicationPanel({ api, projectID, snapshotID }: { api: ApiClient; projectID: string; snapshotID: string }) {
+function PublicationPanel({
+  api,
+  projectID,
+  snapshotID,
+}: {
+  api: ApiClient;
+  projectID: string;
+  snapshotID: string;
+}) {
   const revisions = useQuery(
-    (signal) => api.get<{ revisions: RevisionSummary[] }>(`/v1/projects/${projectID}/knowledge/revisions?snapshot_id=${encodeURIComponent(snapshotID)}&limit=100`, signal),
+    (signal) => readRevisionDirectory(api, projectID, snapshotID, signal),
     [api, projectID, snapshotID],
   );
   const [selected, setSelected] = useState("");
   const [expanded, setExpanded] = useState("");
   const latest = revisions.data?.revisions[revisions.data.revisions.length - 1];
-  const active = revisions.data?.revisions.find((item) => item.revision === selected) || latest;
+  const active =
+    revisions.data?.revisions.find((item) => item.revision === selected) ||
+    latest;
+  const { cursor, page, next, back, reset } = usePager();
+  useEffect(() => {
+    reset();
+    setExpanded("");
+  }, [active?.view.view_id, reset]);
   const facts = useQuery(
     (signal) =>
       active
         ? api.get<{ facts: PublishedFact[]; next_cursor: string }>(
-            `/v1/projects/${projectID}/knowledge/revisions/${encodeURIComponent(active.view.view_id)}/facts?snapshot_id=${encodeURIComponent(snapshotID)}&limit=50`,
+            `/v1/projects/${projectID}/knowledge/revisions/${encodeURIComponent(active.view.view_id)}/facts?snapshot_id=${encodeURIComponent(snapshotID)}&limit=50&cursor=${encodeURIComponent(cursor)}`,
             signal,
           )
         : Promise.resolve({ facts: [], next_cursor: "" }),
-    [api, projectID, snapshotID, active?.view.view_id],
+    [api, projectID, snapshotID, active?.view.view_id, cursor],
   );
   return (
     <Panel
       title="共享知识版本"
       action={
         revisions.data?.revisions.length ? (
-          <select aria-label="已发布知识版本" value={active?.revision || ""} onChange={(event) => setSelected(event.target.value)}>
+          <select
+            aria-label="已发布知识版本"
+            value={active?.revision || ""}
+            onChange={(event) => setSelected(event.target.value)}
+          >
             {revisions.data.revisions.map((item) => (
               <option value={item.revision} key={item.revision}>
-                {item.revision} · {item.producer.plugin_id}@{item.producer.plugin_version}
+                {item.revision} · {item.producer.plugin_id}@
+                {item.producer.plugin_version}
               </option>
             ))}
           </select>
@@ -454,7 +579,9 @@ function PublicationPanel({ api, projectID, snapshotID }: { api: ApiClient; proj
           <Loader2 className="spin" size={16} /> 读取发布版本…
         </div>
       ) : !revisions.data?.revisions.length ? (
-        <Hint>该快照还没有发布版本。任务完成语义分析并发布后，这里会列出不可变版本和来源。</Hint>
+        <Hint>
+          该快照还没有发布版本。在插件中心完成语义或路径分析并发布后，这里会列出不可变版本和来源。
+        </Hint>
       ) : facts.error ? (
         <Hint>{facts.error}</Hint>
       ) : facts.loading ? (
@@ -484,12 +611,18 @@ function PublicationPanel({ api, projectID, snapshotID }: { api: ApiClient; proj
                         <span className="mono muted">{fact.id}</span>
                       </td>
                       <td>{fact.kind}</td>
-                      <td className="mono">{fact.location ? `${fact.location.file}:${fact.location.start_line}` : "—"}</td>
+                      <td className="mono">
+                        {fact.location
+                          ? `${fact.location.file}:${fact.location.start_line}`
+                          : "—"}
+                      </td>
                       <td>
                         <button
                           className="text-button"
                           aria-expanded={expanded === fact.id}
-                          onClick={() => setExpanded(expanded === fact.id ? "" : fact.id)}
+                          onClick={() =>
+                            setExpanded(expanded === fact.id ? "" : fact.id)
+                          }
                         >
                           {fact.observations.length} 个观察
                         </button>
@@ -502,17 +635,36 @@ function PublicationPanel({ api, projectID, snapshotID }: { api: ApiClient; proj
                             {fact.observations.map((observation) => (
                               <li key={observation.observation_id}>
                                 <span className="mono">
-                                  {observation.producer.plugin_id}@{observation.producer.plugin_version}
+                                  {observation.producer.plugin_id}@
+                                  {observation.producer.plugin_version}
                                 </span>
-                                {observation.producer.task_id ? <span className="muted"> · 任务 {observation.producer.task_id}</span> : null}
+                                {observation.producer.task_id ? (
+                                  <span className="muted">
+                                    {" "}
+                                    · 任务 {observation.producer.task_id}
+                                  </span>
+                                ) : null}
+                                <p className="mono">
+                                  调用 {observation.producer.invocation_id}
+                                </p>
+                                <p className="mono">
+                                  配置 {observation.producer.config_digest}
+                                </p>
+                                {observation.evidence_refs?.length ? (
+                                  <p className="mono">
+                                    证据 {observation.evidence_refs.join(" · ")}
+                                  </p>
+                                ) : null}
                                 {observation.attributes ? (
                                   <dl>
-                                    {Object.entries(observation.attributes).map(([key, value]) => (
-                                      <div key={key}>
-                                        <dt>{key}</dt>
-                                        <dd className="mono">{value}</dd>
-                                      </div>
-                                    ))}
+                                    {Object.entries(observation.attributes).map(
+                                      ([key, value]) => (
+                                        <div key={key}>
+                                          <dt>{key}</dt>
+                                          <dd className="mono">{value}</dd>
+                                        </div>
+                                      ),
+                                    )}
                                   </dl>
                                 ) : null}
                               </li>
@@ -530,8 +682,21 @@ function PublicationPanel({ api, projectID, snapshotID }: { api: ApiClient; proj
             <span>
               版本固定 <code className="mono">{active?.revision}</code>
             </span>
-            <span>共 {facts.data.facts.length} 条事实</span>
+            <span>本页 {facts.data.facts.length} 条事实</span>
             <span>批次 {active?.batch_id}</span>
+          </div>
+          <div className="knowledge-pager">
+            <button className="button" disabled={page === 0} onClick={back}>
+              上一页
+            </button>
+            <span>第 {page + 1} 页</span>
+            <button
+              className="button"
+              disabled={!facts.data.next_cursor}
+              onClick={() => next(facts.data?.next_cursor || "")}
+            >
+              下一页
+            </button>
           </div>
         </>
       )}
@@ -543,8 +708,16 @@ function usePager() {
   const [cursors, setCursors] = useState<string[]>([""]);
   const cursor = cursors[cursors.length - 1] || "";
   const reset = useCallback(() => setCursors([""]), []);
-  const next = useCallback((value: string) => setCursors((stack) => (value ? [...stack, value] : stack)), []);
-  const back = useCallback(() => setCursors((stack) => (stack.length > 1 ? stack.slice(0, -1) : stack)), []);
+  const next = useCallback(
+    (value: string) =>
+      setCursors((stack) => (value ? [...stack, value] : stack)),
+    [],
+  );
+  const back = useCallback(
+    () =>
+      setCursors((stack) => (stack.length > 1 ? stack.slice(0, -1) : stack)),
+    [],
+  );
   return { cursor, page: cursors.length - 1, next, back, reset };
 }
 
@@ -622,11 +795,15 @@ function SymbolPanel({
                     data-guide-row
                     tabIndex={0}
                     aria-selected={selected?.symbol_id === symbol.symbol_id}
-                    className={selected?.symbol_id === symbol.symbol_id ? "selected" : ""}
+                    className={
+                      selected?.symbol_id === symbol.symbol_id ? "selected" : ""
+                    }
                     onClick={() => onSelect(symbol)}
                     onKeyDown={guideKeys}
                   >
-                    <td className="mono">{symbol.qualified_name || symbol.name}</td>
+                    <td className="mono">
+                      {symbol.qualified_name || symbol.name}
+                    </td>
                     <td>{symbol.kind}</td>
                     <td className="mono">
                       {symbol.file}:{symbol.start_line}
@@ -641,7 +818,11 @@ function SymbolPanel({
               上一页
             </button>
             <span>第 {page + 1} 页</span>
-            <button className="button" disabled={!data.data.next_cursor} onClick={() => next(data.data?.next_cursor || "")}>
+            <button
+              className="button"
+              disabled={!data.data.next_cursor}
+              onClick={() => next(data.data?.next_cursor || "")}
+            >
               下一页
             </button>
           </div>
@@ -680,7 +861,11 @@ function NodePanel({
     <Panel
       title="攻击面节点"
       action={
-        <select aria-label="节点类型" value={kind} onChange={(event) => setKind(event.target.value)}>
+        <select
+          aria-label="节点类型"
+          value={kind}
+          onChange={(event) => setKind(event.target.value)}
+        >
           <option value="">全部类型</option>
           <option value="EntryPoint">入口</option>
           <option value="SensitiveOperation">敏感操作</option>
@@ -718,7 +903,9 @@ function NodePanel({
                     data-guide-row
                     tabIndex={0}
                     aria-selected={selected?.node_id === node.node_id}
-                    className={selected?.node_id === node.node_id ? "selected" : ""}
+                    className={
+                      selected?.node_id === node.node_id ? "selected" : ""
+                    }
                     onClick={() => onSelect(node)}
                     onKeyDown={guideKeys}
                   >
@@ -727,7 +914,9 @@ function NodePanel({
                       <span className="mono muted">{node.subject}</span>
                     </td>
                     <td>{node.kind}</td>
-                    <td className="mono">{node.file ? `${node.file}:${node.line || 0}` : "—"}</td>
+                    <td className="mono">
+                      {node.file ? `${node.file}:${node.line || 0}` : "—"}
+                    </td>
                     <td>{node.confidence || "—"}</td>
                   </tr>
                 ))}
@@ -735,7 +924,11 @@ function NodePanel({
             </table>
           </div>
           <div className="knowledge-pager">
-            <button className="button" disabled={!data.data.next_cursor} onClick={() => next(data.data?.next_cursor || "")}>
+            <button
+              className="button"
+              disabled={!data.data.next_cursor}
+              onClick={() => next(data.data?.next_cursor || "")}
+            >
               下一页
             </button>
           </div>
@@ -760,27 +953,48 @@ function PathPanel({
   selected?: AuditPath;
 }) {
   const [audit, setAudit] = useState("");
-  const { cursor, next, reset } = usePager();
+  const { cursor, page, next, back, reset } = usePager();
   useEffect(() => reset(), [audit, reset]);
   const data = useQuery(
     (signal) =>
-      api.get<{ paths: AuditPath[]; audits: AuditRef[]; next_cursor: string; meta: Meta }>(
-        `/v1/projects/${projectID}/knowledge/views/${view.view_id}/paths?limit=50${audit ? `&audit_id=${encodeURIComponent(audit)}` : ""}&cursor=${encodeURIComponent(cursor)}`,
+      api.get<{
+        paths: AuditPath[];
+        audits: AuditRef[];
+        analyses?: AnalysisRef[];
+        next_cursor: string;
+        meta: Meta;
+      }>(
+        `/v1/projects/${projectID}/knowledge/views/${view.view_id}/paths?limit=50${audit ? (audit.startsWith("analysis:") ? `&analysis_id=${encodeURIComponent(audit.slice(9))}` : `&audit_id=${encodeURIComponent(audit)}`) : ""}&cursor=${encodeURIComponent(cursor)}`,
         signal,
       ),
     [api, projectID, view.view_id, audit, cursor],
   );
   return (
     <Panel
-      title="审计路径"
+      title="候选分析路径"
       action={
-        <select aria-label="任务" value={audit} onChange={(event) => setAudit(event.target.value)}>
-          <option value="">全部共享任务</option>
+        <select
+          aria-label="路径来源"
+          value={audit}
+          onChange={(event) => setAudit(event.target.value)}
+        >
+          <option value="">全部任务与直接分析</option>
           {(data.data?.audits || []).map((item) => (
             <option value={item.audit_id} key={item.audit_id}>
               {item.name || item.audit_id}（{item.paths} 条）
             </option>
           ))}
+          {(data.data?.analyses || [])
+            .filter((item) => item.has_paths)
+            .map((item) => (
+              <option
+                value={`analysis:${item.analysis_id}`}
+                key={item.analysis_id}
+              >
+                {item.producer.plugin_id} · {item.analysis_id}（
+                {item.path_count} 条）
+              </option>
+            ))}
         </select>
       }
     >
@@ -792,7 +1006,7 @@ function PathPanel({
         </div>
       ) : !data.data?.paths.length ? (
         <EmptyState title="没有匹配的路径">
-          该快照的共享任务还没有生成审计路径，或当前筛选没有命中。
+          该快照尚未发布候选路径，或当前筛选没有命中。
         </EmptyState>
       ) : (
         <>
@@ -813,7 +1027,9 @@ function PathPanel({
                     data-guide-row
                     tabIndex={0}
                     aria-selected={selected?.path_id === row.path_id}
-                    className={selected?.path_id === row.path_id ? "selected" : ""}
+                    className={
+                      selected?.path_id === row.path_id ? "selected" : ""
+                    }
                     onClick={() => onSelect(row)}
                     onKeyDown={guideKeys}
                   >
@@ -827,7 +1043,15 @@ function PathPanel({
             </table>
           </div>
           <div className="knowledge-pager">
-            <button className="button" disabled={!data.data.next_cursor} onClick={() => next(data.data?.next_cursor || "")}>
+            <button className="button" disabled={page === 0} onClick={back}>
+              上一页
+            </button>
+            <span>第 {page + 1} 页</span>
+            <button
+              className="button"
+              disabled={!data.data.next_cursor}
+              onClick={() => next(data.data?.next_cursor || "")}
+            >
               下一页
             </button>
           </div>
@@ -849,10 +1073,17 @@ function guideKeys(event: KeyboardEvent<HTMLTableRowElement>) {
   if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
   event.preventDefault();
   const rows = Array.from(
-    event.currentTarget.closest("table")?.querySelectorAll<HTMLTableRowElement>("[data-guide-row]") || [],
+    event.currentTarget
+      .closest("table")
+      ?.querySelectorAll<HTMLTableRowElement>("[data-guide-row]") || [],
   );
   const index = rows.indexOf(event.currentTarget);
-  const next = rows[event.key === "ArrowDown" ? Math.min(rows.length - 1, index + 1) : Math.max(0, index - 1)];
+  const next =
+    rows[
+      event.key === "ArrowDown"
+        ? Math.min(rows.length - 1, index + 1)
+        : Math.max(0, index - 1)
+    ];
   next?.focus();
 }
 
@@ -875,13 +1106,19 @@ function ProvenancePanel({ provenance }: { provenance: Provenance }) {
       </div>
       <div>
         <dt>快照版本</dt>
-        <dd className="mono">{Object.entries(provenance.versions).map(([key, value]) => `${key}:${value}`).join(" · ")}</dd>
+        <dd className="mono">
+          {Object.entries(provenance.versions)
+            .map(([key, value]) => `${key}:${value}`)
+            .join(" · ")}
+        </dd>
       </div>
       <div>
         <dt>共享任务</dt>
         <dd>
           {provenance.tasks.length
-            ? provenance.tasks.map((task) => task.name || task.audit_id).join("、")
+            ? provenance.tasks
+                .map((task) => task.name || task.audit_id)
+                .join("、")
             : "暂无共享任务"}
         </dd>
       </div>
@@ -889,7 +1126,34 @@ function ProvenancePanel({ provenance }: { provenance: Provenance }) {
         <div>
           <dt>原始产物</dt>
           <dd className="mono">
-            {provenance.artifacts.map((artifact) => `${artifact.kind} ${artifact.sha256.slice(0, 12)}…`).join(" · ")}
+            {provenance.artifacts
+              .map(
+                (artifact) =>
+                  `${artifact.kind} ${artifact.sha256.slice(0, 12)}…`,
+              )
+              .join(" · ")}
+          </dd>
+        </div>
+      ) : null}
+      {provenance.analyses?.length ? (
+        <div>
+          <dt>直接分析来源</dt>
+          <dd>
+            <ul>
+              {provenance.analyses.map((analysis) => (
+                <li key={analysis.analysis_id}>
+                  <span className="mono">
+                    {analysis.producer.plugin_id}@
+                    {analysis.producer.plugin_version}
+                  </span>
+                  <p className="mono">{analysis.analysis_id}</p>
+                  <p className="mono">
+                    {analysis.native_artifact.id} ·{" "}
+                    {analysis.native_artifact.sha256}
+                  </p>
+                </li>
+              ))}
+            </ul>
           </dd>
         </div>
       ) : null}
@@ -910,19 +1174,29 @@ function SymbolInspector({
 }) {
   const base = `/v1/projects/${projectID}/knowledge/views/${view.view_id}`;
   const slice = useQuery(
-    (signal) => api.get<Slice>(`${base}/code-slice?symbol_id=${encodeURIComponent(symbol.symbol_id)}&max_lines=80&max_sections=3`, signal),
+    (signal) =>
+      api.get<Slice>(
+        `${base}/code-slice?symbol_id=${encodeURIComponent(symbol.symbol_id)}&max_lines=80&max_sections=3`,
+        signal,
+      ),
     [api, base, symbol.symbol_id],
   );
   const callers = useQuery(
     (signal) =>
-      api.get<{ neighborhood: { root: Symbol; nodes: { symbol: Symbol }[]; meta: Meta } }>(
+      api.get<{
+        neighborhood: { root: Symbol; nodes: { symbol: Symbol }[]; meta: Meta };
+      }>(
         `${base}/neighborhood?symbol_id=${encodeURIComponent(symbol.symbol_id)}&direction=callers&depth=1&max_nodes=20`,
         signal,
       ),
     [api, base, symbol.symbol_id],
   );
   const provenance = useQuery(
-    (signal) => api.get<{ provenance: Provenance }>(`${base}/provenance?fact_id=${encodeURIComponent(symbol.symbol_id)}`, signal),
+    (signal) =>
+      api.get<{ provenance: Provenance }>(
+        `${base}/provenance?fact_id=${encodeURIComponent(symbol.symbol_id)}`,
+        signal,
+      ),
     [api, base, symbol.symbol_id],
   );
   return (
@@ -965,7 +1239,11 @@ function SymbolInspector({
         )}
       </Panel>
       <Panel title="来源" className="knowledge-inspector-panel">
-        {provenance.error ? <Hint>{provenance.error}</Hint> : provenance.data ? <ProvenancePanel provenance={provenance.data.provenance} /> : null}
+        {provenance.error ? (
+          <Hint>{provenance.error}</Hint>
+        ) : provenance.data ? (
+          <ProvenancePanel provenance={provenance.data.provenance} />
+        ) : null}
       </Panel>
     </>
   );
@@ -984,7 +1262,11 @@ function NodeInspector({
 }) {
   const base = `/v1/projects/${projectID}/knowledge/views/${view.view_id}`;
   const provenance = useQuery(
-    (signal) => api.get<{ provenance: Provenance }>(`${base}/provenance?fact_id=${encodeURIComponent(node.node_id)}`, signal),
+    (signal) =>
+      api.get<{ provenance: Provenance }>(
+        `${base}/provenance?fact_id=${encodeURIComponent(node.node_id)}`,
+        signal,
+      ),
     [api, base, node.node_id],
   );
   return (
@@ -1000,7 +1282,9 @@ function NodeInspector({
         </div>
         <div>
           <dt>源码位置</dt>
-          <dd className="mono">{node.file ? `${node.file}:${node.line || 0}` : "未解析"}</dd>
+          <dd className="mono">
+            {node.file ? `${node.file}:${node.line || 0}` : "未解析"}
+          </dd>
         </div>
         <div>
           <dt>生成规则</dt>
@@ -1012,7 +1296,11 @@ function NodeInspector({
         </div>
       </dl>
       <Panel title="来源" className="knowledge-inspector-panel">
-        {provenance.error ? <Hint>{provenance.error}</Hint> : provenance.data ? <ProvenancePanel provenance={provenance.data.provenance} /> : null}
+        {provenance.error ? (
+          <Hint>{provenance.error}</Hint>
+        ) : provenance.data ? (
+          <ProvenancePanel provenance={provenance.data.provenance} />
+        ) : null}
       </Panel>
     </>
   );
@@ -1031,8 +1319,12 @@ function PathInspector({
 }) {
   const base = `/v1/projects/${projectID}/knowledge/views/${view.view_id}`;
   const provenance = useQuery(
-    (signal) => api.get<{ provenance: Provenance }>(`${base}/provenance?fact_id=${encodeURIComponent(row.entry_subject)}`, signal),
-    [api, base, row.entry_subject],
+    (signal) =>
+      api.get<{ provenance: Provenance }>(
+        `${base}/provenance?fact_id=${encodeURIComponent(row.entry_node_id || row.entry_subject)}`,
+        signal,
+      ),
+    [api, base, row.entry_node_id, row.entry_subject],
   );
   return (
     <>
@@ -1051,17 +1343,26 @@ function PathInspector({
           <ol className="knowledge-steps">
             {row.steps.map((step, index) => (
               <li key={index}>
-                <span className="mono">{step.layer}</span> {step.subject || `${step.kind}`}
-                {step.file ? <span className="muted mono"> {`${step.file}:${step.line || 0}`}</span> : null}
+                <span className="mono">{step.layer}</span>{" "}
+                {step.subject || `${step.kind}`}
+                {step.file ? (
+                  <span className="muted mono">
+                    {" "}
+                    {`${step.file}:${step.line || 0}`}
+                  </span>
+                ) : null}
               </li>
             ))}
           </ol>
         )}
       </Panel>
       <Panel title="来源" className="knowledge-inspector-panel">
-        {provenance.error ? <Hint>无法解析该入口的来源：{provenance.error}</Hint> : provenance.data ? <ProvenancePanel provenance={provenance.data.provenance} /> : null}
+        {provenance.error ? (
+          <Hint>无法解析该入口的来源：{provenance.error}</Hint>
+        ) : provenance.data ? (
+          <ProvenancePanel provenance={provenance.data.provenance} />
+        ) : null}
       </Panel>
     </>
   );
 }
-

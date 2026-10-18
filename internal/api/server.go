@@ -176,7 +176,7 @@ func NewServer(store storage.FullStore, mgr *repository.Manager, analyzer *analy
 			s.Artifacts, _ = artifact.NewLocal(filepath.Join(s.Manager.Root, "artifacts"), index)
 		}
 	}
-	if publisher, ok := store.(publication.Store); ok && !storage.CatalogOnly(store) {
+	if publisher, ok := store.(publication.Store); ok {
 		s.Publications = publication.NewPublisher(publisher)
 	}
 	if s.Graph != nil {
@@ -184,15 +184,23 @@ func NewServer(store storage.FullStore, mgr *repository.Manager, analyzer *analy
 		if reader, ok := store.(knowledge.ArtifactReader); ok {
 			artifacts = reader
 		}
+		var queue knowledge.PathReader
+		if s.Audit != nil {
+			queue = s.Audit
+		}
+		var surface knowledge.SurfaceReader
+		if s.ASG != nil {
+			surface = s.ASG
+		}
 		s.Knowledge = knowledge.New(knowledge.Deps{
 			Store:     store,
 			Graph:     s.Graph,
-			ASG:       s.ASG,
-			Queue:     s.Audit,
+			ASG:       surface,
+			Queue:     queue,
 			Artifacts: artifacts,
 		})
 	}
-	if s.Findings == nil && store != nil && !storage.CatalogOnly(store) {
+	if s.Findings == nil && store != nil && !storage.LimitedPostgres(store) {
 		s.Findings = findings.NewService(store)
 	}
 	s.snapshots = lifecycle.Snapshots{Store: s.Store, Manager: s.Manager}
@@ -558,9 +566,6 @@ func (s *Server) handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 	}
 	var req createSnapshotRequest
 	if !s.decode(w, r, &req) {
-		return
-	}
-	if !s.snapshotCapabilities(w, req) {
 		return
 	}
 	snap, err := s.Manager.Create(r.Context(), repository.Source{

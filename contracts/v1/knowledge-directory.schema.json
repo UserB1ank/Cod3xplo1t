@@ -1,0 +1,176 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codexploit.invalid/contracts/v1/knowledge-directory.schema.json",
+  "title": "Paged immutable knowledge revisions and authoritative CAS head",
+  "type": "object",
+  "properties": {
+    "api_version": {
+      "const": "codexploit/v1"
+    },
+    "head_revision": {
+      "type": "string",
+      "pattern": "^rev-[0-9]+$"
+    },
+    "next_cursor": {
+      "type": "string",
+      "maxLength": 128
+    },
+    "revisions": {
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "object",
+            "properties": {
+              "project_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+              },
+              "snapshot_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+              }
+            },
+            "required": [
+              "project_id",
+              "snapshot_id"
+            ],
+            "additionalProperties": false
+          },
+          "revision": {
+            "type": "string",
+            "pattern": "^rev-[1-9][0-9]*$"
+          },
+          "revision_no": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "batch_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "base_revision": {
+            "type": "string",
+            "pattern": "^rev-[0-9]+$"
+          },
+          "digest": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "layer": {
+            "type": "string"
+          },
+          "producer": {
+            "$ref": "common.schema.json#/$defs/Producer"
+          },
+          "coverage": {
+            "type": "object",
+            "properties": {
+              "files_seen": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "files_analyzed": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "files_skipped": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "limitations": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "files_seen",
+              "files_analyzed",
+              "files_skipped"
+            ],
+            "additionalProperties": false
+          },
+          "limitations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "view": {
+            "type": "object",
+            "properties": {
+              "view_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              },
+              "revision": {
+                "type": "string",
+                "pattern": "^rev-[1-9][0-9]*$"
+              },
+              "scope": {
+                "type": "object",
+                "properties": {
+                  "project_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 160,
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+                  },
+                  "snapshot_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 160,
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+                  }
+                },
+                "required": [
+                  "project_id",
+                  "snapshot_id"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "view_id",
+              "revision",
+              "scope"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "scope",
+          "revision",
+          "revision_no",
+          "batch_id",
+          "base_revision",
+          "digest",
+          "producer",
+          "coverage",
+          "created_at",
+          "view"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "api_version",
+    "head_revision",
+    "next_cursor",
+    "revisions"
+  ],
+  "additionalProperties": false
+}

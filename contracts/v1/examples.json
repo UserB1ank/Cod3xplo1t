@@ -78,5 +78,9 @@
   {
     "file": "examples/storage-status.json",
     "schema": "storage-status.schema.json"
+  },
+  {
+    "file": "examples/knowledge-directory.json",
+    "schema": "knowledge-directory.schema.json"
   }
 ]

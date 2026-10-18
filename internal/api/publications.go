@@ -126,6 +126,11 @@ func (s *Server) handlePublishKnowledge(w http.ResponseWriter, r *http.Request) 
 	if omittedEdges > 0 {
 		batch.Limitations = append(batch.Limitations, fmt.Sprintf("%d cross-layer edge(s) were omitted because their endpoints are not attack-surface facts in this batch", omittedEdges))
 	}
+	batch.Analysis, err = s.publicationAnalysis(r.Context(), document)
+	if err != nil {
+		writePublicationError(w, err)
+		return
+	}
 	revision, err := s.Publications.Publish(r.Context(), batch)
 	if err != nil {
 		writePublicationError(w, err)
@@ -216,9 +221,12 @@ func decodeRevisionCursor(cursor string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	if !strings.HasPrefix(string(raw), "o:") {
+		return 0, errors.New("invalid revision cursor")
+	}
 	value, err := strconv.Atoi(strings.TrimPrefix(string(raw), "o:"))
 	if err != nil || value < 0 {
-		return 0, err
+		return 0, errors.New("invalid revision cursor")
 	}
 	return value, nil
 }
@@ -286,21 +294,41 @@ func (s *Server) handleListKnowledgeRevisions(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusBadRequest, "invalid_request", errors.New("snapshot_id is required"))
 		return
 	}
-	limit := 100
-	if raw := r.URL.Query().Get("limit"); raw != "" {
-		value, err := strconv.Atoi(raw)
-		if err != nil || value < 1 || value > 200 {
-			writeError(w, http.StatusBadRequest, "invalid_request", errors.New("limit must be between 1 and 200"))
-			return
-		}
-		limit = value
+	offset, limit, valid := revisionPage(r)
+	if !valid {
+		writeError(w, 400, "invalid_request", errors.New("limit or cursor is invalid"))
+		return
+	}
+	if r.URL.Query().Get("limit") == "" {
+		limit = 100
+	}
+	if offset > 10000 {
+		writeError(w, 413, "knowledge_directory_budget", errors.New("revision directory offset exceeds 10000"))
+		return
 	}
 	scope := publication.Scope{ProjectID: r.PathValue("projectID"), SnapshotID: snapshotID}
-	revisions, err := store.ListKnowledgeRevisions(r.Context(), scope, limit)
+	head, err := store.KnowledgeHead(r.Context(), scope)
 	if err != nil {
 		writePublicationError(w, err)
 		return
 	}
+	revisions, err := store.ListKnowledgeRevisions(r.Context(), scope, offset+limit+1)
+	if err != nil {
+		writePublicationError(w, err)
+		return
+	}
+	if offset > len(revisions) {
+		offset = len(revisions)
+	}
+	end := offset + limit
+	if end > len(revisions) {
+		end = len(revisions)
+	}
+	next := ""
+	if end < len(revisions) {
+		next = base64.RawURLEncoding.EncodeToString([]byte("o:" + strconv.Itoa(end)))
+	}
+	revisions = revisions[offset:end]
 	type revisionView struct {
 		publication.Revision
 		View publication.View `json:"view"`
@@ -314,5 +342,5 @@ func (s *Server) handleListKnowledgeRevisions(w http.ResponseWriter, r *http.Req
 		}
 		items = append(items, revisionView{Revision: revision, View: view})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"api_version": "codexploit/v1", "revisions": items})
+	writeKnowledgeDirectory(w, map[string]any{"api_version": "codexploit/v1", "head_revision": head, "revisions": items, "next_cursor": next})
 }

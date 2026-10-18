@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -16,14 +17,12 @@ func (s *SQL) ReplaceGraph(ctx context.Context, snapshotID string, g *scg.Graph)
 	if err := validateGraph(snapshotID, g); err != nil {
 		return err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return mapSQLError(err)
-	}
-	defer tx.Rollback()
-	if err := s.snapshotWritableTx(ctx, tx, snapshotID); err != nil {
-		return err
-	}
+	return s.snapshotWrite(ctx, snapshotID, func(tx *sql.Tx) error {
+		return s.replaceGraphTx(ctx, tx, snapshotID, g)
+	})
+}
+
+func (s *SQL) replaceGraphTx(ctx context.Context, tx *sql.Tx, snapshotID string, g *scg.Graph) error {
 
 	for _, table := range []string{"scg_modules", "scg_files", "scg_symbols", "scg_call_sites", "scg_edges", "graph_builds"} {
 		if _, err := tx.ExecContext(ctx, s.rebind(`DELETE FROM `+table+` WHERE snapshot_id = ?`), snapshotID); err != nil {
@@ -149,7 +148,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
 		summary.BuiltAt, summary.BuildDurationMS); err != nil {
 		return mapSQLError(err)
 	}
-	return tx.Commit()
+	return nil
 }
 
 // DeleteGraph implements GraphStore.

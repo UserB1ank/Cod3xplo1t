@@ -55,6 +55,7 @@ type BatchEdge struct {
 // Batch is one producer's atomic publication: facts, edges and the coverage
 // statement they were derived under.
 type Batch struct {
+	Analysis     *AnalysisIndex
 	ID           string
 	Scope        Scope
 	BaseRevision string
@@ -119,6 +120,7 @@ type Revision struct {
 // RevisionDocument is the immutable state of one revision: its summary, every
 // fact with its observations, and every edge.
 type RevisionDocument struct {
+	Analysis *AnalysisIndex `json:"-"`
 	Revision Revision
 	Facts    []Fact
 	Edges    []Edge

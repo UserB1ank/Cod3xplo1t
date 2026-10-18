@@ -261,7 +261,9 @@ export default function App() {
       />
     );
   const canWrite = identity.can_write;
-  const catalogOnly = identity.features.storage_postgres;
+  const limitedTasks = identity.features.tasks === false;
+  const canBuildKnowledge = identity.features.knowledge !== false;
+  const availableView = (view: string) => ["sources", "artifacts", "settings"].includes(view) || (view === "knowledge" ? canBuildKnowledge : view === "plugins" ? identity.features.plugins !== false : !limitedTasks);
   const navItems = [
     { id: "overview", label: "项目概览", icon: Layers },
     { id: "tasks", label: "挖掘任务", icon: Workflow },
@@ -314,8 +316,8 @@ export default function App() {
               {navItems.map((item) => (
                 <button
                   key={item.id}
-                  disabled={catalogOnly && !["sources", "artifacts", "settings"].includes(item.id)}
-                  title={catalogOnly && !["sources", "artifacts", "settings"].includes(item.id) ? "PostgreSQL 目录模式尚未接线" : undefined}
+                  disabled={!availableView(item.id)}
+                  title={!availableView(item.id) ? "PostgreSQL 当前模式尚未接线" : undefined}
                   className={`nav-item ${route.task ? (item.id === "tasks" ? "selected" : "") : route.view === item.id ? "selected" : ""}`}
                   onClick={() =>
                     navigate({ project: route.project, view: item.id })
@@ -328,8 +330,8 @@ export default function App() {
             </nav>
             <div className="sidebar-note">
               <BookOpen size={16} />
-              <strong>{catalogOnly ? "固定输入保留在项目内" : "知识在项目内共享"}</strong>
-              <p>{catalogOnly ? "当前支持代码源、快照和产物目录。研究功能尚未接线。" : "任务独立运行，代码事实与证据保留版本和来源。"}</p>
+              <strong>{limitedTasks ? "代码事实保留来源" : "知识在项目内共享"}</strong>
+              <p>{limitedTasks ? "当前支持直接插件分析与图谱发布。任务和工作流尚未接线。" : "任务独立运行，代码事实与证据保留版本和来源。"}</p>
             </div>
           </>
         )}
@@ -364,7 +366,7 @@ export default function App() {
               <>
                 <ChevronRight size={13} />
                 <a
-                  href={routeHash({ project: route.project, view: catalogOnly ? "sources" : "overview" })}
+                  href={routeHash({ project: route.project, view: limitedTasks ? "sources" : "overview" })}
                 >
                   {project?.name || "…"}
                 </a>
@@ -450,9 +452,9 @@ export default function App() {
               projects={projects.data || []}
               loading={projects.loading}
               canWrite={canWrite}
-              catalogOnly={catalogOnly}
+              limitedTasks={limitedTasks}
               onCreate={() => setDialog("project")}
-              onOpen={(id) => navigate({ project: id, view: catalogOnly ? "sources" : "tasks" })}
+              onOpen={(id) => navigate({ project: id, view: limitedTasks ? "sources" : "tasks" })}
             />
           ) : projects.loading && !project ? (
             <Loading />
@@ -460,8 +462,8 @@ export default function App() {
             <EmptyState title="项目不存在">
               返回项目列表选择一个可用项目。
             </EmptyState>
-          ) : catalogOnly && !["sources", "artifacts", "settings"].includes(route.view) ? (
-            <EmptyState title="当前存储模式尚未接线此功能" action={<button className="button secondary" onClick={() => navigate({ project: project.id, view: "sources" })}>查看代码源</button>}>PostgreSQL 目录模式支持项目、代码源、快照和产物。图谱、任务与研究记录将在后续版本接通。</EmptyState>
+          ) : !availableView(route.view) ? (
+            <EmptyState title="当前存储模式尚未接线此功能" action={<button className="button secondary" onClick={() => navigate({ project: project.id, view: "sources" })}>查看代码源</button>}>PostgreSQL 当前支持项目、快照、产物、直接插件分析和共享图谱。任务、工作流、发现分级和报告将在后续版本接通。</EmptyState>
           ) : route.task && !tasks.loading && tasks.data && !task ? (
             <EmptyState title="任务不属于当前项目">
               返回项目任务列表选择一个可用任务。
@@ -506,7 +508,7 @@ export default function App() {
                             : route.view === "findings"
                               ? "汇总任务发现，按证据结论与漏洞严重度查看。"
                               : route.view === "sources"
-                                ? catalogOnly ? "管理文件夹与 Git 仓库，固定源码版本并校验产物。" : "管理文件夹与 Git 仓库，固定源码版本，再选择代码基线创建任务。"
+                                ? limitedTasks ? "管理文件夹与 Git 仓库，固定源码版本并校验产物。" : "管理文件夹与 Git 仓库，固定源码版本，再选择代码基线创建任务。"
                                 : project.source || "项目代码源独立管理。"}
                   </p>
                 </div>
@@ -523,7 +525,7 @@ export default function App() {
                   )}
                   <button
                     className="button primary"
-                    disabled={!canWrite || !!busy || !snapshots.data?.length || catalogOnly}
+                    disabled={!canWrite || !!busy || !snapshots.data?.length || limitedTasks}
                     onClick={() => {
                       setTaskSnapshot(undefined);
                       setDialog("task");
@@ -541,7 +543,8 @@ export default function App() {
                   project={project}
                   revision={revision}
                   canWrite={canWrite && !busy}
-                  canResearch={!catalogOnly}
+                  canBuildKnowledge={canBuildKnowledge}
+                  canCreateTask={!limitedTasks}
                   onRefresh={() => refresh((n) => n + 1)}
                   onLegacySnapshot={() => setDialog("snapshot")}
                   onArtifacts={(snapshot) =>
@@ -574,6 +577,7 @@ export default function App() {
                   revision={revision}
                   canWrite={canWrite}
                   canRegister={identity.role === "admin"}
+                  onKnowledge={() => navigate({ project: project.id, view: "knowledge" })}
                   onArtifacts={(snapshot) =>
                     navigate({
                       project: project.id,
@@ -696,10 +700,10 @@ export default function App() {
         <ProjectForm
           busy={!!busy}
           network={identity.features.network}
-          buildKnowledge={!catalogOnly}
+          buildKnowledge={canBuildKnowledge}
           onSubmit={(values) =>
             action(
-              catalogOnly ? "建立项目与快照" : "建立项目与图谱",
+              canBuildKnowledge ? "建立项目与图谱" : "建立项目与快照",
               async () => {
                 if (values.kind !== "legacy_auto") {
                   const created = await api.post<{ project: Project }>(
@@ -721,8 +725,8 @@ export default function App() {
                   await api.post(`/v1/sources/${input.source.id}/snapshots`, {
                     project_id: created.project.id,
                     source_version: input.source.version,
-                    build_graph: !catalogOnly,
-                    build_asg: !catalogOnly,
+                    build_graph: canBuildKnowledge,
+                    build_asg: canBuildKnowledge,
                   });
                   return;
                 }
@@ -730,11 +734,11 @@ export default function App() {
                   "/projects",
                   { name: values.name, source: values.source },
                 );
-                navigate({ project: created.project.id, view: "tasks" });
+                navigate({ project: created.project.id, view: limitedTasks ? "sources" : "tasks" });
                 await api.post(`/projects/${created.project.id}/snapshots`, {
                   ref: values.ref || "HEAD",
-                  build_graph: !catalogOnly,
-                  build_asg: !catalogOnly,
+                  build_graph: canBuildKnowledge,
+                  build_asg: canBuildKnowledge,
                 });
               },
               () => setDialog(""),
@@ -752,12 +756,12 @@ export default function App() {
           onSubmit={(ref) =>
             project &&
             action(
-              catalogOnly ? "构建快照" : "构建快照与共享图谱",
+              canBuildKnowledge ? "构建快照与共享图谱" : "构建快照",
               () =>
                 api.post(`/projects/${project.id}/snapshots`, {
                   ref: ref || "HEAD",
-                  build_graph: !catalogOnly,
-                  build_asg: !catalogOnly,
+                  build_graph: canBuildKnowledge,
+                  build_asg: canBuildKnowledge,
                 }),
               () => setDialog(""),
             )
@@ -1047,7 +1051,7 @@ function Projects({
   projects,
   loading,
   canWrite,
-  catalogOnly,
+  limitedTasks,
   onCreate,
   onOpen,
 }: {
@@ -1056,7 +1060,7 @@ function Projects({
   projects: Project[];
   loading: boolean;
   canWrite: boolean;
-  catalogOnly: boolean;
+  limitedTasks: boolean;
   onCreate: () => void;
   onOpen: (id: string) => void;
 }) {
@@ -1111,7 +1115,7 @@ function Projects({
             )
           }
         >
-          {catalogOnly ? "导入文件夹或 Git 定义，固定源码快照并保存产物目录。" : "导入仓库后，建立共享图谱，再按目标创建挖掘任务。"}
+          {limitedTasks ? "导入文件夹或 Git 定义，固定源码快照并保存产物目录。" : "导入仓库后，建立共享图谱，再按目标创建挖掘任务。"}
         </EmptyState>
       ) : (
         <div className="project-grid">
@@ -1121,7 +1125,7 @@ function Projects({
               api={api}
               project={project}
               revision={revision}
-              catalogOnly={catalogOnly}
+              limitedTasks={limitedTasks}
               onOpen={() => onOpen(project.id)}
             />
           ))}
@@ -1135,18 +1139,18 @@ function ProjectCard({
   api,
   project,
   revision,
-  catalogOnly,
+  limitedTasks,
   onOpen,
 }: {
   api: ApiClient;
   project: Project;
   revision: number;
-  catalogOnly: boolean;
+  limitedTasks: boolean;
   onOpen: () => void;
 }) {
   const summary = useResource(
     async (signal) => {
-      if (catalogOnly) return undefined;
+      if (limitedTasks) return undefined;
       const [tasks, findings] = await Promise.all([
         api.get<{ total: number }>(
           `/projects/${project.id}/tasks?limit=1`,
@@ -1159,7 +1163,7 @@ function ProjectCard({
       ]);
       return { tasks: tasks.total, findings };
     },
-    [api, project.id, revision, catalogOnly],
+    [api, project.id, revision, limitedTasks],
   );
   return (
     <button className="project-card" onClick={onOpen}>
@@ -1172,8 +1176,8 @@ function ProjectCard({
       <h2>{project.name}</h2>
       <p className="mono">{project.source}</p>
       <div className="project-card-stats">
-        <span>{catalogOnly ? "目录模式 · 研究功能尚未接线" : `${summary.data?.tasks ?? "—"} 个任务`}</span>
-        {!catalogOnly && <div className="grade-counts">
+        <span>{limitedTasks ? "知识模式 · 任务执行尚未接线" : `${summary.data?.tasks ?? "—"} 个任务`}</span>
+        {!limitedTasks && <div className="grade-counts">
           {(["high", "medium", "low"] as Grade[]).map((grade) => (
             <span title={gradeNames[grade]} className={grade} key={grade}>
               {summary.data?.findings.counts[grade] ?? "—"}
@@ -1190,7 +1194,7 @@ function ProjectCard({
       <div className="project-card-footer">
         <span>
           <Network size={13} />
-          {catalogOnly ? "代码源与固定快照" : "项目共享图谱"}
+          {limitedTasks ? "代码源与固定快照" : "项目共享图谱"}
         </span>
         <span>{dateLabel(project.updated_at)}</span>
       </div>
@@ -2360,9 +2364,9 @@ function ProjectSettings({
           <dt>代码版本</dt>
           <dd>{snapshots.length} 个快照</dd>
           <dt>存储方式</dt>
-          <dd>{identity.features.storage_postgres ? "PostgreSQL · 目录模式" : identity.features.storage_memory ? "内存 · 进程退出后目录丢失" : "服务端工作区 · SQLite"}</dd>
+          <dd>{identity.features.storage_postgres ? "PostgreSQL · 知识模式" : identity.features.storage_memory ? "内存 · 进程退出后目录丢失" : "服务端工作区 · SQLite"}</dd>
           <dt>知识共享</dt>
-          <dd>{identity.features.storage_postgres ? "图谱与任务尚未接线" : "项目内共享，任务固定代码版本"}</dd>
+          <dd>{identity.features.storage_postgres ? "直接分析与图谱已接通，任务尚未接线" : "项目内共享，任务固定代码版本"}</dd>
         </dl>
       </Panel>
       <Panel title="服务能力">

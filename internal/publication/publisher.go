@@ -55,6 +55,9 @@ func (p *Publisher) Publish(ctx context.Context, batch Batch) (*Revision, error)
 		return nil, err
 	}
 	if batch.BaseRevision != head {
+		if prior, replayErr := p.replay(ctx, batch, digest); prior != nil || replayErr != nil {
+			return prior, replayErr
+		}
 		return nil, fmt.Errorf("%w: base %s, head %s", ErrVersionConflict, batch.BaseRevision, head)
 	}
 	base := RevisionDocument{Revision: Revision{Scope: batch.Scope, ID: "rev-0"}}
@@ -81,9 +84,30 @@ func (p *Publisher) Publish(ctx context.Context, batch Batch) (*Revision, error)
 		CreatedAt: document.Revision.CreatedAt,
 	}
 	if err := p.Store.PublishKnowledge(ctx, head, document, event); err != nil {
+		if errors.Is(err, ErrVersionConflict) || errors.Is(err, ErrBatchConflict) {
+			if prior, replayErr := p.replay(ctx, batch, digest); prior != nil || replayErr != nil {
+				return prior, replayErr
+			}
+		}
 		return nil, err
 	}
 	return &document.Revision, nil
+}
+
+// Another publisher may commit this same batch between the initial replay
+// check and the CAS. A committed identical batch is still a successful replay.
+func (p *Publisher) replay(ctx context.Context, batch Batch, digest string) (*Revision, error) {
+	prior, err := p.Store.KnowledgeBatch(ctx, batch.Scope, batch.ID)
+	if errors.Is(err, ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if prior.Digest != digest {
+		return nil, ErrBatchConflict
+	}
+	return &prior, nil
 }
 
 // mergeBatch folds one batch onto the base revision. Facts keep their canonical
@@ -163,6 +187,7 @@ func mergeBatch(base RevisionDocument, batch Batch, digest, revisionID, now stri
 		return edges[i].Kind < edges[j].Kind
 	})
 	return RevisionDocument{
+		Analysis: batch.Analysis,
 		Revision: Revision{
 			Scope:        batch.Scope,
 			ID:           revisionID,
