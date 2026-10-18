@@ -93,7 +93,7 @@ const starter: Spec = {
     {
       id: "parse",
       plugin_id: "builtin.go-parser",
-      plugin_version: "1.1.0",
+      plugin_version: "1.2.0",
       needs: [],
       config: {},
       timeout_seconds: 60,
@@ -101,7 +101,7 @@ const starter: Spec = {
     {
       id: "semantic",
       plugin_id: "builtin.security-semantics",
-      plugin_version: "1.0.0",
+      plugin_version: "1.1.0",
       needs: ["parse"],
       config: {},
       timeout_seconds: 60,
@@ -109,7 +109,7 @@ const starter: Spec = {
     {
       id: "paths",
       plugin_id: "builtin.discovery-paths",
-      plugin_version: "1.0.0",
+      plugin_version: "1.1.0",
       needs: ["semantic"],
       config: {},
       timeout_seconds: 60,

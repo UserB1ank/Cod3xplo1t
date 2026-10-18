@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codexploit.invalid/contracts/v1/report-runtime.schema.json",
+  "title": "Immutable report invocation response",
+  "type": "object",
+  "properties": {
+    "api_version": {
+      "const": "codexploit/v1"
+    },
+    "report": {
+      "$ref": "#/$defs/Report"
+    },
+    "reports": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "$ref": "#/$defs/Report"
+      }
+    },
+    "next_cursor": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "api_version"
+  ],
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "required": [
+        "report"
+      ]
+    },
+    {
+      "required": [
+        "reports",
+        "next_cursor"
+      ]
+    }
+  ],
+  "$defs": {
+    "Report": {
+      "allOf": [
+        {
+          "$ref": "plugin-runtime.schema.json#/$defs/Invocation"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "request": {
+              "type": "object",
+              "properties": {
+                "plugin_id": {
+                  "const": "builtin.reporter"
+                },
+                "config": {
+                  "$ref": "#/$defs/Selection"
+                }
+              }
+            },
+            "outputs": {
+              "type": "array",
+              "maxItems": 1
+            }
+          }
+        }
+      ]
+    },
+    "Selection": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "enum": [
+            "md",
+            "json",
+            "sarif"
+          ]
+        },
+        "task_id": {
+          "$ref": "common.schema.json#/$defs/ID"
+        },
+        "view_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "knowledge_revision": {
+          "type": "string",
+          "pattern": "^rev-[0-9]+$"
+        },
+        "include_candidates": {
+          "type": "boolean"
+        },
+        "captured_at": {
+          "type": "string",
+          "minLength": 1
+        },
+        "counts": {
+          "type": "object",
+          "properties": {
+            "confirmed": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "candidate": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "refuted": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "inconclusive": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "blocked": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "high": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "medium": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "low": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "ungraded": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "confirmed",
+            "candidate",
+            "refuted",
+            "inconclusive",
+            "blocked",
+            "high",
+            "medium",
+            "low",
+            "ungraded"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "format",
+        "view_id",
+        "knowledge_revision",
+        "include_candidates",
+        "captured_at",
+        "counts"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

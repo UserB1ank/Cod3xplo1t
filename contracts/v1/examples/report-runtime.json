@@ -1,0 +1,84 @@
+{
+  "api_version": "codexploit/v1",
+  "report": {
+    "invocation_id": "report-example",
+    "request": {
+      "api_version": "codexploit/v1",
+      "invocation_id": "report-example",
+      "plugin_id": "builtin.reporter",
+      "plugin_version": "1.0.0",
+      "package_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+      "scope": {
+        "project_id": "project-example",
+        "source_id": "source-example",
+        "snapshot_id": "snapshot-example"
+      },
+      "inputs": [
+        {
+          "id": "artifact-report-example-input",
+          "kind": "discovery.findings",
+          "scope": {
+            "project_id": "project-example",
+            "source_id": "source-example",
+            "snapshot_id": "snapshot-example"
+          },
+          "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+          "bytes": 1024,
+          "media_type": "application/json",
+          "schema_id": "codexploit/report-input/v1",
+          "producer": {
+            "plugin_id": "builtin.reporter",
+            "plugin_version": "1.0.0",
+            "invocation_id": "report-example",
+            "config_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        }
+      ],
+      "config": {
+        "format": "json",
+        "view_id": "view-example",
+        "knowledge_revision": "rev-1",
+        "include_candidates": false,
+        "captured_at": "2026-10-18T00:00:00Z",
+        "counts": {
+          "confirmed": 0,
+          "candidate": 0,
+          "refuted": 0,
+          "inconclusive": 0,
+          "blocked": 0,
+          "high": 0,
+          "medium": 0,
+          "low": 0,
+          "ungraded": 0
+        }
+      },
+      "budget": {
+        "max_input_bytes": 67108864,
+        "max_output_bytes": 16777216,
+        "max_files": 2000,
+        "max_file_bytes": 1048576,
+        "max_ast_nodes": 100000,
+        "timeout_seconds": 60
+      }
+    },
+    "request_digest": "3333333333333333333333333333333333333333333333333333333333333333",
+    "config_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+    "status": "CREATED",
+    "version": 1,
+    "outputs": [],
+    "coverage": {
+      "input_files": 0,
+      "parsed_files": 0,
+      "partial_files": 0,
+      "unparsed_files": 0,
+      "unhandled_files": 0,
+      "descriptor_files": 0,
+      "input_bytes": 0
+    },
+    "limitations": [
+      "Synthetic contract fixture; no report has completed."
+    ],
+    "created_at": "2026-10-18T00:00:00Z",
+    "updated_at": "2026-10-18T00:00:00Z"
+  }
+}

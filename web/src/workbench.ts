@@ -109,6 +109,7 @@ export function readRoute(hash: string): Route {
         "sources",
         "knowledge",
         "findings",
+        "reports",
         "artifacts",
         "plugins",
         "workflows",

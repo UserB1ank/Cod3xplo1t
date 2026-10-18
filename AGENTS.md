@@ -39,6 +39,8 @@
 
 - 2026-10-18 — #13 多插件发现分组、分级审计与来源查看：新增 `internal/findings` 版本化规则族指纹（仅显式等价表跨工具合并，标题不参与；快照、规则版本、位置与结论均参与身份），观察账本按 observation id + digest 幂等，重试不重复计数；Memory / SQLite 新增观察与 append-only 分级审计表、快照清理和 reason-required severity CAS，分级不改变验证裁定。`/api/v1/projects/{id}/findings` 列表 / 详情 / 分级使用公共 `finding-runtime.schema.json`，候选与已确认统计分开，旧 `/api` 保持兼容；发布路径（API 与工作流 `$publish`）自动把带显式 `rule_id` 的插件候选接入现有 finding/evidence 体系，无规则候选不按标题合并。正式漏洞库与详情展示指纹、任务 / 插件 / 规则 / 证据来源、支持 / 反对 / 未决证据和分级原因 / 版本 / 审计。已通过 TDD red/green、完整乱序竞态回归、三轮 `make test-stress`、`make lint`、前端测试 / 构建、Docker 构建，以及独立容器真实扫描、分组 / 发布 / 重试幂等、认证 API 和浏览器发现页 / 详情审计验收。已按交付流程提交并关闭；未 push。
 
+- 2026-10-18 — #14 固定版本的真实任务与项目报告：新增 `internal/reporting` 与 `builtin.reporter@1.0.0`，完整聚合选定快照 / 任务的指纹分组、成员、观察来源、分级审计、证据、路径、覆盖及开放问题；固定图谱视图、共享知识版本与生成时的发现账本分别记录，历史版本之外的观察显式标记，不伪装为旧版本事实。保存不可变输入后生成 Markdown / JSON / SARIF，产物与调用终态原子发布，缺失证据、超限、取消、迟到输出及重启中断不显示成功。正式项目导航与任务报告页接通格式、候选策略、预算、历史目录、预览与认证下载；浏览器完整核对大小和 SHA-256 后才保存。修正任务发现超过 10,000 条时未声明截断的问题；宿主包变更将解析器升至 1.2.0、语义 / 路径插件升至 1.1.0，旧记录保留，工作流模板同步更新。已通过已确认边界的 TDD red/green、1,102 条发现分页与三格式 / 候选策略、Memory / SQLite 权限 / Scope / 幂等 / 重启回归、完整乱序竞态回归、最终三轮 `make test-stress`、`make lint`、`make check-contracts`、前端测试 / 构建与 Docker 构建；独立容器和正式页面验收真实进程扫描候选、项目 JSON 与任务 SARIF、摘要校验及浏览器下载、默认候选排除、预算失败，以及重新登录后的重启逐字节一致。接口与局限见 `docs/reports.md`。按交付流程交付；未 push。
+
 ## Agent skills
 
 ### Issue tracker

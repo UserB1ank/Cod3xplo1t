@@ -14,8 +14,8 @@ import (
 
 func fixture() workflow.Spec {
 	return workflow.Spec{APIVersion: "codexploit/v1", ID: "discovery", Version: "1.0.0", Name: "Discovery", Description: "Synthetic", Inputs: []string{"source.snapshot"}, Nodes: []workflow.Node{
-		{ID: "paths", PluginID: "builtin.discovery-paths", PluginVersion: "1.0.0", Needs: []string{"semantic"}, Config: json.RawMessage(`{}`), TimeoutSeconds: 60},
-		{ID: "semantic", PluginID: plugin.SemanticID, PluginVersion: "1.0.0", Needs: []string{"parse"}, Config: json.RawMessage(`{}`), TimeoutSeconds: 60},
+		{ID: "paths", PluginID: "builtin.discovery-paths", PluginVersion: "1.1.0", Needs: []string{"semantic"}, Config: json.RawMessage(`{}`), TimeoutSeconds: 60},
+		{ID: "semantic", PluginID: plugin.SemanticID, PluginVersion: "1.1.0", Needs: []string{"parse"}, Config: json.RawMessage(`{}`), TimeoutSeconds: 60},
 		{ID: "parse", PluginID: plugin.BuiltinID, PluginVersion: plugin.BuiltinVersion, Needs: []string{}, Config: json.RawMessage(`{}`), TimeoutSeconds: 60},
 	}}
 }

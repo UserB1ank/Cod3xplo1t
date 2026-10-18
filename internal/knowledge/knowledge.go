@@ -156,6 +156,12 @@ func New(deps Deps) *Reader {
 	return &Reader{Store: deps.Store, Graph: deps.Graph, ASG: deps.ASG, Queue: deps.Queue, Artifacts: deps.Artifacts}
 }
 
+// Describe validates an existing pin without replacing it with the current view.
+func (r *Reader) Describe(ctx context.Context, scope Scope, viewID string) (*View, error) {
+	view, _, err := r.loadView(ctx, scope, viewID)
+	return view, err
+}
+
 // descriptor is the self-describing view pin. view_id is its encoding, so a
 // view survives restarts without mutable server state and the pin is always
 // verifiable against the store.

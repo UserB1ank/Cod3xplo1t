@@ -210,6 +210,9 @@ func (s *Server) Handler() http.Handler {
 
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/v1/projects/{projectID}/reports", s.withIdempotency(s.handleCreateReport))
+	mux.HandleFunc("GET /api/v1/projects/{projectID}/reports", s.handleListReports)
+	mux.HandleFunc("GET /api/v1/projects/{projectID}/reports/{reportID}", s.handleGetReport)
 	mux.HandleFunc("GET /healthz", s.handleHealth)
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/workflow-runs/{runID}", s.handleGetWorkflowRun)
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/workflow-runs/{runID}/events", s.handleWorkflowRunEvents)

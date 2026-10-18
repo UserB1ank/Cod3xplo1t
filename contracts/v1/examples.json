@@ -70,5 +70,9 @@
   {
     "file": "examples/finding-runtime.json",
     "schema": "finding-runtime.schema.json"
+  },
+  {
+    "file": "examples/report-runtime.json",
+    "schema": "report-runtime.schema.json"
   }
 ]

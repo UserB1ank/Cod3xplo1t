@@ -32,6 +32,9 @@ type Executor struct {
 	// NativeKind and NativeSchema label the raw evidence artifact.
 	NativeKind   string
 	NativeSchema string
+	// DocumentMediaType marks a reporter: its output is a document, not a
+	// discovery result. Reporters do not manufacture analysis coverage or claims.
+	DocumentMediaType func(Invocation) string
 }
 
 func (h *Host) validateInputs(ctx context.Context, request Request) error {
@@ -118,6 +121,12 @@ func (h *Host) analyze(ctx context.Context, inv Invocation) ([]artifact.Ref, Cov
 	raw, err := executor.Run(ctx, inv, inputs)
 	if err != nil {
 		return nil, Coverage{}, nil, err
+	}
+	if executor.DocumentMediaType != nil {
+		ref := artifact.Ref{ID: "artifact-" + inv.ID + "-document", Kind: "report.document", Scope: inv.Request.Scope, SHA256: digest(raw), Bytes: int64(len(raw)), MediaType: executor.DocumentMediaType(inv), SchemaID: executor.NativeSchema, Producer: artifact.Producer{PluginID: inv.Request.PluginID, PluginVersion: inv.Request.PluginVersion, InvocationID: inv.ID, ConfigDigest: inv.ConfigDigest}}
+		ref.Producer.TaskID = inv.Request.Inputs[0].Producer.TaskID
+		ref, err = h.deps.Artifacts.Prepare(ctx, ref, bytes.NewReader(raw), inv.Request.Budget.MaxOutputBytes)
+		return []artifact.Ref{ref}, Coverage{InputBytes: inv.Request.Inputs[0].Bytes}, nil, err
 	}
 	nativeKind, nativeSchema := executor.NativeKind, executor.NativeSchema
 	if nativeKind == "" {

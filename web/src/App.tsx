@@ -6,7 +6,6 @@ import {
   type FormEvent,
 } from "react";
 import {
-  ArrowDownToLine,
   ArrowLeft,
   ArrowRight,
   BookOpen,
@@ -42,6 +41,7 @@ import { Plugins } from "./Plugins";
 import { Workflows, type Plan } from "./Workflows";
 import { WorkflowRun, flowStatus } from "./WorkflowRun";
 import { Knowledge } from "./Knowledge";
+import { Reports } from "./Reports";
 import {
   Badge,
   CodeBlock,
@@ -265,6 +265,7 @@ export default function App() {
     { id: "sources", label: "代码源", icon: FolderGit2 },
     { id: "knowledge", label: "共享知识图谱", icon: Network },
     { id: "findings", label: "项目漏洞库", icon: ShieldCheck },
+    { id: "reports", label: "固定版本报告", icon: FileText },
     { id: "artifacts", label: "产物与证据", icon: FileText },
     { id: "plugins", label: "插件中心", icon: Box },
     { id: "workflows", label: "工作流", icon: GitBranch },
@@ -489,6 +490,8 @@ export default function App() {
                           ? "项目级代码事实与攻击面，供所有任务共同查询。"
                           : route.view === "artifacts"
                             ? "查看固定快照的输入产物、内容摘要和来源，核对后下载。"
+                            : route.view === "reports"
+                              ? "按所选快照固定真实发现、证据与来源，保存可复核的报告。"
                             : route.view === "findings"
                               ? "汇总任务发现，按证据结论与漏洞严重度查看。"
                               : route.view === "sources"
@@ -583,6 +586,14 @@ export default function App() {
                   api={api}
                   projectID={project.id}
                   snapshots={snapshots.data || []}
+                  revision={revision}
+                />
+              ) : route.view === "reports" ? (
+                <Reports
+                  api={api}
+                  projectID={project.id}
+                  snapshots={snapshots.data || []}
+                  canWrite={canWrite}
                   revision={revision}
                 />
               ) : route.view === "findings" ? (
@@ -1510,8 +1521,10 @@ function TaskWorkbench({
       ) : route.view === "report" ? (
         <Reports
           api={api}
+          projectID={route.project!}
           task={current}
-          enabled={identity.features.verification}
+          canWrite={canWrite}
+          revision={revision}
         />
       ) : (
         <>
@@ -2305,108 +2318,6 @@ function PathInspector({
       )}
       <Hint>调用关系展示已保存的实际步骤。验证结论以证据记录为准。</Hint>
     </>
-  );
-}
-
-function Reports({
-  api,
-  task,
-  enabled,
-}: {
-  api: ApiClient;
-  task: Task;
-  enabled: boolean;
-}) {
-  const [format, setFormat] = useState("md");
-  const [candidates, setCandidates] = useState(false);
-  const [text, setText] = useState("");
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  async function generate(download = false) {
-    setBusy(true);
-    setError("");
-    try {
-      const body = await api.report(task.audit_id, format, candidates);
-      setText(body);
-      if (download) {
-        const url = URL.createObjectURL(
-          new Blob([body], {
-            type:
-              format === "md"
-                ? "text/markdown;charset=utf-8"
-                : "application/json;charset=utf-8",
-          }),
-        );
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `codexploit-${task.audit_id}.${format === "sarif" ? "sarif" : format}`;
-        a.click();
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
-      }
-    } catch (error) {
-      setError(errorText(error));
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <Panel title="漏洞挖掘报告">
-      <div className="report-options">
-        <label>
-          导出格式
-          <select
-            value={format}
-            onChange={(e) => {
-              setFormat(e.target.value);
-              setText("");
-            }}
-          >
-            <option value="md">Markdown</option>
-            <option value="json">JSON</option>
-            <option value="sarif">SARIF</option>
-          </select>
-        </label>
-        <label className="checkbox-label">
-          <input
-            type="checkbox"
-            checked={candidates}
-            onChange={(e) => {
-              setCandidates(e.target.checked);
-              setText("");
-            }}
-          />
-          包含待验证候选
-        </label>
-        <button
-          className="button secondary"
-          disabled={busy || !enabled}
-          onClick={() => void generate()}
-        >
-          预览报告
-        </button>
-        <button
-          className="button primary"
-          disabled={busy || !enabled}
-          onClick={() => void generate(true)}
-        >
-          <ArrowDownToLine size={15} />
-          下载报告
-        </button>
-      </div>
-      {!enabled && (
-        <Hint>
-          当前服务未配置验证层，报告接口不可用。已有发现仍可在项目漏洞库查看。
-        </Hint>
-      )}
-      {error && <Failure message={error} />}
-      {text ? (
-        <pre className="report-preview">{text}</pre>
-      ) : (
-        <EmptyState title="将发现整理为可交付报告">
-          保留漏洞等级、确认结论、代码基线与证据引用。
-        </EmptyState>
-      )}
-    </Panel>
   );
 }
 

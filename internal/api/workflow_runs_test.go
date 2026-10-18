@@ -140,9 +140,9 @@ func TestWorkflowPublishesSharedKnowledgeAndRunsConfiguredCandidateRuntime(t *te
 	}
 	spec := workflowSpecFixture()
 	nodes := spec["nodes"].([]any)
-	nodes = append(nodes, map[string]any{"id": "semantic", "plugin_id": plugin.SemanticID, "plugin_version": "1.0.0", "needs": []string{"parse"}, "config": map[string]any{}, "timeout_seconds": 60}, map[string]any{"id": "paths", "plugin_id": "builtin.discovery-paths", "plugin_version": "1.0.0", "needs": []string{"semantic"}, "config": map[string]any{}, "timeout_seconds": 60})
-	nodes = append(nodes, map[string]any{"id": "zsemantic", "plugin_id": plugin.SemanticID, "plugin_version": "1.0.0", "needs": []string{"parse"}, "config": map[string]any{}, "timeout_seconds": 60})
-	nodes = append(nodes, map[string]any{"id": "zpaths", "plugin_id": "builtin.discovery-paths", "plugin_version": "1.0.0", "needs": []string{"semantic"}, "config": map[string]any{"max_paths": 1}, "timeout_seconds": 60})
+	nodes = append(nodes, map[string]any{"id": "semantic", "plugin_id": plugin.SemanticID, "plugin_version": "1.1.0", "needs": []string{"parse"}, "config": map[string]any{}, "timeout_seconds": 60}, map[string]any{"id": "paths", "plugin_id": "builtin.discovery-paths", "plugin_version": "1.1.0", "needs": []string{"semantic"}, "config": map[string]any{}, "timeout_seconds": 60})
+	nodes = append(nodes, map[string]any{"id": "zsemantic", "plugin_id": plugin.SemanticID, "plugin_version": "1.1.0", "needs": []string{"parse"}, "config": map[string]any{}, "timeout_seconds": 60})
+	nodes = append(nodes, map[string]any{"id": "zpaths", "plugin_id": "builtin.discovery-paths", "plugin_version": "1.1.0", "needs": []string{"semantic"}, "config": map[string]any{"max_paths": 1}, "timeout_seconds": 60})
 	spec["nodes"] = nodes
 	saved := do(t, env.ts, http.MethodPost, prefix+"/workflows", map[string]any{"api_version": "codexploit/v1", "spec": spec}, nil)
 	if saved.status != 201 {
@@ -462,7 +462,7 @@ func TestWorkflowKeepsCapturedModelAfterApplicationSettingsChange(t *testing.T) 
 		}
 	}
 	spec := workflowSpecFixture()
-	spec["nodes"] = append(spec["nodes"].([]any), map[string]any{"id": "semantic", "plugin_id": plugin.SemanticID, "plugin_version": "1.0.0", "needs": []string{"parse"}, "config": map[string]any{}, "timeout_seconds": 60}, map[string]any{"id": "paths", "plugin_id": "builtin.discovery-paths", "plugin_version": "1.0.0", "needs": []string{"semantic"}, "config": map[string]any{}, "timeout_seconds": 60})
+	spec["nodes"] = append(spec["nodes"].([]any), map[string]any{"id": "semantic", "plugin_id": plugin.SemanticID, "plugin_version": "1.1.0", "needs": []string{"parse"}, "config": map[string]any{}, "timeout_seconds": 60}, map[string]any{"id": "paths", "plugin_id": "builtin.discovery-paths", "plugin_version": "1.1.0", "needs": []string{"semantic"}, "config": map[string]any{}, "timeout_seconds": 60})
 	do(t, env.ts, http.MethodPost, prefix+"/workflows", map[string]any{"api_version": "codexploit/v1", "spec": spec}, nil)
 	compiled := do(t, env.ts, http.MethodPost, prefix+"/workflows/workflow-discovery/versions/1.0.0/compile", map[string]any{"api_version": "codexploit/v1", "snapshot_id": snap.Snapshot.SnapshotID, "inputs": []string{input}, "language": "Go"}, nil)
 	var plan struct {

@@ -3,6 +3,7 @@ package findings_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -17,6 +18,22 @@ import (
 type findingsFixture struct {
 	store *storage.Memory
 	svc   *findings.Service
+}
+
+func TestTaskFindingLimitDeclaresTruncationForReportAggregation(t *testing.T) {
+	f := newFindingsFixture(t)
+	for i := range 10001 {
+		if err := f.store.UpsertFinding(verify.Finding{ID: fmt.Sprintf("find-limit-%05d", i), HypothesisID: fmt.Sprintf("hyp-limit-%05d", i), AuditID: "task-limit", SnapshotID: "snap-a", Title: "Recorded candidate", Status: verify.FindingCandidate}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	page, err := f.svc.List(context.Background(), findings.ListQuery{ProjectID: "project-a", TaskID: "task-limit", Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !page.Truncated {
+		t.Fatal("task collection silently hid findings beyond its aggregation ceiling")
+	}
 }
 
 func newFindingsFixture(t *testing.T) *findingsFixture {

@@ -15,8 +15,8 @@ import (
 
 func TestNormalizerRejectsForgedProducerAndUnsupportedEvidence(t *testing.T) {
 	scope := artifact.Scope{ProjectID: "proj-example", SourceID: "src-example", SnapshotID: "snap-example"}
-	inv := plugin.Invocation{ID: "inv-example", ConfigDigest: fmt.Sprintf("%x", sha256.Sum256([]byte("{}"))), Request: plugin.Request{PluginID: plugin.SemanticID, PluginVersion: "1.0.0", Scope: scope}}
-	producer := artifact.Producer{PluginID: plugin.SemanticID, PluginVersion: "1.0.0", InvocationID: inv.ID, ConfigDigest: inv.ConfigDigest}
+	inv := plugin.Invocation{ID: "inv-example", ConfigDigest: fmt.Sprintf("%x", sha256.Sum256([]byte("{}"))), Request: plugin.Request{PluginID: plugin.SemanticID, PluginVersion: "1.1.0", Scope: scope}}
+	producer := artifact.Producer{PluginID: plugin.SemanticID, PluginVersion: "1.1.0", InvocationID: inv.ID, ConfigDigest: inv.ConfigDigest}
 	for _, name := range []string{"valid", "producer", "graph_owner", "edge_evidence", "claim"} {
 		t.Run(name, func(t *testing.T) {
 			report := plugin.NativeReport{Format: "codexploit/semantic-native/v1", Scope: scope, Graph: &scg.Graph{SnapshotID: scope.SnapshotID, GraphVersion: "scg-example", Symbols: []scg.Symbol{{ID: "sym-example", SnapshotID: scope.SnapshotID}}}, Surface: &asg.Document{SnapshotID: scope.SnapshotID, SCGVersion: "scg-example", Nodes: []asg.Node{{ID: "asgn-example", SnapshotID: scope.SnapshotID, Kind: asg.NodeSensitiveOperation, Subject: "sink:process_execution", Generator: "fixture-rule", Evidence: asg.StatusObserved, SCGRefs: []string{"sym-example"}}}, Edges: []asg.Edge{}}}

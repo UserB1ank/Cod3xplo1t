@@ -143,6 +143,9 @@ func NewHost(deps Deps) (*Host, error) {
 		}
 		var manifest Manifest
 		_ = json.Unmarshal(executor.Manifest, &manifest)
+		if (manifest.Kind == "reporter") != (executor.DocumentMediaType != nil) {
+			return nil, ErrInvalid
+		}
 		executors[manifest.ID+"@"+manifest.Version] = executor
 	}
 	recoverCtx, done := context.WithTimeout(context.Background(), 15*time.Second)
@@ -219,6 +222,9 @@ func (h *Host) Execute(ctx context.Context, request Request) (Invocation, error)
 	inv := Invocation{ID: request.ID, Request: request, RequestDigest: digest(raw), ConfigDigest: digest(request.Config), Status: "CREATED", Version: 1, Outputs: []artifact.Ref{}, Limitations: []string{"Go syntax only; no type checking, dependency execution or vulnerability verdicts"}, CreatedAt: now, UpdatedAt: now}
 	if request.PluginID != BuiltinID {
 		inv.Limitations = []string{"Static analysis observations are candidates; no taint flow or exploitability is established"}
+	}
+	if entry.Manifest.Kind == "reporter" {
+		inv.Limitations = []string{"Report preserves captured verdicts and coverage; it performs no analysis or verification"}
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -314,7 +320,7 @@ func (h *Host) run(ctx context.Context, cancel context.CancelFunc, inv Invocatio
 				inv.ErrorCode = "unsupported_report_version"
 			}
 		}
-	} else if coverage.ParsedFiles+coverage.PartialFiles+coverage.UnparsedFiles == 0 {
+	} else if coverage.ParsedFiles+coverage.PartialFiles+coverage.UnparsedFiles == 0 && h.executors[inv.Request.PluginID+"@"+inv.Request.PluginVersion].DocumentMediaType == nil {
 		inv.Status = "UNSUPPORTED"
 		inv.ErrorCode = "no_supported_files"
 		inv.Outputs = []artifact.Ref{}
@@ -324,7 +330,7 @@ func (h *Host) run(ctx context.Context, cancel context.CancelFunc, inv Invocatio
 	inv.Version++
 	inv.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	commitCtx, done := context.WithTimeout(context.Background(), 5*time.Second)
-	if inv.Request.PluginID != BuiltinID {
+	if inv.Request.PluginID != BuiltinID && h.executors[inv.Request.PluginID+"@"+inv.Request.PluginVersion].DocumentMediaType == nil {
 		inv.Analysis = analysisResult(inv)
 	}
 	defer done()

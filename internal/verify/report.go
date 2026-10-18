@@ -1,6 +1,8 @@
 package verify
 
 import (
+	"crypto/sha256"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -8,6 +10,14 @@ import (
 	"time"
 	"unicode/utf8"
 )
+
+//go:embed report.go
+var reportImplementation []byte
+
+// ReportImplementationDigest binds reporter packages to their actual renderer.
+func ReportImplementationDigest() string {
+	return fmt.Sprintf("%x", sha256.Sum256(reportImplementation))
+}
 
 // The report engine renders findings and their evidence. It is pure: it reads the
 // findings and the evidence map it is handed and returns bytes. It writes nothing,

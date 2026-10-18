@@ -27,6 +27,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/path"
 	"github.com/open-mcp-ai/Codexploit/internal/plugin"
 	"github.com/open-mcp-ai/Codexploit/internal/processplugin"
+	"github.com/open-mcp-ai/Codexploit/internal/reporting"
 	"github.com/open-mcp-ai/Codexploit/internal/repository"
 	"github.com/open-mcp-ai/Codexploit/internal/scg"
 	"github.com/open-mcp-ai/Codexploit/internal/scg/gofrontend"
@@ -274,6 +275,7 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 	}
 
 	executors := builtinanalysis.Executors()
+	executors = append(executors, reporting.Executor())
 	if strings.TrimSpace(cfg.PluginPackages) != "" {
 		processExecutors, err := processplugin.Executors(cfg.PluginPackages)
 		if err != nil {

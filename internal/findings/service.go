@@ -285,6 +285,7 @@ func (s *Service) collectFindings(ctx context.Context, query ListQuery) ([]verif
 	byID := map[string]verify.Finding{}
 	const maxFindings = 10000
 	if query.TaskID != "" {
+		truncated := false
 		for offset := 0; offset < maxFindings; offset += 500 {
 			items, total, err := s.Store.ListFindings(verify.FindingQuery{ProjectID: query.ProjectID, AuditID: query.TaskID, Limit: 500, Offset: offset})
 			if err != nil {
@@ -293,13 +294,15 @@ func (s *Service) collectFindings(ctx context.Context, query ListQuery) ([]verif
 			for _, item := range items {
 				byID[item.ID] = item
 			}
+			if total > maxFindings {
+				truncated = true
+			}
 			if offset+len(items) >= total || len(items) == 0 {
 				break
 			}
 		}
 		// A group's canonical AuditID is its first task, but the same group may
 		// have sources from this task. Those findings must still appear.
-		truncated := false
 		for offset := 0; offset < maxFindings; offset += 500 {
 			observations, total, err := s.Store.ListFindingObservationsByTask(query.TaskID, 500, offset)
 			if err != nil {

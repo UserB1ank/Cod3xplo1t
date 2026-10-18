@@ -1,5 +1,10 @@
 # Project and task workbench
 
+Fixed report delivery is now available from both the project navigation and each
+task's Report tab. The formal UI pins real inputs, follows the saved reporter
+invocation, and verifies the same immutable artifact for preview and download.
+See [fixed reports](reports.md) for scope, candidate policy and failure behavior.
+
 Codexploit provides a code vulnerability hunting workbench. The product hierarchy
 is project → task. A project owns repository snapshots, source and attack-surface
 graphs, and the accumulated finding library. A task owns its goal, seed selection,

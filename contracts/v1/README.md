@@ -34,6 +34,10 @@ fingerprint groups, plugin observation sources, separate candidate/confirmed
 counts and append-only severity audit rows. `finding.schema.json` remains the
 single-finding DTO.
 
+`report-runtime.schema.json` defines immutable reporter invocation responses,
+fixed selection, candidate policy and independent verdict / severity counts.
+See [fixed reports](../../docs/reports.md) for capture, download and restart semantics.
+
 `discovery.schema.json` defines normalized semantic facts and path observations.
 Candidates have an immutable `candidate` status and an optional high/medium/low
 severity hint. Invocation `analysis` follows `analysis.schema.json`; observed
