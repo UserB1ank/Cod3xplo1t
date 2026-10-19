@@ -71,6 +71,8 @@
 
 - 2026-10-19 — #54 修复上传控件缺失 name 与取消后清空已选文件：`FilePicker` 把 `name` 传给原生 input（`archive` / `directory`），修复"选中文件后 `FormData.get("archive")` 为 null、提交的是空文件"这一导致上传失败的直接原因；"创建项目"（`ProjectForm`）与"添加代码源"（`Sources`）都改为由组件状态持有选中的 `File` 并提交，不再从 `FormData` 回读，未选择时给出"请先选择源码压缩包"的明确错误；取消系统文件对话框时保留上一次选择（浏览器会清空 input 的 value），界面显示与实际上传保持一致；切换代码源类型或关闭弹窗时清空归档 / 目录选择，避免提交上一类型的残留。已在真实 Chromium 中验收：创建项目入口"选中 → 取消 → 提交"返回 201 并出现项目，源码页入口上传返回 201 并出现在代码源列表，目录入口显示"将上传 3 个文件 · 排除 700 个文件（2 个目录按整目录合并）"；前端测试与构建通过，18085 与生产包（embedui 构建）均验证。按交付流程提交并关闭；未 push。
 
+- 2026-10-19 — #55 默认启用远程 Git 网络访问：三个 Compose 部署（`compose.yaml`、`compose.standalone.yaml`、`compose.postgres.yaml`）的 `--allow-network` 默认改为 `true`，`make run` / `make standalone` / `make postgres-up` 启动后页面 `features.network` 为真，Git 地址不再被前置拦截；保留 `CODEXPLOIT_ALLOW_NETWORK=false` 关闭出站 Git 的能力，直接运行二进制时 `--allow-network` 仍默认 `false`（部署层开启、进程层保守）。README、`docs/webui.md`、`docs/postgres-catalog.md` 改为"默认开启、可用环境变量关闭"，新增 `TestComposeEnablesRemoteGitByDefault` 锁定三个 Compose 的默认值。已通过 `scripts` 包测试、`docker compose config` 与容器实际命令核对（`--allow-network=true`），18085 已用新默认重启并健康。按交付流程提交并关闭；未 push。
+
 ## Agent skills
 
 ### Issue tracker

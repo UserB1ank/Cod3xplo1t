@@ -20,7 +20,7 @@ services:
       - --web-auth
       - --agent-runtime=llm
       - --scheduler
-      - --allow-network=${CODEXPLOIT_ALLOW_NETWORK:-false}
+      - --allow-network=${CODEXPLOIT_ALLOW_NETWORK:-true}
       - --plugin-packages=/app/plugin-packages
     volumes:
       - codexploit-data:/data

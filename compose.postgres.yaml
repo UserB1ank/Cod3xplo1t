@@ -41,7 +41,7 @@ services:
       - --scheduler
       - --verify-executor=unsupported
       - --plugin-packages=/app/plugin-packages
-      - --allow-network=${CODEXPLOIT_ALLOW_NETWORK:-false}
+      - --allow-network=${CODEXPLOIT_ALLOW_NETWORK:-true}
     secrets:
       - postgres_dsn
       - settings_key

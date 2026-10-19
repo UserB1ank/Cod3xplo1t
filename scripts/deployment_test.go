@@ -36,3 +36,19 @@ func TestPostgresStatusUsesUnifiedWebPort(t *testing.T) {
 		})
 	}
 }
+
+// Remote Git access is an explicit product decision: the default Compose
+// deployments enable it, and a deployment that does not want egress sets
+// CODEXPLOIT_ALLOW_NETWORK=false. The flag has to be spelled out in every stack,
+// otherwise a new stack silently falls back to the binary's conservative default.
+func TestComposeEnablesRemoteGitByDefault(t *testing.T) {
+	for _, file := range []string{"../compose.yaml", "../compose.standalone.yaml", "../compose.postgres.yaml"} {
+		raw, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatalf("read %s: %v", file, err)
+		}
+		if !strings.Contains(string(raw), "--allow-network=${CODEXPLOIT_ALLOW_NETWORK:-true}") {
+			t.Errorf("%s does not enable remote Git access by default", file)
+		}
+	}
+}

@@ -95,8 +95,10 @@ environment variables or repository files. Settings are encrypted in the data
 volume and take effect on new runs without restarting the container. The resident
 scheduler waits until a model is enabled before claiming queued work.
 
-To clone remote repositories,
-export `CODEXPLOIT_ALLOW_NETWORK=true` before starting. Local source can be uploaded as ZIP / TAR / TAR.GZ from the project form.
+Remote Git cloning is enabled by default in the Compose deployments. Set
+`CODEXPLOIT_ALLOW_NETWORK=false` before starting to forbid outbound Git access and
+work only from uploaded or mounted source. Local source can be uploaded as
+ZIP / TAR / TAR.GZ from the project form.
 Deployment-managed repositories can also be mounted read-only using
 `compose.local.yaml`. See [source imports](docs/source-imports.md) for limits.
 
@@ -111,9 +113,8 @@ make postgres-up SOURCE_ROOT=/absolute/path/to/source
 
 It generates the database password, DSN and installation key outside the
 repository, reuses them on later runs, and serves the application at
-`http://localhost:18085`. Remote Git cloning is disabled by default; rebuild the
-stack with `CODEXPLOIT_ALLOW_NETWORK=true make postgres-up` if the project needs
-a Git URL. Use `make postgres-status`, `make postgres-logs` and
+`http://localhost:18085`. Remote Git cloning is enabled by default; start with
+`CODEXPLOIT_ALLOW_NETWORK=false make postgres-up` to forbid it. Use `make postgres-status`, `make postgres-logs` and
 `make postgres-down` to inspect or stop it. See
 [PostgreSQL deployment](docs/postgres-catalog.md#一键启动推荐) for secret
 locations, overrides and backup requirements.

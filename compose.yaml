@@ -69,7 +69,7 @@ services:
       - --scheduler
       - --verify-executor=unsupported
       - --plugin-packages=/app/plugin-packages
-      - --allow-network=${CODEXPLOIT_ALLOW_NETWORK:-false}
+      - --allow-network=${CODEXPLOIT_ALLOW_NETWORK:-true}
     volumes:
       - pg-workspace:/data
       - pg-secrets:/run/codexploit-secrets:ro

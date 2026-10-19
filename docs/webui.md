@@ -201,11 +201,11 @@ remain controlled by the Go orchestrator. It records structured conclusions and
 tool exchanges, not hidden model reasoning. A model cannot assert a confirmed
 finding by itself.
 
-For remote Git repositories, explicitly enable network access:
+Remote Git repositories are enabled by default in Compose. To forbid outbound Git
+access, start the stack with the flag turned off:
 
 ```bash
-export CODEXPLOIT_ALLOW_NETWORK=true
-make run
+CODEXPLOIT_ALLOW_NETWORK=false make run
 ```
 
 For a local repository, mount it read-only:
@@ -250,7 +250,8 @@ URL and a branch, tag or commit. Snapshot detail displays the requested ref and
 resolved commit. Private credentials are deployment-owned references; the UI
 accepts only their IDs, and LLM settings remain configured in the application.
 
-Enable `--allow-network` (or `CODEXPLOIT_ALLOW_NETWORK=true` in Compose). For a
+Compose enables it by default; disable it with `CODEXPLOIT_ALLOW_NETWORK=false`, or
+leave `--allow-network` off when running the binary directly. For a
 private repository, mount a secret document read-only and append
 `--git-credential-file repository-access=/run/secrets/repository-access` to the
 server command. The application runtime user must be able to read it. Keep the

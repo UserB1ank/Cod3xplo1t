@@ -76,11 +76,11 @@ make postgres-down     # 停止服务，保留 PostgreSQL 与工作区数据卷
 ```
 
 可用 `CODEXPLOIT_PG_PROJECT`、`CODEXPLOIT_PG_PORT` 修改项目名和宿主端口。
-默认 `CODEXPLOIT_ALLOW_NETWORK=false`，只能使用挂载在 `/repos` 下的本地目录；
-需要克隆远程 Git 仓库时使用：
+默认 `CODEXPLOIT_ALLOW_NETWORK=true`，允许克隆远程 Git 仓库；需要禁止出站 Git
+访问、只使用挂载在 `/repos` 下的本地目录时：
 
 ```sh
-CODEXPLOIT_ALLOW_NETWORK=true make postgres-up
+CODEXPLOIT_ALLOW_NETWORK=false make postgres-up
 ```
 
 首次打开页面时创建管理员账号。备份时必须同时保存 PostgreSQL 卷和凭据目录；
@@ -104,7 +104,7 @@ export CODEXPLOIT_SOURCE_ROOT=/srv/source-inputs
 docker compose -p codexploit-catalog -f compose.postgres.yaml up -d --build
 ```
 
-应用默认仅监听本机 `18085`，可用 `CODEXPLOIT_PG_PORT` 修改。数据库没有宿主机端口，只加入 `internal: true` 的目录网络；应用另外加入 Web 网络用于其明确授权的出站访问。Git 网络访问默认关闭，可用 `CODEXPLOIT_ALLOW_NETWORK=true` 启用。只读输入根中的 `service` 对应页面的 `/repos/service`。
+应用默认仅监听本机 `18085`，可用 `CODEXPLOIT_PG_PORT` 修改。数据库没有宿主机端口，只加入 `internal: true` 的目录网络；应用另外加入 Web 网络用于其明确授权的出站访问。Git 网络访问默认开启，可用 `CODEXPLOIT_ALLOW_NETWORK=false` 关闭。只读输入根中的 `service` 对应页面的 `/repos/service`。
 
 首次在页面设置管理员账号后，可创建项目和代码源、固定快照、查看和下载产物；在工作流页编译真实计划后，可从任务页执行并查看运行及控制。在“插件中心”依次运行 Go 解析、语义与路径插件，选择明确的上游调用，完成后点击“发布到共享图谱”；部分覆盖结果会明确标注。进入“共享知识图谱”查看固定图层和共享知识版本。管理员在侧栏底部“配置 → 数据存储”实时展示驱动、执行模式、迁移版本、readiness、实际能力及数据保存位置。模型设置继续在程序内管理。Compose 开启任务调度器并加载镜像内固定扫描器包；验证执行器默认 `unsupported`，没有可用环境时明确返回阻塞结果。
 
