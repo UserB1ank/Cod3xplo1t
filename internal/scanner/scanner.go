@@ -29,7 +29,7 @@ import (
 
 const (
 	ID      = "codexploit.static-patterns"
-	Version = "1.0.2"
+	Version = "1.0.3"
 	// RulesetVersion changes whenever a rule or this scanner's rule set changes.
 	RulesetVersion = "1"
 )
