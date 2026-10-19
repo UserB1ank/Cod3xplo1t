@@ -30,7 +30,42 @@
 
 ## 启动独立部署
 
-准备仓库外的凭据文件，目录仅部署管理员可访问。两个文件分别包含：
+### 一键启动（推荐）
+
+```sh
+make postgres-up
+# 或指定只读代码根目录
+make postgres-up SOURCE_ROOT=/srv/source-inputs
+# 也可以直接调用脚本
+./scripts/deploy-postgres.sh up /srv/source-inputs
+```
+
+脚本会：
+
+- 默认使用 Compose 项目 `codexploit-catalog`，页面为 `http://127.0.0.1:18095`。
+- 默认把当前目录作为只读代码根挂载到 `/repos`；用 `SOURCE_ROOT` / `CODEXPLOIT_SOURCE_ROOT` 覆盖。
+- 在仓库外的 `${XDG_CONFIG_HOME:-$HOME/.config}/codexploit/postgres` 生成
+  `postgres-password`、`postgres-dsn` 和 `settings-key`；用
+  `CODEXPLOIT_PG_SECRETS_DIR` 指定其他仓库外目录。
+- 已有数据卷时复用原凭据，不重新生成；如果卷存在但凭据缺失，会拒绝启动，避免新密码导致旧数据不可用。
+- 拒绝把凭据目录放在仓库内；不把密码或密钥写进命令、Compose 或日志。
+- 等待应用健康检查通过后再输出访问地址和凭据目录。
+
+管理命令：
+
+```sh
+make postgres-status   # 查看容器和访问地址
+make postgres-logs     # 跟随应用日志
+make postgres-down     # 停止服务，保留 PostgreSQL 与工作区数据卷
+```
+
+可用 `CODEXPLOIT_PG_PROJECT`、`CODEXPLOIT_PG_PORT` 修改项目名和宿主端口。
+首次打开页面时创建管理员账号。备份时必须同时保存 PostgreSQL 卷和凭据目录；
+只备份数据库而丢失 `settings-key` 会导致模型设置无法解密。
+
+### 手工准备凭据
+
+如果已有部署侧的凭据文件，也可以手工设置环境变量。准备仓库外的凭据文件，目录仅部署管理员可访问。三个文件分别包含：
 
 - 数据库密码，供官方 PostgreSQL 镜像的 `POSTGRES_PASSWORD_FILE` 读取。
 - PostgreSQL URL，供应用的 `--postgres-dsn-file` 读取。地址为 Compose 服务名 `postgres:5432`、数据库 `codexploit`、用户 `catalog`；密码与第一个文件一致。内部容器网络可使用 `sslmode=disable`；外部部署须按自己的 TLS 策略配置。
@@ -50,7 +85,7 @@ docker compose -p codexploit-catalog -f compose.postgres.yaml up -d --build
 
 首次在页面设置管理员账号后，可创建项目和代码源、固定快照、查看和下载产物；在工作流页编译真实计划后，可从任务页执行并查看运行及控制。在“插件中心”依次运行 Go 解析、语义与路径插件，选择明确的上游调用，完成后点击“发布到共享图谱”；部分覆盖结果会明确标注。进入“共享知识图谱”查看固定图层和共享知识版本。管理员侧栏“数据存储”实时展示驱动、执行模式、迁移版本、readiness、实际能力及数据保存位置。模型设置继续在程序内管理。Compose 开启任务调度器并加载镜像内固定扫描器包；验证执行器默认 `unsupported`，没有可用环境时明确返回阻塞结果。
 
-停止服务使用相同项目名与文件执行 `docker compose ... down`；保留数据时不要加 `--volumes`。重建仅应用容器使用 `docker compose ... up -d --force-recreate codexploit`，业务状态、账号、会话和模型密文保留在 PostgreSQL 卷中；安装密钥仍在仓库外文件，必须单独备份。
+停止服务使用相同项目名与文件执行 `docker compose ... down`，或使用 `make postgres-down`；保留数据时不要加 `--volumes`。重建仅应用容器使用 `docker compose ... up -d --force-recreate codexploit`，业务状态、账号、会话和模型密文保留在 PostgreSQL 卷中；安装密钥仍在仓库外文件，必须单独备份。
 
 ## 状态与失败语义
 

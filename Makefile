@@ -4,7 +4,7 @@ TEST_FLAGS := -count=1 -shuffle=on -race -timeout 240s
 # Staticcheck is pinned: a new release may add checks and turn a green tree red.
 STATICCHECK_VERSION ?= v0.8.2
 
-.PHONY: help build build-web build-scanner build-backend test-web check-contracts docker-build docker-up test test-stress lint fmt-check vet staticcheck fmt tidy clean run-server run-cli run-mcp
+.PHONY: help build build-web build-scanner build-backend test-web check-contracts docker-build docker-up postgres-up postgres-down postgres-status postgres-logs test test-stress lint fmt-check vet staticcheck fmt tidy clean run-server run-cli run-mcp
 
 help:
 	@echo "make build        # build Web UI into bin/server, bin/cli, bin/mcp and the scanner package"
@@ -13,6 +13,10 @@ help:
 	@echo "make test-web     # frontend domain and API tests"
 	@echo "make check-contracts # validate offline interface schemas and examples"
 	@echo "make docker-up    # build and launch the persistent single-container service"
+	@echo "make postgres-up  # one-click PostgreSQL deployment (generates secrets outside the repo)"
+	@echo "make postgres-down # stop PostgreSQL but keep its data volumes"
+	@echo "make postgres-status # show PostgreSQL containers and URL"
+	@echo "make postgres-logs # follow PostgreSQL application logs"
 	@echo "make test         # go test ./... -count=1 -shuffle=on -race -timeout 240s (same as CI)"
 	@echo "make test-stress  # repeat the suite to catch filesystem/lifecycle races"
 	@echo "make lint         # fmt-check + vet + staticcheck (same as the CI lint job)"
@@ -54,6 +58,21 @@ docker-build:
 
 docker-up:
 	docker compose up -d --build
+
+# One-click PostgreSQL deployment. Secrets are generated outside the repository
+# and reused on later runs. Override the optional source mount with
+# SOURCE_ROOT=/absolute/path or CODEXPLOIT_SOURCE_ROOT.
+postgres-up:
+	./scripts/deploy-postgres.sh up "$(SOURCE_ROOT)"
+
+postgres-down:
+	./scripts/deploy-postgres.sh down
+
+postgres-status:
+	./scripts/deploy-postgres.sh status
+
+postgres-logs:
+	./scripts/deploy-postgres.sh logs
 
 test:
 	$(GO) test $(PKG) $(TEST_FLAGS)

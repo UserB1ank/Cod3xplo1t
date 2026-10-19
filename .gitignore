@@ -18,6 +18,7 @@
 # Toolchain caches kept inside the workspace for sandboxed runs
 /.cache/
 
-# OS noise
+# OS and editor noise
 .DS_Store
 Thumbs.db
+/.idea/

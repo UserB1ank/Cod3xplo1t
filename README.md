@@ -81,6 +81,21 @@ Data persists in the `codexploit-data` volume. To clone remote repositories,
 export `CODEXPLOIT_ALLOW_NETWORK=true` before starting. Local repositories can
 be mounted read-only using `compose.local.yaml`.
 
+For the independent PostgreSQL deployment, use the one-command wrapper:
+
+```bash
+make postgres-up
+# optional read-only source root:
+make postgres-up SOURCE_ROOT=/absolute/path/to/source
+```
+
+It generates the database password, DSN and installation key outside the
+repository, reuses them on later runs, and serves the application at
+`http://localhost:18095`. Use `make postgres-status`, `make postgres-logs` and
+`make postgres-down` to inspect or stop it. See
+[PostgreSQL deployment](docs/postgres-catalog.md#一键启动推荐) for secret
+locations, overrides and backup requirements.
+
 The Docker build includes the complete frontend and needs no host Go or Node
 installation. See [Web UI and deployment](docs/webui.md) for local source mounts,
 Agent configuration, development, upgrade and backup procedures.
