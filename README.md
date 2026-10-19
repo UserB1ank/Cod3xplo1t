@@ -350,6 +350,13 @@ stored or requested**, an agent may only claim `candidate`/`inconclusive`/`refut
 (confirmation belongs to verification), and a `finding_candidate` must cite
 evidence. See [`docs/agent-runtime.md`](docs/agent-runtime.md).
 
+`--agent-runtime=pi` runs the same task through a fixed-version Pi worker
+(`runtime/pi-worker`, Node 22 + `pi-agent-core` + `pi-ai`). The worker has no
+built-in tools, extensions or sessions: every provider request waits for a host
+permit and every tool is executed by the host. The container image includes the
+worker, and the Compose deployments select it with
+`CODEXPLOIT_AGENT_RUNTIME=pi` (default remains `llm`).
+
 ### Verification and findings (P6)
 
 ```bash

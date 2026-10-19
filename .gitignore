@@ -23,3 +23,6 @@ examples/
 .DS_Store
 Thumbs.db
 /.idea/
+# Pi worker build output and installed packages
+runtime/pi-worker/node_modules/
+runtime/pi-worker/dist/

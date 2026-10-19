@@ -37,7 +37,7 @@ services:
       - --postgres-dsn-file=/run/secrets/postgres_dsn
       - --settings-key-file=/run/secrets/settings_key
       - --web-auth
-      - --agent-runtime=llm
+      - --agent-runtime=${CODEXPLOIT_AGENT_RUNTIME:-llm}
       - --scheduler
       - --verify-executor=unsupported
       - --plugin-packages=/app/plugin-packages

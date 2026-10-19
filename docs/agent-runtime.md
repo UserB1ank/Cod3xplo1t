@@ -210,6 +210,26 @@ Deleting a snapshot deletes its runs, events and hypotheses. The audit and run l
 use different method names (`AppendEvents` versus `AppendRunEvents`) because Go has
 no overloading and because a reader should never have to guess which log they hold.
 
+## Deploying the Pi runtime
+
+`--agent-runtime=pi` selects the worker; `--pi-worker` points at its entrypoint
+(default `/app/pi-worker/dist/main.js`) and `--pi-node` at the Node binary
+(default `node`). The runtime image contains a locked Node 22 and the worker
+build; the three Compose deployments accept `CODEXPLOIT_AGENT_RUNTIME=pi` and
+keep their existing ports, volumes and secrets. The default stays `llm`.
+
+The worker reads the model endpoint and credentials from the encrypted settings
+through the private init frame. It never reads a user `pi` login, model catalog,
+extension or session directory. An unsupported protocol or a missing settings
+manager leaves the runtime unavailable (`features.agent` false); it is never
+silently replaced by `llm`. Without Node or the worker entrypoint, `llm`, `cli`
+and `scripted` keep working.
+
+The worker is trusted deployment code, not a sandbox. It is started in a
+temporary directory with an empty private `HOME`, a minimal environment and the
+application's non-root user, but strong isolation of untrusted scanners remains
+a separate concern.
+
 ## Pi worker protocol (v1)
 
 A Pi run is one fixed worker process spawned with deployment argv and spoken to

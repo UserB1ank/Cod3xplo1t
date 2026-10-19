@@ -1,0 +1,24 @@
+{
+  "name": "codexploit-pi-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Fixed-version Pi worker for codexploit: one run, host-controlled turns and tools.",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@earendil-works/pi-agent-core": "1.3.0",
+    "@earendil-works/pi-ai": "1.3.0",
+    "typebox": "1.3.27"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.19",
+    "typescript": "5.9.3"
+  }
+}

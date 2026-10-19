@@ -6,6 +6,14 @@ COPY web/ ./
 COPY contracts/ /src/contracts/
 RUN npm run build
 
+FROM node:22-bookworm-slim AS piworker
+WORKDIR /src/runtime/pi-worker
+COPY runtime/pi-worker/package.json runtime/pi-worker/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY runtime/pi-worker/tsconfig.json ./
+COPY runtime/pi-worker/src ./src
+RUN npm run build && npm prune --omit=dev
+
 FROM golang:1.26-bookworm AS backend
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -21,12 +29,14 @@ RUN CGO_ENABLED=0 go build -trimpath -tags embedui -ldflags="-s -w" -o /out/serv
     && chmod 0644 "/out/plugin-packages/codexploit.static-patterns@1.0.2/manifest.json"
 
 FROM debian:bookworm-slim AS runtime
-RUN apt-get update && apt-get install -y --no-install-recommends git openssh-client ca-certificates curl && rm -rf /var/lib/apt/lists/* \
+RUN apt-get update && apt-get install -y --no-install-recommends git openssh-client ca-certificates curl libstdc++6 && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10001 codexploit && useradd --uid 10001 --gid 10001 --no-create-home codexploit \
     && mkdir -p /data /repos && chown 10001:10001 /data /repos
 WORKDIR /app
 COPY --from=backend /out/server ./server
 COPY --from=backend /out/plugin-packages ./plugin-packages
+COPY --from=piworker /usr/local/bin/node /usr/local/bin/node
+COPY --from=piworker /src/runtime/pi-worker /app/pi-worker
 USER 10001:10001
 EXPOSE 8080
 VOLUME ["/data"]

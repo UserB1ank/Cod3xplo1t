@@ -112,11 +112,6 @@ func TestPiWorkerHelper(t *testing.T) {
 	os.Exit(0)
 }
 
-func piHelperCommand(t *testing.T, mode string) []string {
-	t.Helper()
-	return []string{os.Args[0], "-test.run=TestPiWorkerHelper"}
-}
-
 func piTestConfig(mode string) PiConfig {
 	return PiConfig{
 		Name: "pi", Command: []string{os.Args[0], "-test.run=TestPiWorkerHelper"},

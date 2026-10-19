@@ -163,6 +163,10 @@ type AgentConfig struct {
 	// Command is the argv of the CLI adapter. It is executed directly, never
 	// through a shell.
 	Command []string
+	// PiNode and PiWorker are the Pi worker's node binary and entrypoint. Empty
+	// means "node" and the image's /app/pi-worker/dist/main.js.
+	PiNode   string
+	PiWorker string
 	// Env is the complete allowlist of extra environment entries in "KEY=VALUE"
 	// form. Nothing else is inherited except PATH, HOME and TMPDIR (plus
 	// SystemRoot on Windows).
@@ -441,7 +445,8 @@ func (r *Runtime) wireModelSettings(keyFile string) error {
 		r.LLMSettings = r.AgentConfig.ModelSettings
 		return nil
 	}
-	if !r.AgentConfig.Enabled || !strings.EqualFold(strings.TrimSpace(r.AgentConfig.Runtime), AgentRuntimeLLM) {
+	mode := strings.ToLower(strings.TrimSpace(r.AgentConfig.Runtime))
+	if !r.AgentConfig.Enabled || (mode != AgentRuntimeLLM && mode != AgentRuntimePi) {
 		return nil
 	}
 	if repo, ok := storage.SettingsRepository(r.Store); ok && storage.IsPostgres(r.Store) {
@@ -593,6 +598,9 @@ func (r *Runtime) wireAgent(cfg AgentConfig) error {
 	if model, ok := runtime.(*agent.ModelRuntime); ok {
 		model.Tools = registry.Descriptors(policy.AllowedTools)
 	}
+	if pi, ok := runtime.(*agent.PiRuntime); ok {
+		pi.SetTools(registry.Descriptors(policy.AllowedTools))
+	}
 	facts := graph.NewAgentFacts(r.Graph, r.ASG, agent.BuildOptions{AllowedTools: policy.AllowedTools})
 	r.AgentRegistry = registry
 	r.Agent = &agent.Runner{
@@ -617,6 +625,7 @@ const (
 	AgentRuntimeScripted = "scripted"
 	AgentRuntimeCLI      = "cli"
 	AgentRuntimeLLM      = "llm"
+	AgentRuntimePi       = "pi"
 )
 
 // buildAgentRuntime builds the adapter the configuration names. An unknown mode,
@@ -649,6 +658,25 @@ func (r *Runtime) buildAgentRuntime(mode string, cfg AgentConfig) (agent.Runtime
 		}
 		steps = append(steps, agent.ScriptAnswer(answer))
 		return agent.NewScriptedRuntime(AgentRuntimeScripted, "1", steps), nil
+	case AgentRuntimePi:
+		if cfg.ModelSettings == nil {
+			return nil, errors.New("app: pi runtime needs a settings manager")
+		}
+		node, worker := cfg.PiNode, cfg.PiWorker
+		if strings.TrimSpace(node) == "" {
+			node = "node"
+		}
+		if strings.TrimSpace(worker) == "" {
+			worker = "/app/pi-worker/dist/main.js"
+		}
+		return agent.NewPiRuntime(agent.PiConfig{
+			Name:       AgentRuntimePi,
+			Command:    []string{node, worker},
+			WorkerFile: worker,
+			WorkingDir: cfg.WorkingDir,
+			Env:        cfg.Env,
+			InitSource: func() (json.RawMessage, error) { return piModelInit(cfg.ModelSettings) },
+		})
 	case AgentRuntimeCLI:
 		if len(cfg.Command) == 0 || strings.TrimSpace(cfg.Command[0]) == "" {
 			return nil, errors.New("app: agent: the cli runtime needs --agent-command <binary> [args...]")
@@ -663,9 +691,37 @@ func (r *Runtime) buildAgentRuntime(mode string, cfg AgentConfig) (agent.Runtime
 			HeartbeatInterval: time.Duration(cfg.HeartbeatSeconds) * time.Second,
 		})
 	default:
-		return nil, fmt.Errorf("app: agent: unknown runtime %q (want %s, %s, %s or %s)",
-			cfg.Runtime, AgentRuntimeDisabled, AgentRuntimeScripted, AgentRuntimeCLI, AgentRuntimeLLM)
+		return nil, fmt.Errorf("app: agent: unknown runtime %q (want %s, %s, %s, %s or %s)",
+			cfg.Runtime, AgentRuntimeDisabled, AgentRuntimeScripted, AgentRuntimeCLI, AgentRuntimeLLM, AgentRuntimePi)
 	}
+}
+
+// piModelInit builds the worker's private init frame from the current encrypted
+// settings. It is called per run, so a frozen snapshot is what the worker sees;
+// the frame is never logged, recorded or returned by an API.
+func piModelInit(settings *llm.Manager) (json.RawMessage, error) {
+	cfg, _, err := settings.Snapshot()
+	if err != nil {
+		return nil, err
+	}
+	if !cfg.Enabled {
+		return nil, errors.New("the model settings are disabled")
+	}
+	protocol := strings.ToLower(strings.TrimSpace(cfg.Protocol))
+	if protocol != "chat-completions" && protocol != "responses" {
+		return nil, fmt.Errorf("protocol %q is not supported by the pi runtime", cfg.Protocol)
+	}
+	if strings.TrimSpace(cfg.BaseURL) == "" || strings.TrimSpace(cfg.Model) == "" {
+		return nil, errors.New("base_url and model are required for the pi runtime")
+	}
+	return json.Marshal(map[string]any{
+		"protocol":          protocol,
+		"base_url":          cfg.BaseURL,
+		"model":             cfg.Model,
+		"api_key":           cfg.APIKey,
+		"timeout_seconds":   cfg.TimeoutSeconds,
+		"max_output_tokens": cfg.MaxOutputTokens,
+	})
 }
 
 // Verification executors accepted by --verify-executor. "disabled" is spelled out

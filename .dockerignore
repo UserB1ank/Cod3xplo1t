@@ -7,6 +7,12 @@
 !migrations
 !web
 !contracts
+!runtime
+!runtime/pi-worker
+!runtime/pi-worker/package.json
+!runtime/pi-worker/package-lock.json
+!runtime/pi-worker/tsconfig.json
+!runtime/pi-worker/src
 web/node_modules
 web/dist
 **/.env
@@ -19,3 +25,5 @@ web/dist
 **/*.db
 **/*.db-*
 **/.DS_Store
+runtime/pi-worker/node_modules
+runtime/pi-worker/dist

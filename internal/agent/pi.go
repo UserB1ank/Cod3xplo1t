@@ -53,6 +53,12 @@ type PiConfig struct {
 	// Init is the private frame: model credentials and endpoint. It is written to
 	// the worker and never logged, recorded or placed in an event.
 	Init json.RawMessage
+	// InitSource builds the private frame per run, so a frozen or rotated model
+	// configuration is read at start, not at wiring time. It wins over Init.
+	InitSource func() (json.RawMessage, error)
+	// WorkerFile is the entrypoint the deployment claims to have installed. When
+	// set, readiness requires it to exist; the command itself may carry flags.
+	WorkerFile string
 	// Tools are the native descriptors the worker may advertise; the host still
 	// authorises every call against the run policy.
 	Tools []ToolDescriptor
@@ -80,7 +86,7 @@ func NewPiRuntime(cfg PiConfig) (*PiRuntime, error) {
 	if len(cfg.Command) == 0 || strings.TrimSpace(cfg.Command[0]) == "" {
 		return nil, fmt.Errorf("%w: command is required", ErrPiUnavailable)
 	}
-	if len(bytes.TrimSpace(cfg.Init)) == 0 {
+	if cfg.InitSource == nil && len(bytes.TrimSpace(cfg.Init)) == 0 {
 		return nil, fmt.Errorf("%w: the private init frame is required", ErrPiUnavailable)
 	}
 	if cfg.HelloTimeout <= 0 {
@@ -99,6 +105,31 @@ func NewPiRuntime(cfg PiConfig) (*PiRuntime, error) {
 		cfg.CancelGrace = DefaultPiCancelGrace
 	}
 	return &PiRuntime{cfg: cfg, version: "1"}, nil
+}
+
+// SetTools fixes the native descriptors the worker may advertise. It is called at
+// wiring time, after the registry and the allowlist are known.
+func (r *PiRuntime) SetTools(tools []ToolDescriptor) {
+	r.cfg.Tools = append([]ToolDescriptor(nil), tools...)
+}
+
+// Ready reports whether the deployment can actually run a worker: the node
+// binary, the worker entrypoint and the model settings must all be usable.
+func (r *PiRuntime) Ready() error {
+	if _, err := exec.LookPath(r.cfg.Command[0]); err != nil {
+		return fmt.Errorf("%w: %v", ErrPiUnavailable, err)
+	}
+	if r.cfg.WorkerFile != "" {
+		if info, err := os.Stat(r.cfg.WorkerFile); err != nil || info.IsDir() {
+			return fmt.Errorf("%w: worker entrypoint %s is not a file", ErrPiUnavailable, r.cfg.WorkerFile)
+		}
+	}
+	if r.cfg.InitSource != nil {
+		if _, err := r.cfg.InitSource(); err != nil {
+			return fmt.Errorf("%w: %v", ErrPiUnavailable, err)
+		}
+	}
+	return nil
 }
 
 // Capabilities declares turn control, because the worker cannot start a provider
@@ -152,9 +183,10 @@ type piFrame struct {
 	InputTokens  int `json:"input_tokens,omitempty"`
 	OutputTokens int `json:"output_tokens,omitempty"`
 
-	Task   string           `json:"task,omitempty"`
-	Tools  []ToolDescriptor `json:"tools,omitempty"`
-	Limits map[string]any   `json:"limits,omitempty"`
+	Task         string           `json:"task,omitempty"`
+	Instructions string           `json:"instructions,omitempty"`
+	Tools        []ToolDescriptor `json:"tools,omitempty"`
+	Limits       map[string]any   `json:"limits,omitempty"`
 }
 
 type piInitFrame struct {
@@ -187,6 +219,17 @@ func (r *PiRuntime) Start(ctx context.Context, task Task) (*Handle, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: no rendered task was bound to the run", ErrPiProtocol)
 	}
+	init := r.cfg.Init
+	if r.cfg.InitSource != nil {
+		source, err := r.cfg.InitSource()
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrPiUnavailable, err)
+		}
+		init = source
+	}
+	if len(bytes.TrimSpace(init)) == 0 {
+		return nil, fmt.Errorf("%w: the private init frame is empty", ErrPiUnavailable)
+	}
 	runID := taskRunID(ctx, task)
 	generation := RunGeneration(ctx)
 	ctx, cancel := context.WithCancel(ctx)
@@ -195,7 +238,7 @@ func (r *PiRuntime) Start(ctx context.Context, task Task) (*Handle, error) {
 		defer cancel()
 		defer close(events)
 		defer close(done)
-		result := r.run(ctx, task, runID, generation, rendered, events)
+		result := r.run(ctx, task, runID, generation, rendered, init, events)
 		if result.Err != nil {
 			result.ExitCode = -1
 		}
@@ -213,7 +256,7 @@ func taskRunID(ctx context.Context, task Task) string {
 
 // run is the worker session: handshake, then a frame loop that translates worker
 // requests into host events and waits for the host's decisions.
-func (r *PiRuntime) run(ctx context.Context, task Task, runID string, generation int64, rendered string, events chan<- RuntimeEvent) RuntimeResult {
+func (r *PiRuntime) run(ctx context.Context, task Task, runID string, generation int64, rendered string, init json.RawMessage, events chan<- RuntimeEvent) RuntimeResult {
 	home, err := os.MkdirTemp("", "codexploit-pi-home-")
 	if err != nil {
 		return RuntimeResult{Err: fmt.Errorf("%w: private home: %v", ErrPiStart, err)}
@@ -268,12 +311,12 @@ func (r *PiRuntime) run(ctx context.Context, task Task, runID string, generation
 	if result, ok := r.awaitHello(runCtx, lines, readErr, cmd, runID); !ok {
 		return result
 	}
-	if err := writer.send(piInitFrame{Type: "init", RunID: runID, Generation: generation, Private: r.cfg.Init}); err != nil {
+	if err := writer.send(piInitFrame{Type: "init", RunID: runID, Generation: generation, Private: init}); err != nil {
 		return RuntimeResult{Err: fmt.Errorf("%w: init frame: %v", ErrPiProtocol, err)}
 	}
 	start := piFrame{
 		Type: "start", V: PiProtocolVersion, RunID: runID, Generation: generation,
-		Task: rendered, Tools: r.piTools(task.Exploration.AllowedTools),
+		Task: rendered, Instructions: modelInstructions, Tools: r.piTools(task.Exploration.AllowedTools),
 		Limits: map[string]any{
 			"max_tool_calls":  task.Exploration.MaxToolCalls,
 			"token_budget":    task.Budget.TokenBudget,

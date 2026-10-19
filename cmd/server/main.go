@@ -65,8 +65,10 @@ func run() error {
 		pluginPackages  = flag.String("plugin-packages", "", "deployment-managed directory of verified process plugin packages")
 		idemTTL         = flag.Duration("idempotency-ttl", 24*time.Hour, "how long a stored write response may be replayed")
 
-		agentRuntime    = flag.String("agent-runtime", app.AgentRuntimeDisabled, "agent adapter: disabled, scripted, cli or llm (configured in WebUI)")
+		agentRuntime    = flag.String("agent-runtime", app.AgentRuntimeDisabled, "agent adapter: disabled, scripted, cli, llm or pi")
 		agentWorkDir    = flag.String("agent-working-dir", "", "working directory of the agent process")
+		piNode          = flag.String("pi-node", "node", "node binary used by the pi runtime")
+		piWorker        = flag.String("pi-worker", "/app/pi-worker/dist/main.js", "pi worker entrypoint (runtime/pi-worker dist)")
 		agentTimeout    = flag.Int("agent-timeout", 0, "agent run timeout in seconds (0 uses the policy default)")
 		agentMaxHops    = flag.Int("agent-max-hops", 0, "maximum hops one agent run may explore (0 uses the default)")
 		agentMaxBranch  = flag.Int("agent-max-branches", 0, "maximum active branches one agent run may hold (0 uses the default)")
@@ -157,6 +159,8 @@ func run() error {
 			Enabled:            !strings.EqualFold(strings.TrimSpace(*agentRuntime), app.AgentRuntimeDisabled),
 			Runtime:            *agentRuntime,
 			Command:            agentCommand,
+			PiNode:             *piNode,
+			PiWorker:           *piWorker,
 			Env:                agentEnv,
 			WorkingDir:         *agentWorkDir,
 			TimeoutSeconds:     *agentTimeout,

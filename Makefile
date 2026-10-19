@@ -102,6 +102,10 @@ test:
 	$(GO) test $(PKG) $(TEST_FLAGS)
 
 # Real PostgreSQL in a fresh isolated Compose project; credentials are temporary.
+.PHONY: pi-worker
+pi-worker:
+	cd runtime/pi-worker && npm ci --no-audit --no-fund && npm run build && node --test test/*.test.mjs
+
 .PHONY: test-postgres
 test-postgres:
 	python3 scripts/test-postgres.py

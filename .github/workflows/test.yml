@@ -35,6 +35,13 @@ jobs:
           cache: true
       - name: go vet
         run: go vet ./...
+      - uses: actions/setup-node@v4
+        if: runner.os == 'Linux'
+        with:
+          node-version: "22.19"
+      - name: pi worker
+        if: runner.os == 'Linux'
+        run: make pi-worker
       - name: go test
         run: go test ./... -count=1 -shuffle=on -race -timeout 240s
 
