@@ -1068,7 +1068,12 @@ func (r *Runtime) wireWorkflowRunner() error {
 		return workflow.ErrInvalid
 	}
 	r.WorkflowRunner = workflow.NewRunner(r.WorkflowCompiler, repo, workflow.PluginExecutor{Host: r.Plugins, Catalog: r.PluginCatalog}, r.WorkflowCompiler.Artifacts)
-	r.WorkflowRunner.Effects = &workflowexec.Effects{Store: r.Store, Host: r.Plugins, Artifacts: r.WorkflowCompiler.Artifacts, Manager: r.Manager, Agent: r.Agent, Findings: r.Findings}
+	effects := &workflowexec.Effects{Store: r.Store, Host: r.Plugins, Artifacts: r.WorkflowCompiler.Artifacts, Manager: r.Manager, Agent: r.Agent, Findings: r.Findings}
+	if r.Agent != nil {
+		effects.Runtimes = r.Agent.Runtimes
+		effects.DefaultRuntime = r.Agent.DefaultRuntime
+	}
+	r.WorkflowRunner.Effects = effects
 	if resumed, err := r.WorkflowRunner.Recover(context.Background()); err != nil {
 		slog.Warn("workflow recovery failed", "error", err)
 	} else if len(resumed) > 0 {

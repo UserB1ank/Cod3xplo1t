@@ -346,6 +346,15 @@
         },
         "model": {
           "type": "string"
+        },
+        "protocol_version": {
+          "type": "string"
+        },
+        "worker_version": {
+          "type": "string"
+        },
+        "prompt_version": {
+          "type": "string"
         }
       },
       "required": [

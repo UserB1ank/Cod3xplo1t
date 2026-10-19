@@ -380,3 +380,18 @@ func (r *ModelRuntime) Pin() (RuntimePin, error) {
 		PromptVersion: PromptVersion, Model: public.Model, ConfigVersion: public.Version,
 	}, nil
 }
+
+// FreezeRuntime captures the settings for a workflow run. The frozen runtime keeps
+// its original version, so a later settings change cannot affect it.
+func (r *ModelRuntime) FreezeRuntime() (Runtime, RuntimePin, error) {
+	frozen, public, err := r.Freeze()
+	if err != nil {
+		return nil, RuntimePin{}, err
+	}
+	pin, err := frozen.Pin()
+	if err != nil {
+		return nil, RuntimePin{}, err
+	}
+	pin.Model, pin.ConfigVersion = public.Model, public.Version
+	return frozen, pin, nil
+}

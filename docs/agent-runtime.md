@@ -226,9 +226,14 @@ model, encrypted-settings version and the native tool schema digest. The pin is
 public and never contains credentials; the run detail shows the runtime, model
 and configuration version it used.
 
-Selecting a runtime for a workflow plan is not wired yet: the API refuses that
-combination explicitly rather than storing a choice the workflow path would
-ignore. The workflow `$analyze` pin follows in the same issue.
+A workflow task carries the same choice. The workflow run freezes the selected
+runtime when it starts — including the private Pi init and the settings version —
+and records it in the run's `model` pin. The candidate-analysis node uses that
+frozen runtime, so changing the settings mid-run cannot affect it. On a recovery
+the run's own pin selects the runtime again; if the current encrypted-settings
+version differs from the pinned one, the bind fails with
+`config_version_unavailable` instead of running the old plan under new
+credentials.
 
 ## Deploying the Pi runtime
 

@@ -115,11 +115,6 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 	}
 	runtimeName := strings.ToLower(strings.TrimSpace(req.Runtime))
 	if runtimeName != "" {
-		if req.WorkflowPlanID != "" {
-			writeError(w, http.StatusBadRequest, "runtime_not_supported_for_workflow",
-				errors.New("selecting an agent runtime for a workflow task is not available yet"))
-			return
-		}
 		info, ok := s.runtimeInfo(runtimeName)
 		if !ok {
 			writeError(w, http.StatusBadRequest, "runtime_unavailable",
@@ -138,7 +133,7 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 			writeWorkflowError(w, errors.New("runner unavailable"))
 			return
 		}
-		run, err := s.WorkflowRunner.Start(r.Context(), workflow.StartRequest{ProjectID: projectID, SnapshotID: req.SnapshotID, PlanID: req.WorkflowPlanID, Task: workflow.TaskDefinition{Name: req.Name, Objective: req.Objective, Scope: req.Scope, Budget: req.Budget, Limits: req.Limits}, AcceptPartialNodes: req.AcceptPartialNodes, AnalyzeCandidates: req.AnalyzeCandidates})
+		run, err := s.WorkflowRunner.Start(r.Context(), workflow.StartRequest{ProjectID: projectID, SnapshotID: req.SnapshotID, PlanID: req.WorkflowPlanID, Task: workflow.TaskDefinition{Name: req.Name, Objective: req.Objective, Scope: req.Scope, Budget: req.Budget, Limits: req.Limits}, AcceptPartialNodes: req.AcceptPartialNodes, AnalyzeCandidates: req.AnalyzeCandidates, Runtime: req.Runtime})
 		if err != nil {
 			writeWorkflowError(w, err)
 			return

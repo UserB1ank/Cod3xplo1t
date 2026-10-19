@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/open-mcp-ai/Codexploit/internal/agent"
@@ -28,21 +29,25 @@ type pathReport struct {
 }
 
 type Effects struct {
-	Store       storage.FullStore
-	Host        *plugin.Host
-	Artifacts   artifact.Store
-	Manager     *repository.Manager
-	Agent       *agent.Runner
-	Findings    *findings.Service
-	enabled     bool
-	native      *plugin.NativeReport
-	pathReports []pathReport
-	origins     []map[string]string
-	truncated   bool
-	knowledge   []workflow.KnowledgePin
+	Store     storage.FullStore
+	Host      *plugin.Host
+	Artifacts artifact.Store
+	Manager   *repository.Manager
+	Agent     *agent.Runner
+	// Runtimes is the deployment catalog; DefaultRuntime is the fallback when the
+	// task did not choose one.
+	Runtimes       map[string]agent.Runtime
+	DefaultRuntime string
+	Findings       *findings.Service
+	enabled        bool
+	native         *plugin.NativeReport
+	pathReports    []pathReport
+	origins        []map[string]string
+	truncated      bool
+	knowledge      []workflow.KnowledgePin
 }
 
-func (e *Effects) Bind(_ context.Context, enabled bool) (workflow.Effects, workflow.ModelPin, error) {
+func (e *Effects) Bind(_ context.Context, enabled bool, prior workflow.ModelPin) (workflow.Effects, workflow.ModelPin, error) {
 	copy := *e
 	copy.enabled = enabled
 	copy.native = nil
@@ -54,22 +59,61 @@ func (e *Effects) Bind(_ context.Context, enabled bool) (workflow.Effects, workf
 	if !enabled {
 		return &copy, pin, nil
 	}
-	if e.Agent == nil || e.Agent.Ready() != nil {
+	if e.Agent == nil || e.Agent.Runtime == nil {
 		return nil, pin, workflow.ErrRuntimeUnavailable
 	}
-	frozen := *e.Agent
-	caps := frozen.Runtime.Capabilities()
-	pin.Runtime = caps.Name
-	pin.RuntimeVersion = caps.Version
-	if model, ok := frozen.Runtime.(*agent.ModelRuntime); ok {
-		runtime, metadata, err := model.Freeze()
+	name := strings.TrimSpace(prior.Runtime)
+	if name == "" {
+		name = strings.TrimSpace(e.DefaultRuntime)
+	}
+	if name == "" && e.Agent.Runtime != nil {
+		name = e.Agent.Runtime.Capabilities().Name
+	}
+	// The default name prefers the runner's Runtime field: it is the object the
+	// deployment (and a test) wired as the default and may have been replaced
+	// after the catalog was built. A non-default name must come from the catalog.
+	selected := e.Agent.Runtime
+	if name != strings.TrimSpace(e.DefaultRuntime) && name != "" {
+		candidate, ok := e.Runtimes[name]
+		if !ok {
+			return nil, pin, workflow.ErrRuntimeUnavailable
+		}
+		selected = candidate
+	}
+	if selected == nil && e.Runtimes != nil {
+		selected = e.Runtimes[name]
+	}
+	if selected == nil {
+		return nil, pin, workflow.ErrRuntimeUnavailable
+	}
+	if ready, ok := selected.(interface{ Ready() error }); ok && ready.Ready() != nil {
+		return nil, pin, workflow.ErrRuntimeUnavailable
+	}
+	caps := selected.Capabilities()
+	pin.Runtime, pin.RuntimeVersion = caps.Name, caps.Version
+	frozenRuntime := selected
+	if freezer, ok := selected.(agent.Freezer); ok {
+		frozen, frozenPin, err := freezer.FreezeRuntime()
 		if err != nil {
 			return nil, pin, workflow.ErrRuntimeUnavailable
 		}
-		frozen.Runtime = runtime
-		pin.ConfigVersion = metadata.Version
-		pin.Model = metadata.Model
+		frozenRuntime = frozen
+		pin.ConfigVersion, pin.Model = frozenPin.ConfigVersion, frozenPin.Model
+		pin.ProtocolVersion, pin.WorkerVersion, pin.PromptVersion = frozenPin.ProtocolVersion, frozenPin.WorkerVersion, frozenPin.PromptVersion
+	} else if provider, ok := selected.(agent.PinProvider); ok {
+		if current, err := provider.Pin(); err == nil {
+			pin.ConfigVersion, pin.Model = current.ConfigVersion, current.Model
+		}
 	}
+	// A recovery may not substitute a different settings version: the plan pinned
+	// the old ciphertext and the old model, and the new settings are not it.
+	if prior.ConfigVersion != "" && pin.ConfigVersion != prior.ConfigVersion {
+		return nil, prior, workflow.ErrConfigVersionUnavailable
+	}
+	frozen := *e.Agent
+	frozen.Runtime = frozenRuntime
+	frozen.Runtimes = e.Runtimes
+	frozen.DefaultRuntime = name
 	copy.Agent = &frozen
 	return &copy, pin, nil
 }

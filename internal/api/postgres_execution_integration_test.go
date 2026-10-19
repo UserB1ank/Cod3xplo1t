@@ -217,8 +217,8 @@ type interruptedAnalysisEffects struct {
 	blocked  chan struct{}
 }
 
-func (e interruptedAnalysisEffects) Bind(ctx context.Context, enabled bool) (workflow.Effects, workflow.ModelPin, error) {
-	inner, pin, err := e.delegate.Bind(ctx, enabled)
+func (e interruptedAnalysisEffects) Bind(ctx context.Context, enabled bool, prior workflow.ModelPin) (workflow.Effects, workflow.ModelPin, error) {
+	inner, pin, err := e.delegate.Bind(ctx, enabled, prior)
 	e.delegate = inner
 	return e, pin, err
 }

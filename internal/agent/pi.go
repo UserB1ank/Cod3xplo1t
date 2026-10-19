@@ -77,6 +77,7 @@ type PiConfig struct {
 type PiRuntime struct {
 	cfg     PiConfig
 	version string
+	pinned  *RuntimePin
 }
 
 // NewPiRuntime validates the configuration. A missing command or init is an
@@ -551,6 +552,9 @@ func drainWithGrace(cmd *exec.Cmd, lines <-chan []byte, grace time.Duration) {
 // Pin reports the model and settings version the worker would receive. The
 // worker and protocol versions are fixed by this adapter.
 func (r *PiRuntime) Pin() (RuntimePin, error) {
+	if r.pinned != nil {
+		return *r.pinned, nil
+	}
 	pin := RuntimePin{
 		Runtime: "pi", RuntimeVersion: r.version, ProtocolVersion: "1",
 		WorkerVersion: "1.3.0", PromptVersion: PromptVersion,
@@ -564,4 +568,28 @@ func (r *PiRuntime) Pin() (RuntimePin, error) {
 	}
 	pin.Model, pin.ConfigVersion = extra.Model, extra.ConfigVersion
 	return pin, nil
+}
+
+// FreezeRuntime captures the private init and the pin for a workflow run. The
+// worker command and tool descriptors stay shared; only the model configuration
+// and its pin are frozen.
+func (r *PiRuntime) FreezeRuntime() (Runtime, RuntimePin, error) {
+	init := r.cfg.Init
+	if r.cfg.InitSource != nil {
+		value, err := r.cfg.InitSource()
+		if err != nil {
+			return nil, RuntimePin{}, err
+		}
+		init = value
+	}
+	pin, err := r.Pin()
+	if err != nil {
+		return nil, RuntimePin{}, err
+	}
+	frozen := *r
+	frozen.cfg.Init = init
+	frozen.cfg.InitSource = nil
+	frozen.cfg.PinSource = nil
+	frozen.pinned = &pin
+	return &frozen, pin, nil
 }

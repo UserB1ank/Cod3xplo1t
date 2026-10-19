@@ -263,7 +263,7 @@ func (r *Runner) runExecution(exec *execution) {
 	}
 	exec.mu.Lock()
 	if exec.effects == nil && r.Effects != nil {
-		effects, _, err := r.Effects.Bind(ctx, exec.run.AnalyzeCandidates)
+		effects, _, err := r.Effects.Bind(ctx, exec.run.AnalyzeCandidates, exec.run.Model)
 		if err == nil {
 			exec.effects = effects
 		}

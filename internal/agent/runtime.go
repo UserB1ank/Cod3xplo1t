@@ -316,6 +316,13 @@ type RuntimePin struct {
 	ToolSchemaDigest string `json:"tool_schema_digest,omitempty"`
 }
 
+// Freezer captures the model configuration for a long-lived workflow run. The
+// returned runtime is immutable for the workflow, and the returned pin is the
+// public record of what it froze.
+type Freezer interface {
+	FreezeRuntime() (Runtime, RuntimePin, error)
+}
+
 // PinProvider is the optional ability to describe the configuration a runtime
 // would use now. The orchestrator calls it once per run, before the adapter
 // starts, and stores the result with the run.

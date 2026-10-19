@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,6 +28,8 @@ type StartRequest struct {
 	PlanID             string
 	Task               TaskDefinition
 	AnalyzeCandidates  bool
+	// Runtime is the task's runtime choice; empty means the deployment default.
+	Runtime string
 }
 type RunEvent struct {
 	Seq       int64  `json:"seq"`
@@ -100,16 +103,28 @@ type RunRepository interface {
 	ListRecoverableWorkflowRuns(context.Context) ([]Run, error)
 }
 type ModelPin struct {
-	Runtime        string `json:"runtime"`
-	RuntimeVersion string `json:"runtime_version"`
-	ConfigVersion  string `json:"config_version"`
-	Model          string `json:"model,omitempty"`
+	Runtime         string `json:"runtime"`
+	RuntimeVersion  string `json:"runtime_version"`
+	ConfigVersion   string `json:"config_version"`
+	Model           string `json:"model,omitempty"`
+	ProtocolVersion string `json:"protocol_version,omitempty"`
+	WorkerVersion   string `json:"worker_version,omitempty"`
+	PromptVersion   string `json:"prompt_version,omitempty"`
 }
 
-var ErrRuntimeUnavailable = errors.New("workflow: candidate runtime is not configured")
+var (
+	ErrRuntimeUnavailable = errors.New("workflow: candidate runtime is not configured")
+	// ErrConfigVersionUnavailable blocks a recovery whose frozen settings version
+	// no longer exists: re-binding with the current settings would run the old
+	// plan under new credentials.
+	ErrConfigVersionUnavailable = errors.New("workflow: the frozen model configuration version is unavailable")
+)
 
 type Effects interface {
-	Bind(context.Context, bool) (Effects, ModelPin, error)
+	// Bind freezes the candidate runtime. prior is the run's existing pin on a
+	// recovery, and the zero value at creation; it selects the runtime and blocks
+	// a different settings version from being substituted.
+	Bind(context.Context, bool, ModelPin) (Effects, ModelPin, error)
 	Execute(context.Context, Run, Plan, NodeRun) (NodeResult, error)
 }
 type Runner struct {
@@ -228,7 +243,8 @@ func (r *Runner) Start(ctx context.Context, req StartRequest) (Run, error) {
 	effects := r.Effects
 	model := ModelPin{Runtime: "disabled", RuntimeVersion: "1", ConfigVersion: "not_applicable"}
 	if effects != nil {
-		effects, model, err = effects.Bind(ctx, req.AnalyzeCandidates)
+		prior := ModelPin{Runtime: strings.TrimSpace(req.Runtime)}
+		effects, model, err = effects.Bind(ctx, req.AnalyzeCandidates, prior)
 		if err != nil {
 			return Run{}, err
 		}

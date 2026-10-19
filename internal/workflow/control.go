@@ -260,7 +260,7 @@ func (r *Runner) Retry(ctx context.Context, project, runID string) (Run, error) 
 	}
 	var effects Effects
 	if r.Effects != nil {
-		if bound, _, err := r.Effects.Bind(ctx, run.AnalyzeCandidates); err == nil {
+		if bound, _, err := r.Effects.Bind(ctx, run.AnalyzeCandidates, run.Model); err == nil {
 			effects = bound
 		}
 	}

@@ -2,7 +2,6 @@ package api
 
 import (
 	"net/http"
-	"strings"
 	"testing"
 
 	"github.com/open-mcp-ai/Codexploit/internal/agent"
@@ -66,12 +65,4 @@ func TestTaskRuntimeSelection(t *testing.T) {
 		t.Errorf("pi should be unavailable with a reason: %+v", byName["pi"])
 	}
 
-	// A workflow task cannot quietly pin a runtime the workflow path does not
-	// apply yet; refusing is better than storing a choice that will be ignored.
-	workflow := map[string]any{"name": "Workflow task", "objective": "x", "snapshot_id": snapshot.Snapshot.SnapshotID,
-		"runtime": "llm", "workflow_plan_id": "plan-unknown"}
-	refused := do(t, env.ts, http.MethodPost, "/api/projects/"+project.ID+"/tasks", workflow, nil)
-	if refused.status != http.StatusBadRequest || !strings.Contains(string(refused.body), "runtime_not_supported_for_workflow") {
-		t.Fatalf("workflow runtime selection: %d %s", refused.status, refused.body)
-	}
 }
