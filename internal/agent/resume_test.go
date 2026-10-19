@@ -121,3 +121,21 @@ func TestConcurrentResumeHasOneWinner(t *testing.T) {
 		t.Fatalf("winners=%d consumers=%d, want exactly one resume", winners, consumers)
 	}
 }
+
+func TestResumeDepthBlocksAFourthAttempt(t *testing.T) {
+	runner, paused := newResumeScenario(t)
+	store := runner.Store.(*runnerTestStore)
+	base := *paused
+	second := base
+	second.ID, second.ResumeOf, second.Status, second.StopReason = "run-second", base.ID, RunPaused, StopBudgetPaused
+	third := base
+	third.ID, third.ResumeOf, third.Status, third.StopReason = "run-third", second.ID, RunPaused, StopBudgetPaused
+	for _, run := range []Run{second, third} {
+		if err := store.CreateRun(run); err != nil {
+			t.Fatalf("seed %s: %v", run.ID, err)
+		}
+	}
+	if _, err := runner.Resume(context.Background(), third.ID); !errors.Is(err, ErrNeedsHuman) {
+		t.Fatalf("fourth attempt resume = %v, want ErrNeedsHuman", err)
+	}
+}

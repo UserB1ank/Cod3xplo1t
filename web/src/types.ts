@@ -64,3 +64,21 @@ export interface Workspace {
 }
 export interface Connection { base: string; token: string }
 export interface AuditDraft { maxPaths: number; concurrency: number; toolCalls: number }
+
+export interface AuditBudget {
+  audit_id: string;
+  limit_tokens: number;
+  reserved_tokens: number;
+  used_tokens: number;
+  version: number;
+  updated_at?: string;
+}
+
+export interface BudgetGrant {
+  grant_id: string;
+  tokens: number;
+  decision: string;
+  reason: string;
+  requested_by: string;
+  created_at: string;
+}

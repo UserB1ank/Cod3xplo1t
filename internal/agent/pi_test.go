@@ -73,7 +73,8 @@ func TestPiWorkerHelper(t *testing.T) {
 	next := func() int { seq++; return seq }
 
 	if mode == "stream-before-settled" {
-		write(map[string]any{"type": "request_permit", "run_id": runID, "generation": generation, "seq": next(), "request_id": "r1"})
+		write(map[string]any{"type": "request_permit", "run_id": runID, "generation": generation, "seq": next(),
+			"request_id": "r1", "round_id": "round-1", "model": "test", "input_tokens_estimate": 10, "max_output_tokens": 10})
 		read()
 		os.Exit(0)
 	}

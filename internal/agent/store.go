@@ -35,6 +35,14 @@ type Store interface {
 	// every other resume of the same checkpoint gets ErrConflict.
 	ClaimCheckpointResume(checkpointID string) error
 
+	// Audit budget ledger. Reserve is atomic across runs and instances: a caller
+	// either gets a reservation or ErrBudgetExhausted.
+	GetAuditBudget(auditID string) (*AuditBudget, error)
+	ReserveAuditTokens(auditID string, tokens int) (*AuditBudget, error)
+	SettleAuditTokens(auditID string, reserved, used int) error
+	GrantAuditTokens(grant BudgetGrant, expectedVersion int64) (*AuditBudget, error)
+	ListBudgetGrants(auditID string) ([]BudgetGrant, error)
+
 	// AppendRunEvents adds run events. Sequences are per run and must increase.
 	//
 	// The names are run-scoped on purpose: the audit log (path.Store) has its own

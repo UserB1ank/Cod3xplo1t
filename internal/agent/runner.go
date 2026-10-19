@@ -509,6 +509,15 @@ func (r *Runner) finish(ctx context.Context, p *path.Path, owner string, session
 	// A valid answer is a completed run unless the session already decided
 	// otherwise. A clean end with no answer is not an adapter failure: the
 	// adapter produced nothing the protocol accepts, which is invalid output.
+	// A clean end releases whatever the provider never reconciled. A crash leaves
+	// those reservations in the ledger: unconfirmed in-flight spending is kept, not
+	// cleared.
+	for requestID, reserve := range session.reservations {
+		if err := r.Store.SettleAuditTokens(session.run.AuditID, reserve, 0); err != nil && session.persistErr == nil {
+			session.persistErr = err
+		}
+		delete(session.reservations, requestID)
+	}
 	if session.pauseRequested {
 		return r.finishPaused(ctx, p, owner, session)
 	}
@@ -657,6 +666,21 @@ func sessionEvidence(refs map[string]struct{}) []string {
 	return out
 }
 
+// resumeDepth counts the attempts in a resume chain, the run itself included.
+func (r *Runner) resumeDepth(run Run) int {
+	depth := 1
+	cursor := run
+	for cursor.ResumeOf != "" && depth < 10 {
+		parent, err := r.Store.GetRun(cursor.ResumeOf)
+		if err != nil {
+			break
+		}
+		cursor = *parent
+		depth++
+	}
+	return depth
+}
+
 // Resume continues a paused run from its checkpoint as a new attempt: a new run
 // id, generation and lease, with the checkpoint's evidence, usage and frontier.
 func (r *Runner) Resume(ctx context.Context, runID string) (*Run, error) {
@@ -672,6 +696,9 @@ func (r *Runner) Resume(ctx context.Context, runID string) (*Run, error) {
 	}
 	if run.Status != RunPaused {
 		return nil, fmt.Errorf("%w: run %s is %s", ErrRunNotPaused, runID, run.Status)
+	}
+	if r.resumeDepth(*run) >= 3 {
+		return nil, fmt.Errorf("%w: path %s has already been resumed three times", ErrNeedsHuman, run.PathID)
 	}
 	checkpoint, err := r.Store.GetCheckpoint(runID)
 	if err != nil {
@@ -803,6 +830,7 @@ type runnerSession struct {
 	// the run ends PAUSED instead of FAILED.
 	pauseRequested bool
 	pauseReason    string
+	softWarned     bool
 
 	answer     *Answer
 	stop       string
@@ -1037,7 +1065,8 @@ func (s *runnerSession) applyEvent(ctx context.Context, ev RuntimeEvent) bool {
 	// Usage belongs to the request that produced it: release that request's
 	// reservation and ignore a duplicate report instead of billing it twice.
 	if ev.RequestID != "" {
-		if reserve, ok := s.reservations[ev.RequestID]; ok {
+		reserve := s.reservations[ev.RequestID]
+		if reserve > 0 {
 			s.reserved -= reserve
 			delete(s.reservations, ev.RequestID)
 		}
@@ -1046,9 +1075,27 @@ func (s *runnerSession) applyEvent(ctx context.Context, ev RuntimeEvent) bool {
 		} else if ev.InputTokens > 0 || ev.OutputTokens > 0 {
 			s.usageSeen[ev.RequestID] = true
 		}
+		if s.run.AuditID != "" {
+			if err := s.runner.Store.SettleAuditTokens(s.run.AuditID, reserve, ev.InputTokens+ev.OutputTokens); err != nil && s.persistErr == nil {
+				s.persistErr = err
+			}
+		}
 	}
 	s.run.InputTokens += ev.InputTokens
 	s.run.OutputTokens += ev.OutputTokens
+	if s.policy.TokenBudget > 0 && !s.softWarned {
+		used := s.run.InputTokens + s.run.OutputTokens
+		if used >= s.policy.TokenBudget*4/5 {
+			s.softWarned = true
+			if selected := s.append(Event{
+				Type: EventBudgetSoftLimit, Actor: runnerActorOrchestrator,
+				Summary: fmt.Sprintf("token usage reached %d of the %d budget", used, s.policy.TokenBudget),
+				Detail:  map[string]string{"used_tokens": fmt.Sprint(used), "budget": fmt.Sprint(s.policy.TokenBudget)},
+			}); selected {
+				return true
+			}
+		}
+	}
 	var stop bool
 	switch {
 	case ev.Permit != nil:
@@ -1127,21 +1174,25 @@ func (s *runnerSession) applyPermit(ctx context.Context, ev RuntimeEvent) bool {
 		})
 	}
 	reserve := 0
-	if s.policy.TokenBudget > 0 {
-		if req.InputTokensEstimate <= 0 || req.MaxOutputTokens <= 0 {
-			reply.Reason = "bounded token mode needs a positive input estimate and output limit"
-			s.stop, s.status, s.errText = StopTokenBudget, RunBudgetExceeded, reply.Reason
-			return s.update(Event{Type: EventModelPermitDenied, Actor: runnerActorOrchestrator, CallID: req.RequestID,
-				Summary: "provider request denied: " + reply.Reason, Detail: map[string]string{"reason": reply.Reason}})
-		}
-		reserve = req.InputTokensEstimate + req.MaxOutputTokens
-		if s.run.InputTokens+s.run.OutputTokens+s.reserved+reserve > s.policy.TokenBudget {
-			reply.Reason = fmt.Sprintf("the reservation would exceed the token budget of %d", s.policy.TokenBudget)
-			return s.pauseBudget(reply.Reason)
-		}
-		s.reserved += reserve
-		s.reservations[req.RequestID] = reserve
+	if req.InputTokensEstimate <= 0 || req.MaxOutputTokens <= 0 {
+		reply.Reason = "bounded token mode needs a positive input estimate and output limit"
+		s.stop, s.status, s.errText = StopTokenBudget, RunBudgetExceeded, reply.Reason
+		return s.update(Event{Type: EventModelPermitDenied, Actor: runnerActorOrchestrator, CallID: req.RequestID,
+			Summary: "provider request denied: " + reply.Reason, Detail: map[string]string{"reason": reply.Reason}})
 	}
+	reserve = req.InputTokensEstimate + req.MaxOutputTokens
+	if s.policy.TokenBudget > 0 && s.run.InputTokens+s.run.OutputTokens+s.reserved+reserve > s.policy.TokenBudget {
+		reply.Reason = fmt.Sprintf("the reservation would exceed the token budget of %d", s.policy.TokenBudget)
+		return s.pauseBudget(reply.Reason)
+	}
+	// The audit ledger is the shared ceiling: two runs (or two instances) cannot
+	// each read the balance and then both spend it.
+	if _, err := s.runner.Store.ReserveAuditTokens(s.run.AuditID, reserve); err != nil {
+		reply.Reason = "the audit budget cannot reserve the request: " + err.Error()
+		return s.pauseBudget(reply.Reason)
+	}
+	s.reserved += reserve
+	s.reservations[req.RequestID] = reserve
 	s.modelRequests++
 	s.turnControl = true
 	reply = PermitDecision{Decision: DecisionContinue, ReservedTokens: reserve}

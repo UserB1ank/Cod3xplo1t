@@ -5,6 +5,7 @@ import (
 	"errors"
 	"path/filepath"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -969,5 +970,110 @@ func TestCheckpointSurvivesSQLiteRestart(t *testing.T) {
 	}
 	if err := reopened.ClaimCheckpointResume(checkpoint.ID); !errors.Is(err, agent.ErrConflict) {
 		t.Fatalf("second claim = %v, want agent.ErrConflict", err)
+	}
+}
+
+// TestAuditBudgetLedgerRoundTrips covers the shared ledger: reservation, real
+// usage settlement, approved and rejected grants, and the version CAS.
+func TestAuditBudgetLedgerRoundTrips(t *testing.T) {
+	for _, tc := range fullStores(t) {
+		t.Run(tc.name, func(t *testing.T) {
+			store := tc.store
+			initial, err := store.GetAuditBudget("audit-ledger")
+			if err != nil {
+				t.Fatalf("GetAuditBudget: %v", err)
+			}
+			if initial.LimitTokens != agent.DefaultAuditTokenBudget || initial.UsedTokens != 0 || initial.ReservedTokens != 0 {
+				t.Fatalf("initial budget = %+v, want the 60k default", initial)
+			}
+			reserved, err := store.ReserveAuditTokens("audit-ledger", 1000)
+			if err != nil {
+				t.Fatalf("ReserveAuditTokens: %v", err)
+			}
+			if reserved.ReservedTokens != 1000 || reserved.Available() != agent.DefaultAuditTokenBudget-1000 {
+				t.Fatalf("after reserve = %+v", reserved)
+			}
+			if err := store.SettleAuditTokens("audit-ledger", 1000, 800); err != nil {
+				t.Fatalf("SettleAuditTokens: %v", err)
+			}
+			settled, err := store.GetAuditBudget("audit-ledger")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if settled.ReservedTokens != 0 || settled.UsedTokens != 800 {
+				t.Fatalf("after settle = %+v, want 0 reserved and 800 used", settled)
+			}
+			grant := agent.BudgetGrant{
+				ID: "grant-1", AuditID: "audit-ledger", Tokens: 500, Reason: "a deep slice needs a second try",
+				RequestedBy: "writer", Decision: agent.GrantApproved, DecidedBy: "writer", CreatedAt: time.Now().UTC().Format(time.RFC3339),
+			}
+			approved, err := store.GrantAuditTokens(grant, settled.Version)
+			if err != nil {
+				t.Fatalf("GrantAuditTokens: %v", err)
+			}
+			if approved.LimitTokens != agent.DefaultAuditTokenBudget+500 {
+				t.Fatalf("approved budget = %+v", approved)
+			}
+			if _, err := store.GrantAuditTokens(grant, settled.Version); !errors.Is(err, agent.ErrConflict) {
+				t.Fatalf("stale grant = %v, want agent.ErrConflict", err)
+			}
+			rejected := grant
+			rejected.ID, rejected.Decision, rejected.Tokens = "grant-2", agent.GrantRejected, 900
+			afterReject, err := store.GrantAuditTokens(rejected, approved.Version)
+			if err != nil {
+				t.Fatalf("rejected grant: %v", err)
+			}
+			if afterReject.LimitTokens != approved.LimitTokens {
+				t.Fatalf("a rejected grant changed the limit: %+v", afterReject)
+			}
+			grants, err := store.ListBudgetGrants("audit-ledger")
+			if err != nil || len(grants) != 2 {
+				t.Fatalf("grants = %+v (%v), want two decisions", grants, err)
+			}
+		})
+	}
+}
+
+// TestAuditBudgetConcurrentReservations proves the ledger cannot be read and then
+// overspent: two callers compete for the last 40k and only one wins.
+func TestAuditBudgetConcurrentReservations(t *testing.T) {
+	for _, tc := range fullStores(t) {
+		t.Run(tc.name, func(t *testing.T) {
+			store := tc.store
+			var wg sync.WaitGroup
+			results := make([]error, 2)
+			start := make(chan struct{})
+			for index := 0; index < 2; index++ {
+				wg.Add(1)
+				go func(position int) {
+					defer wg.Done()
+					<-start
+					_, results[position] = store.ReserveAuditTokens("audit-race", 40000)
+				}(index)
+			}
+			close(start)
+			wg.Wait()
+			winners, exhausted := 0, 0
+			for _, err := range results {
+				switch {
+				case err == nil:
+					winners++
+				case errors.Is(err, agent.ErrBudgetExhausted):
+					exhausted++
+				default:
+					t.Fatalf("unexpected reservation error: %v", err)
+				}
+			}
+			if winners != 1 || exhausted != 1 {
+				t.Fatalf("winners=%d exhausted=%d, want one reservation", winners, exhausted)
+			}
+			budget, err := store.GetAuditBudget("audit-race")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if budget.ReservedTokens != 40000 {
+				t.Fatalf("reserved = %d, want the single winner's 40k", budget.ReservedTokens)
+			}
+		})
 	}
 }

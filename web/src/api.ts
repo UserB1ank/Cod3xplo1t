@@ -1,4 +1,4 @@
-import type { Audit, AuditDraft, AuditEvent, AuditPath, Connection, Finding, FindingDetail, GraphSummary, Project, Run, Scheduler, Snapshot, Workspace } from './types.ts';
+import type { Audit, AuditBudget, AuditDraft, AuditEvent, AuditPath, BudgetGrant, Connection, Finding, FindingDetail, GraphSummary, Project, Run, Scheduler, Snapshot, Workspace } from './types.ts';
 
 export class ApiError extends Error {
   status: number;
@@ -101,6 +101,8 @@ export class ApiClient {
   }
   path(id: string, signal?: AbortSignal) { return this.get<{ path: AuditPath; events: AuditEvent[] }>(`/paths/${encodeURIComponent(id)}`, signal); }
   finding(id: string, signal?: AbortSignal) { return this.get<FindingDetail>(`/findings/${encodeURIComponent(id)}`, signal); }
+  taskBudget(projectID: string, taskID: string, signal?: AbortSignal) { return this.get<{ budget: AuditBudget; grants: BudgetGrant[] }>(`/v1/projects/${encodeURIComponent(projectID)}/tasks/${encodeURIComponent(taskID)}/budget`, signal); }
+  grantBudget(projectID: string, taskID: string, body: { tokens: number; reason: string; decision: string; expected_version: number }) { return this.post<{ budget: AuditBudget; grant: BudgetGrant }>(`/v1/projects/${encodeURIComponent(projectID)}/tasks/${encodeURIComponent(taskID)}/budget/grants`, body); }
   runEvents(id: string, signal?: AbortSignal) { return this.get<{ events: AuditEvent[] }>(`/runs/${encodeURIComponent(id)}/events?limit=100`, signal); }
   resumeRun(projectID: string, runID: string) { return this.post<{ api_version: string; run: Run }>(`/v1/projects/${encodeURIComponent(projectID)}/runs/${encodeURIComponent(runID)}/resume`, {}); }
   async slice(path: AuditPath, signal?: AbortSignal) {

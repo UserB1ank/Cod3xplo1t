@@ -197,6 +197,7 @@ const (
 	EventRunCreated         = "run_created"
 	EventCheckpointSaved    = "checkpoint_saved"
 	EventRunResumed         = "run_resumed"
+	EventBudgetSoftLimit    = "budget_soft_limit"
 	EventRunStarted         = "run_started"
 	EventTaskDelivered      = "task_delivered"
 	EventToolRequested      = "tool_requested"
@@ -277,7 +278,7 @@ type ExplorationPolicy struct {
 func DefaultExplorationPolicy() ExplorationPolicy {
 	return ExplorationPolicy{
 		MaxHops: 2, MaxBranches: 4, MaxToolCalls: 30, MaxExpansions: 3,
-		TimeoutSeconds: 600, TokenBudget: 0, MaxRepeatedOutputs: 2,
+		TimeoutSeconds: 600, TokenBudget: DefaultAuditTokenBudget, MaxRepeatedOutputs: 2,
 		MaxCallsPerTurn: 4, ToolConcurrency: 1,
 		AllowedTools: []string{},
 	}

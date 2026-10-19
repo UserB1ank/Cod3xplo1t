@@ -84,6 +84,8 @@ type runnerTestStore struct {
 	hypOrder        []string
 	checkpoints     map[string]Checkpoint
 	checkpointClaim map[string]bool
+	budgets         map[string]AuditBudget
+	budgetGrants    map[string][]BudgetGrant
 }
 
 var _ Store = (*runnerTestStore)(nil)
@@ -96,6 +98,8 @@ func newRunnerTestStore() *runnerTestStore {
 		hyps:            map[string]Hypothesis{},
 		checkpoints:     map[string]Checkpoint{},
 		checkpointClaim: map[string]bool{},
+		budgets:         map[string]AuditBudget{},
+		budgetGrants:    map[string][]BudgetGrant{},
 	}
 }
 
@@ -142,6 +146,74 @@ func (s *runnerTestStore) GetCheckpoint(runID string) (*Checkpoint, error) {
 		return nil, fmt.Errorf("%w: checkpoint of run %s", ErrRunNotFound, runID)
 	}
 	return latest, nil
+}
+
+func (s *runnerTestStore) GetAuditBudget(auditID string) (*AuditBudget, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if budget, ok := s.budgets[auditID]; ok {
+		return &budget, nil
+	}
+	return &AuditBudget{AuditID: auditID, LimitTokens: DefaultAuditTokenBudget, Version: 1}, nil
+}
+
+func (s *runnerTestStore) ReserveAuditTokens(auditID string, tokens int) (*AuditBudget, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	budget, ok := s.budgets[auditID]
+	if !ok {
+		budget = AuditBudget{AuditID: auditID, LimitTokens: DefaultAuditTokenBudget, Version: 1}
+	}
+	if budget.Available() < tokens {
+		return nil, fmt.Errorf("%w: the audit has %d left", ErrBudgetExhausted, budget.Available())
+	}
+	budget.ReservedTokens += tokens
+	budget.Version++
+	s.budgets[auditID] = budget
+	return &budget, nil
+}
+
+func (s *runnerTestStore) SettleAuditTokens(auditID string, reserved, used int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	budget := s.budgets[auditID]
+	if budget.AuditID == "" {
+		budget = AuditBudget{AuditID: auditID, LimitTokens: DefaultAuditTokenBudget, Version: 1}
+	}
+	budget.ReservedTokens -= reserved
+	if budget.ReservedTokens < 0 {
+		budget.ReservedTokens = 0
+	}
+	budget.UsedTokens += used
+	budget.Version++
+	s.budgets[auditID] = budget
+	return nil
+}
+
+func (s *runnerTestStore) GrantAuditTokens(grant BudgetGrant, expectedVersion int64) (*AuditBudget, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	budget := s.budgets[grant.AuditID]
+	if budget.AuditID == "" {
+		budget = AuditBudget{AuditID: grant.AuditID, LimitTokens: DefaultAuditTokenBudget, Version: 1}
+	}
+	if expectedVersion != 0 && budget.Version != expectedVersion {
+		return nil, ErrConflict
+	}
+	if grant.Decision == GrantApproved {
+		budget.LimitTokens += grant.Tokens
+	}
+	budget.Version++
+	grant.Version = budget.Version
+	s.budgets[grant.AuditID] = budget
+	s.budgetGrants[grant.AuditID] = append(s.budgetGrants[grant.AuditID], grant)
+	return &budget, nil
+}
+
+func (s *runnerTestStore) ListBudgetGrants(auditID string) ([]BudgetGrant, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]BudgetGrant(nil), s.budgetGrants[auditID]...), nil
 }
 
 func (s *runnerTestStore) ClaimCheckpointResume(checkpointID string) error {

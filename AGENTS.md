@@ -93,6 +93,8 @@
 
 - 2026-10-20 — #45 预算边界保存可续跑检查点并从正式页面继续：token / 工具预算触顶时 attempt 以 `PAUSED` / `budget_paused` 停止，Go 由 run 自身任务、canonical 证据、frontier（义务 + 未决问题）、别名表、runtime/model/config/prompt/tool pin 与累计用量生成带版本与摘要的检查点；检查点、PAUSED run 与最终事件同一事务写入，失败明确 `checkpoint_unavailable`，不伪造可续跑状态。续跑以检查点的任务、证据与用量创建新 run / generation / 租约并记录 `resume_of`；配置版本变化、路径不可领取、跨 run 检查点拒绝，cli 明确 unsupported，检查点由首次 resume 原子消费（三仓储 CAS，`checkpoint_consumed`），并发续跑只有一个赢家。认证 API 提供 checkpoint 读取（reader）与 resume（writer，含能力表规则），任务页对 PAUSED run 显示“继续”；Memory / SQLite / PostgreSQL 持久化（SQLite `0030`/`0031`、PG `0012`/`0013`），SQLite 重启后检查点与 PAUSED 状态可读。已通过暂停/续跑状态机测试、并发续跑单赢家、三仓储检查点往返与 SQLite 重启、API reader/跨项目/unsupported/读取测试、既有预算测试与 golden 更新、agent/storage/api 全量及竞态、真实 PG、排除被他人 WIP 阻塞的 `internal/app` 后的三轮乱序竞态、staticcheck 与契约检查。按交付流程提交并关闭；未 push。
 
+- 2026-10-20 — #46 三层预算：soft 提示、hard 暂停与审计总额账本：默认 hard 60k（`token_budget=0` 仅显式保留），达到 80% 记一次 `budget_soft_limit` 事件且不停止；hard 触顶沿用 #45 的 PAUSED 检查点。审计总额账本以原子预留控制跨 run / 跨实例支出（`agent_audit_budgets`，SQLite `0032` / PG `0014`），每次 provider 请求预留下输入上界与输出上限，真实 usage 幂等结算，重复上报不重复计费，正常结束释放未对账预留，崩溃保留在途预留；模型请求前的预留不依赖先读余额。追加额度仅 writer 可做，必须带理由与账本版本 CAS（`POST .../tasks/{taskID}/budget/grants`，批准 / 拒绝均落库），reader 只能读；同一路径第 4 次自动续跑返回 `needs_human`。任务页“执行过程”新增审计预算面板（已用 / 预留 / 剩余、决定记录、writer 追加表单），配置 API 返回账本与决定。已通过三仓储账本往返与批准 / 拒绝 / 版本冲突、并发预留单赢家（Memory / SQLite / 真实 PG）、soft 提示只记一次、续跑次数上限、API reader 403 / 缺理由 400 / 版本 412 / 跨项目 404、既有全量与竞态、真实 PG、前端构建、staticcheck 与契约检查；三轮乱序竞态前两轮通过，第三轮 `internal/processplugin` 的 oversize 用例在并载下偶发（单包 10 次连续通过，属既有 flake，与本单无关）。按交付流程提交并关闭；未 push。
+
 ## Agent skills
 
 ### Issue tracker

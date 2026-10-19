@@ -312,6 +312,18 @@ func requiredCapability(method, path string) (Capability, bool) {
 			}
 			return 0, false
 		}
+		if strings.HasPrefix(action, "tasks/") && strings.HasSuffix(action, "/budget") {
+			if method == http.MethodGet {
+				return CapRead, true
+			}
+			return 0, false
+		}
+		if strings.HasPrefix(action, "tasks/") && strings.HasSuffix(action, "/budget/grants") {
+			if method == http.MethodPost {
+				return CapWrite, true
+			}
+			return 0, false
+		}
 		if strings.HasPrefix(action, "runs/") {
 			if method == http.MethodGet {
 				return CapRead, true

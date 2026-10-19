@@ -65,6 +65,9 @@ type Memory struct {
 	agentCheckpoints map[string]agent.Checkpoint
 	// agentCheckpointResumes makes a checkpoint single-use.
 	agentCheckpointResumes map[string]struct{}
+	// auditBudgets is the audit-level token ledger; budgetGrants is append-only.
+	auditBudgets map[string]*agent.AuditBudget
+	budgetGrants map[string][]agent.BudgetGrant
 	// agentHypotheses holds the claims produced by runs, keyed by hypothesis id.
 	// The upsert identity (path_id, digest) is checked when a claim is saved.
 	agentHypotheses map[string]agent.Hypothesis
@@ -104,6 +107,8 @@ func NewMemory() *Memory {
 		agentRuns:              map[string]*agentRunDocument{},
 		agentCheckpoints:       map[string]agent.Checkpoint{},
 		agentCheckpointResumes: map[string]struct{}{},
+		auditBudgets:           map[string]*agent.AuditBudget{},
+		budgetGrants:           map[string][]agent.BudgetGrant{},
 		agentHypotheses:        map[string]agent.Hypothesis{},
 		verificationRuns:       map[string]verify.Run{},
 		evidence:               map[string]verify.Evidence{},

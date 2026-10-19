@@ -29,6 +29,9 @@ var (
 	ErrCheckpointUnsupported = errors.New("agent: this runtime cannot resume a checkpoint")
 	// ErrCheckpointConsumed refuses a second resume of the same checkpoint.
 	ErrCheckpointConsumed = errors.New("agent: the checkpoint was already consumed")
+	// ErrNeedsHuman blocks a fourth automatic resume of the same path: a human
+	// must decide whether the work is still worth its budget.
+	ErrNeedsHuman = errors.New("agent: the path needs a human decision")
 	// ErrRuntimeUnavailable is a task's selected runtime missing from the
 	// deployment catalog. It must not fall back to another adapter.
 	ErrRuntimeUnavailable = errors.New("agent: the requested runtime is not available")

@@ -57,7 +57,7 @@ import {
   Panel,
   PathTable,
 } from "./components";
-import { dateLabel, eventNames, findingStatus, shortId } from "./domain";
+import { countFormat, dateLabel, eventNames, findingStatus, shortId } from "./domain";
 import type {
   AuditEvent,
   AuditPath,
@@ -820,7 +820,7 @@ export default function App() {
         {inspectFinding && (
           <FindingInspector
             api={api}
-            projectID={route.project!}
+            projectID={route.project ?? ""}
             id={inspectFinding}
             canWrite={canWrite}
             onChange={() => refresh((n) => n + 1)}
@@ -1237,6 +1237,84 @@ type Action = (
   work: () => Promise<unknown>,
   done?: () => void,
 ) => Promise<void>;
+function BudgetPanel({
+  api,
+  projectID,
+  taskID,
+  canWrite,
+  onChanged,
+}: {
+  api: ApiClient;
+  projectID: string;
+  taskID: string;
+  canWrite: boolean;
+  onChanged: () => void;
+}) {
+  const budget = useResource((signal) => api.taskBudget(projectID, taskID, signal), [api, projectID, taskID]);
+  const [tokens, setTokens] = useState("5000");
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  if (budget.error) return <Failure message={budget.error} />;
+  if (!budget.data) return null;
+  const ledger = budget.data.budget;
+  const grant = async (decision: string) => {
+    setBusy(true);
+    setError("");
+    try {
+      await api.grantBudget(projectID, taskID, { tokens: Number(tokens), reason, decision, expected_version: ledger.version });
+      setReason("");
+      onChanged();
+    } catch (caught) {
+      setError(errorText(caught));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Panel title="审计预算" action={<span className="subtle-label">上限 {countFormat.format(ledger.limit_tokens)} tokens</span>}>
+      <div className="metrics">
+        <div className="metric">
+          <span className="subtle-label">已用</span>
+          <strong>{countFormat.format(ledger.used_tokens)}</strong>
+        </div>
+        <div className="metric">
+          <span className="subtle-label">预留</span>
+          <strong>{countFormat.format(ledger.reserved_tokens)}</strong>
+        </div>
+        <div className="metric">
+          <span className="subtle-label">剩余</span>
+          <strong>{countFormat.format(Math.max(0, ledger.limit_tokens - ledger.used_tokens - ledger.reserved_tokens))}</strong>
+        </div>
+      </div>
+      {budget.data.grants.length > 0 && (
+        <ul className="plain-list">
+          {budget.data.grants.map((item) => (
+            <li key={item.grant_id}>
+              {item.decision === "approved" ? "批准" : "拒绝"} {countFormat.format(item.tokens)} tokens · {item.reason}
+              <span className="subtle-label"> {item.requested_by}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {canWrite && (
+        <div className="inline-form">
+          <input value={tokens} onChange={(event) => setTokens(event.target.value)} inputMode="numeric" aria-label="追加额度" />
+          <input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="追加理由（必填）" aria-label="追加理由" />
+          <button className="button secondary" disabled={busy || !reason.trim()} onClick={() => void grant("approved")}>
+            批准额度
+          </button>
+          <button className="button secondary" disabled={busy || !reason.trim()} onClick={() => void grant("rejected")}>
+            拒绝
+          </button>
+        </div>
+      )}
+      {error && <Hint>{error}</Hint>}
+      <Hint>批准只提高审计总额；每次模型请求前仍会按输入上界与输出上限原子预留，reader 只能查看。</Hint>
+    </Panel>
+  );
+}
+
 function TaskWorkbench({
   api,
   route,
@@ -1441,7 +1519,7 @@ function TaskWorkbench({
           <WorkflowRun
             key={current.workflow_run_id}
             api={api}
-            projectID={route.project!}
+            projectID={route.project ?? ""}
             runID={current.workflow_run_id}
             revision={revision + tick}
             onArtifacts={() => onTab("artifacts")}
@@ -1456,13 +1534,14 @@ function TaskWorkbench({
       {route.view === "artifacts" ? (
         <Artifacts
           api={api}
-          projectID={route.project!}
+          projectID={route.project ?? ""}
           fixedSnapshot={current.snapshot_id}
           revision={revision}
           canWrite={canWrite}
         />
       ) : route.view === "process" ? (
         <>
+          <BudgetPanel api={api} projectID={route.project ?? ""} taskID={route.task ?? ""} canWrite={canWrite} onChanged={() => setTick((n) => n + 1)} />
           <Panel
             title="Agent 运行"
             action={<span className="subtle-label">每 5 秒刷新</span>}
@@ -1563,7 +1642,7 @@ function TaskWorkbench({
       ) : route.view === "findings" ? (
         <TaskFindings
           api={api}
-          projectID={route.project!}
+          projectID={route.project ?? ""}
           taskID={current.audit_id}
           revision={revision + tick}
           onFinding={onFinding}
@@ -1571,7 +1650,7 @@ function TaskWorkbench({
       ) : route.view === "report" ? (
         <Reports
           api={api}
-          projectID={route.project!}
+          projectID={route.project ?? ""}
           task={current}
           canWrite={canWrite}
           revision={revision}

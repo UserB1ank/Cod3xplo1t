@@ -392,6 +392,25 @@ concurrency and pairing are identical. The reply carries one result per
 `call_id` in source order. The worker's own parallel setting only lets the core
 start the calls; it never owns execution order or budget.
 
+## Three budget tiers
+
+Token budgets are enforced at three levels. Crossing 80% of the run's hard limit
+records a `budget_soft_limit` event once — a warning, not a conclusion. The hard
+limit (60k by default; `token_budget=0` is only an explicit opt-out) pauses the
+attempt as described below. The audit ledger is the shared ceiling: every model
+request reserves its input upper bound plus the provider's output limit atomically,
+so two runs or two application instances cannot each read the balance and then
+spend it. Real usage settles the reservation; a duplicate report is not billed
+twice, and a clean end releases what the provider never reconciled. A crash leaves
+the reservation in the ledger — unconfirmed in-flight spending is kept, not
+cleared.
+
+Only a writer may raise the ceiling, and only with a reason and the ledger version
+as its CAS (`POST .../tasks/{taskID}/budget/grants`). Approved and rejected
+decisions are both recorded; a reader can inspect the ledger and the grants but
+cannot add tokens. A path that has already been resumed three times stops with
+`needs_human` instead of spending another automatic attempt.
+
 ## Pausing at a budget boundary
 
 A run that reaches its token or tool budget ends as `PAUSED`, not `FAILED`. Go
