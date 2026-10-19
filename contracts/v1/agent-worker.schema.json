@@ -8,48 +8,217 @@
     "type": {
       "type": "string",
       "enum": [
-        "hello", "init", "start", "request_permit", "permit_reply",
-        "tool_request", "tool_result", "answer_proposed", "answer_reply",
-        "repair_reply", "usage", "settled", "error", "cancel"
+        "hello",
+        "init",
+        "start",
+        "request_permit",
+        "permit_reply",
+        "tool_request",
+        "tool_result",
+        "tool_batch",
+        "tool_batch_result",
+        "answer_proposed",
+        "answer_reply",
+        "repair_reply",
+        "usage",
+        "settled",
+        "error",
+        "cancel"
       ]
     },
-    "v": { "type": "integer", "minimum": 1 },
-    "run_id": { "type": "string", "maxLength": 128 },
-    "generation": { "type": "integer", "minimum": 0 },
-    "seq": { "type": "integer", "minimum": 0 },
-    "request_id": { "type": "string", "maxLength": 128 },
-    "reply_to": { "type": "string", "maxLength": 128 },
-    "worker": { "type": "string", "maxLength": 64 },
-    "pi_version": { "type": "string", "maxLength": 64 },
-    "node": { "type": "string", "maxLength": 64 },
-    "round_id": { "type": "string", "maxLength": 128 },
-    "model": { "type": "string", "maxLength": 256 },
-    "input_tokens_estimate": { "type": "integer", "minimum": 0 },
-    "max_output_tokens": { "type": "integer", "minimum": 0 },
-    "estimate_basis": { "type": "string", "maxLength": 200 },
-    "reserved_tokens": { "type": "integer", "minimum": 0 },
-    "call_id": { "type": "string", "maxLength": 200 },
-    "tool": { "type": "string", "maxLength": 128 },
-    "args": { "type": "object" },
-    "ok": { "type": "boolean" },
-    "result": { "type": "string" },
-    "error": { "type": "string" },
-    "raw": { "type": "object" },
+    "v": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "run_id": {
+      "type": "string",
+      "maxLength": 128
+    },
+    "generation": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "request_id": {
+      "type": "string",
+      "maxLength": 128
+    },
+    "reply_to": {
+      "type": "string",
+      "maxLength": 128
+    },
+    "worker": {
+      "type": "string",
+      "maxLength": 64
+    },
+    "pi_version": {
+      "type": "string",
+      "maxLength": 64
+    },
+    "node": {
+      "type": "string",
+      "maxLength": 64
+    },
+    "round_id": {
+      "type": "string",
+      "maxLength": 128
+    },
+    "model": {
+      "type": "string",
+      "maxLength": 256
+    },
+    "input_tokens_estimate": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "max_output_tokens": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "estimate_basis": {
+      "type": "string",
+      "maxLength": 200
+    },
+    "reserved_tokens": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "call_id": {
+      "type": "string",
+      "maxLength": 200
+    },
+    "tool": {
+      "type": "string",
+      "maxLength": 128
+    },
+    "args": {
+      "type": "object"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "result": {
+      "type": "string"
+    },
+    "error": {
+      "type": "string"
+    },
+    "raw": {
+      "type": "object"
+    },
     "decision": {
       "type": "string",
-      "enum": ["continue", "repair", "stop", "pause", "accepted", "rejected"]
+      "enum": [
+        "continue",
+        "repair",
+        "stop",
+        "pause",
+        "accepted",
+        "rejected"
+      ]
     },
-    "reason": { "type": "string", "maxLength": 400 },
-    "input_tokens": { "type": "integer", "minimum": 0 },
-    "output_tokens": { "type": "integer", "minimum": 0 },
-    "status": { "type": "string", "enum": ["completed", "failed", "cancelled"] },
-    "code": { "type": "string", "maxLength": 64 },
-    "message": { "type": "string", "maxLength": 500 },
-    "task": { "type": "string" },
-    "instructions": { "type": "string" },
-    "tools": { "type": "array", "maxItems": 64 },
-    "limits": { "type": "object" }
+    "reason": {
+      "type": "string",
+      "maxLength": 400
+    },
+    "input_tokens": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "output_tokens": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "completed",
+        "failed",
+        "cancelled"
+      ]
+    },
+    "code": {
+      "type": "string",
+      "maxLength": 64
+    },
+    "message": {
+      "type": "string",
+      "maxLength": 500
+    },
+    "task": {
+      "type": "string"
+    },
+    "instructions": {
+      "type": "string"
+    },
+    "tools": {
+      "type": "array",
+      "maxItems": 64
+    },
+    "limits": {
+      "type": "object"
+    },
+    "calls": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "properties": {
+          "call_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "tool": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "args": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "call_id",
+          "tool"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "results": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "properties": {
+          "call_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "result": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "call_id",
+          "ok"
+        ],
+        "additionalProperties": false
+      }
+    }
   },
-  "required": ["type"],
+  "required": [
+    "type"
+  ],
   "additionalProperties": false
 }

@@ -86,6 +86,65 @@ function estimateTokens(context: unknown): number {
 	return Math.max(1, Math.ceil(size / 2));
 }
 
+// The host owns execution order and budget. The worker only collects the calls the
+// model made in one assistant turn and submits them together; the debounce lets
+// the agent core start every execute callback of that turn before we flush.
+interface PendingCall {
+	callID: string;
+	tool: string;
+	args: unknown;
+	resolve: (reply: { ok?: boolean; result?: unknown; error?: string }) => void;
+}
+
+let pendingCalls: PendingCall[] = [];
+let batchTimer: NodeJS.Timeout | null = null;
+
+function flushToolBatch(): void {
+	const calls = pendingCalls;
+	pendingCalls = [];
+	if (batchTimer) {
+		clearTimeout(batchTimer);
+		batchTimer = null;
+	}
+	if (calls.length === 0) {
+		return;
+	}
+	void link
+		.request("tool_batch", {
+			round_id: currentRequest,
+			calls: calls.map((call) => ({ call_id: call.callID, tool: call.tool, args: call.args })),
+		})
+		.then((reply) => {
+			const results = Array.isArray(reply.results)
+				? (reply.results as Array<{ call_id?: string; ok?: boolean; result?: unknown; error?: string }>)
+				: [];
+			const byID = new Map(results.map((result) => [String(result.call_id ?? ""), result]));
+			for (const call of calls) {
+				const result = byID.get(call.callID);
+				if (!result) {
+					call.resolve({ ok: false, result: "", error: "the host did not answer this call" });
+					continue;
+				}
+				call.resolve(result);
+			}
+		})
+		.catch((error: unknown) => {
+			for (const call of calls) {
+				call.resolve({ ok: false, result: "", error: errorText(error) });
+			}
+		});
+}
+
+function enqueueToolCall(callID: string, tool: string, args: unknown): Promise<{ ok?: boolean; result?: unknown; error?: string }> {
+	return new Promise((resolve) => {
+		pendingCalls.push({ callID, tool, args, resolve });
+		if (batchTimer) {
+			clearTimeout(batchTimer);
+		}
+		batchTimer = setTimeout(flushToolBatch, 10);
+	});
+}
+
 function makeTools(descriptors: ToolDescriptor[]): AgentTool[] {
 	return descriptors.map((descriptor) => ({
 		name: descriptor.name,
@@ -93,11 +152,7 @@ function makeTools(descriptors: ToolDescriptor[]): AgentTool[] {
 		description: descriptor.description,
 		parameters: descriptor.input_schema as unknown as TSchema,
 		execute: async (callID: string, params: unknown) => {
-			const reply = await link.request("tool_request", {
-				call_id: callID,
-				tool: descriptor.name,
-				args: params,
-			});
+			const reply = await enqueueToolCall(callID, descriptor.name, params);
 			const text = typeof reply.result === "string" ? reply.result : JSON.stringify(reply);
 			return {
 				content: [{ type: "text" as const, text }],
@@ -192,7 +247,9 @@ async function runAgent(start: StartFrame): Promise<void> {
 	agent = new Agent({
 		initialState: { systemPrompt: start.instructions, model: selected },
 		streamFn: streamFn as never,
-		toolExecution: "sequential",
+		// Parallel only lets the core start every call of one assistant turn so the
+		// worker can submit the batch; the host still reserves and executes it.
+		toolExecution: "parallel",
 	});
 	agent.state.tools = makeTools(start.tools ?? []);
 	agent.subscribe(async (event) => {

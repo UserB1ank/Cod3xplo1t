@@ -26,6 +26,7 @@ export class HostLink {
 	private readonly replies = new Set([
 		"permit_reply",
 		"tool_result",
+		"tool_batch_result",
 		"answer_reply",
 		"repair_reply",
 	]);

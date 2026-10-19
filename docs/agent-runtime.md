@@ -382,6 +382,16 @@ permit for the next provider request closes the previous round, so the stop
 happens before another request is spent. Run metrics keep the per-round novelty
 series; records written before this rule keep the counting they were stored with.
 
+### Pi tool batches
+
+The Pi worker does not schedule tools. Its agent core starts every tool execute of
+one assistant turn; the worker collects those calls for a few milliseconds and
+submits one `tool_batch` frame. The Go bridge turns it into the same host
+`ToolBatch` the llm adapter uses, so budget reservation, per-call denials,
+concurrency and pairing are identical. The reply carries one result per
+`call_id` in source order. The worker's own parallel setting only lets the core
+start the calls; it never owns execution order or budget.
+
 ## Tool batches
 
 A model turn may contain several tool calls. The adapter submits the whole batch

@@ -136,17 +136,19 @@ async function runHost(baseUrl) {
 			case "request_permit":
 				send({ type: "permit_reply", reply_to: frame.request_id, decision: "continue" });
 				break;
-			case "tool_request":
-				toolResults.push(frame.args);
-				send({
-					type: "tool_result",
-					reply_to: frame.request_id,
-					call_id: frame.call_id,
-					tool: frame.tool,
-					ok: true,
-					result: JSON.stringify({ ok: true, result: "slice", budget: { calls_left: 9 } }),
+			case "tool_batch": {
+				const calls = Array.isArray(frame.calls) ? frame.calls : [];
+				const results = calls.map((call) => {
+					toolResults.push(call.args);
+					return {
+						call_id: call.call_id,
+						ok: true,
+						result: JSON.stringify({ ok: true, result: "slice", budget: { calls_left: 9 } }),
+					};
 				});
+				send({ type: "tool_batch_result", reply_to: frame.request_id, results });
 				break;
+			}
 			case "answer_proposed":
 				send({ type: "answer_reply", reply_to: frame.request_id, decision: "accepted" });
 				break;

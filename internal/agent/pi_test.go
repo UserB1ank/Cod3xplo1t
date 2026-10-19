@@ -84,12 +84,25 @@ func TestPiWorkerHelper(t *testing.T) {
 	if permit["decision"] != "continue" {
 		os.Exit(2)
 	}
-	write(map[string]any{"type": "tool_request", "run_id": runID, "generation": generation, "seq": next(),
-		"request_id": "t1", "round_id": "round-1", "call_id": "call-1", "tool": "get_code_slice",
-		"args": map[string]any{"symbol_id": "S1"}})
-	toolResult := read()
-	if path := os.Getenv("CODEXPLOIT_PI_RESULT_FILE"); path != "" {
-		_ = os.WriteFile(path, []byte(fmt.Sprint(toolResult["result"])), 0o600)
+	if mode == "batch" {
+		write(map[string]any{"type": "tool_batch", "run_id": runID, "generation": generation, "seq": next(),
+			"request_id": "b1", "round_id": "round-1", "calls": []any{
+				map[string]any{"call_id": "call-1", "tool": "get_code_slice", "args": map[string]any{"symbol_id": "S1"}},
+				map[string]any{"call_id": "call-2", "tool": "get_code_slice", "args": map[string]any{"symbol_id": "S1"}},
+			}})
+		batchReply := read()
+		if path := os.Getenv("CODEXPLOIT_PI_RESULT_FILE"); path != "" {
+			encoded, _ := json.Marshal(batchReply["results"])
+			_ = os.WriteFile(path, encoded, 0o600)
+		}
+	} else {
+		write(map[string]any{"type": "tool_request", "run_id": runID, "generation": generation, "seq": next(),
+			"request_id": "t1", "round_id": "round-1", "call_id": "call-1", "tool": "get_code_slice",
+			"args": map[string]any{"symbol_id": "S1"}})
+		toolResult := read()
+		if path := os.Getenv("CODEXPLOIT_PI_RESULT_FILE"); path != "" {
+			_ = os.WriteFile(path, []byte(fmt.Sprint(toolResult["result"])), 0o600)
+		}
 	}
 	answer := map[string]any{
 		"schema_version": 2, "security_goal": goal,
@@ -197,5 +210,28 @@ func TestPiRuntimeRejectsAStreamBeforeSettled(t *testing.T) {
 	run, _, _ := runPiScenario(t, "stream-before-settled")
 	if run.Status != RunFailed || !strings.Contains(run.Error, "settled") {
 		t.Fatalf("run = %s/%q, want a settled failure", run.Status, run.Error)
+	}
+}
+
+func TestPiRuntimeSubmitsOneTurnAsABatch(t *testing.T) {
+	run, tool, batchReply := runPiScenario(t, "batch")
+	if run.Status != RunSucceeded {
+		t.Fatalf("run = %s (%q)", run.Status, run.Error)
+	}
+	if tool.calls != 2 {
+		t.Fatalf("tool calls = %d, want 2", tool.calls)
+	}
+	var results []struct {
+		CallID string `json:"call_id"`
+		OK     bool   `json:"ok"`
+	}
+	if err := json.Unmarshal([]byte(batchReply), &results); err != nil {
+		t.Fatalf("batch reply: %v (%s)", err, batchReply)
+	}
+	if len(results) != 2 || results[0].CallID != "call-1" || results[1].CallID != "call-2" || !results[0].OK || !results[1].OK {
+		t.Fatalf("batch results = %+v, want two paired successes in source order", results)
+	}
+	if run.Metrics == nil || run.Metrics.ModelRequests != 1 || run.Metrics.Exchanges != 2 {
+		t.Fatalf("metrics = %+v, want one model request and two exchanges", run.Metrics)
 	}
 }

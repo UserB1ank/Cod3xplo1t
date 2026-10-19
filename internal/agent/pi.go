@@ -139,7 +139,7 @@ func (r *PiRuntime) Ready() error {
 // request without a permit.
 func (r *PiRuntime) Capabilities() RuntimeCapabilities {
 	return RuntimeCapabilities{
-		Name: r.cfg.Name, Version: r.version, ToolCalls: true, TurnControl: true,
+		Name: r.cfg.Name, Version: r.version, ToolCalls: true, BatchTools: true, TurnControl: true,
 		TokenUsage: true, Streaming: true,
 		Notes: []string{
 			"fixed worker process per run, JSONL worker protocol v1",
@@ -150,6 +150,19 @@ func (r *PiRuntime) Capabilities() RuntimeCapabilities {
 
 // piFrame is one worker protocol frame. Private init is a separate type so it
 // cannot be logged by accident through this struct.
+type piCall struct {
+	CallID string          `json:"call_id"`
+	Tool   string          `json:"tool"`
+	Args   json.RawMessage `json:"args,omitempty"`
+}
+
+type piResult struct {
+	CallID string `json:"call_id"`
+	OK     bool   `json:"ok"`
+	Result string `json:"result,omitempty"`
+	Error  string `json:"error,omitempty"`
+}
+
 type piFrame struct {
 	Type       string `json:"type"`
 	V          int    `json:"v,omitempty"`
@@ -178,6 +191,10 @@ type piFrame struct {
 	OK     *bool           `json:"ok,omitempty"`
 	Result string          `json:"result,omitempty"`
 	Error  string          `json:"error,omitempty"`
+	// Calls and Results carry one assistant turn's tool batch. The host reserves
+	// the budget in source order and replies with one result per call.
+	Calls   []piCall   `json:"calls,omitempty"`
+	Results []piResult `json:"results,omitempty"`
 
 	Raw      json.RawMessage `json:"raw,omitempty"`
 	Decision string          `json:"decision,omitempty"`
@@ -390,6 +407,23 @@ func (r *PiRuntime) run(ctx context.Context, task Task, runID string, generation
 					ReplyTo: frame.RequestID, Decision: decision.Decision, Reason: decision.Reason, ReservedTokens: decision.ReservedTokens}); err != nil {
 					return RuntimeResult{Err: fmt.Errorf("%w: %v", ErrPiProtocol, err)}
 				}
+			case "tool_batch":
+				calls := make([]ToolRequest, 0, len(frame.Calls))
+				for _, call := range frame.Calls {
+					calls = append(calls, ToolRequest{CallID: call.CallID, Tool: call.Tool, Args: call.Args})
+				}
+				results, ok := r.batch(runCtx, events, frame, calls)
+				if !ok {
+					return RuntimeResult{Err: runCtx.Err()}
+				}
+				replies := make([]piResult, 0, len(results))
+				for _, result := range results {
+					replies = append(replies, piResult{CallID: result.CallID, OK: result.OK, Result: result.Result, Error: result.Error})
+				}
+				if err := writer.send(piFrame{Type: "tool_batch_result", RunID: runID, Generation: generation,
+					ReplyTo: frame.RequestID, Results: replies}); err != nil {
+					return RuntimeResult{Err: fmt.Errorf("%w: %v", ErrPiProtocol, err)}
+				}
 			case "tool_request":
 				reply, ok := r.tool(runCtx, events, frame)
 				if !ok {
@@ -514,6 +548,20 @@ func (r *PiRuntime) tool(ctx context.Context, events chan<- RuntimeEvent, frame 
 		return result, true
 	case <-ctx.Done():
 		return ToolResult{}, false
+	}
+}
+
+func (r *PiRuntime) batch(ctx context.Context, events chan<- RuntimeEvent, frame piFrame, calls []ToolRequest) ([]ToolResult, bool) {
+	reply := make(chan []ToolResult, 1)
+	batch := &ToolBatch{RoundID: frame.RequestID, Calls: calls}
+	if !sendEvent(ctx, events, RuntimeEvent{Type: EventToolBatchRequested, RequestID: frame.RequestID, Batch: batch, BatchReply: reply, Summary: fmt.Sprintf("worker requests %d tool calls", len(calls))}) {
+		return nil, false
+	}
+	select {
+	case results := <-reply:
+		return results, true
+	case <-ctx.Done():
+		return nil, false
 	}
 }
 
