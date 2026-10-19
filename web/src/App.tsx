@@ -1258,6 +1258,7 @@ function BudgetPanel({
   if (budget.error) return <Failure message={budget.error} />;
   if (!budget.data) return null;
   const ledger = budget.data.budget;
+  const grants = budget.data.grants || [];
   const grant = async (decision: string) => {
     setBusy(true);
     setError("");
@@ -1287,9 +1288,9 @@ function BudgetPanel({
           <strong>{countFormat.format(Math.max(0, ledger.limit_tokens - ledger.used_tokens - ledger.reserved_tokens))}</strong>
         </div>
       </div>
-      {budget.data.grants.length > 0 && (
+      {grants.length > 0 && (
         <ul className="plain-list">
-          {budget.data.grants.map((item) => (
+          {grants.map((item) => (
             <li key={item.grant_id}>
               {item.decision === "approved" ? "批准" : "拒绝"} {countFormat.format(item.tokens)} tokens · {item.reason}
               <span className="subtle-label"> {item.requested_by}</span>

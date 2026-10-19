@@ -57,6 +57,9 @@ func (s *Server) handleTaskBudget(w http.ResponseWriter, r *http.Request) {
 		writeAgentError(w, err, task.ID)
 		return
 	}
+	if grants == nil {
+		grants = []agent.BudgetGrant{}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"api_version": "codexploit/v1", "budget": budget, "grants": grants})
 }
 

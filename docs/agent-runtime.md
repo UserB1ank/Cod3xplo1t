@@ -257,6 +257,19 @@ temporary directory with an empty private `HOME`, a minimal environment and the
 application's non-root user, but strong isolation of untrusted scanners remains
 a separate concern.
 
+### Readiness, fallback and data compatibility
+
+`GET /api/agent/runtimes` and the configuration page report each runtime's
+readiness and a short reason. A deployment without Node or the worker build
+reports `pi` as unavailable and keeps `llm` usable; a task that asks for `pi` is
+refused with `runtime_unavailable` instead of silently running elsewhere. To fall
+back, set `CODEXPLOIT_AGENT_RUNTIME=llm` (or create the new task with `runtime=llm`)
+and leave `--agent-runtimes` as is. Existing tasks keep the runtime they stored and
+old runs keep their pin; nothing rewrites history. If a Pi attempt fails before a
+permit, check the worker entrypoint, `node --version`, the encrypted settings and
+the worker's bounded stderr in the container logs; the host reports
+`pi_protocol_error` rather than a partial success.
+
 ## Pi worker protocol (v1)
 
 A Pi run is one fixed worker process spawned with deployment argv and spoken to
@@ -269,8 +282,8 @@ private `init` frame — model endpoint and credentials, never logged, recorded 
 projected — followed by the public `start` frame with the rendered task, native
 tool descriptors and limits. Public frames carry `run_id`, `generation` and a
 strictly increasing `seq`; requests and replies pair through `request_id` and
-`reply_to`. The frame types are `request_permit`, `tool_request`,
-`answer_proposed`, `usage`, `settled` and `error`.
+`reply_to`. The frame types are `request_permit`, `tool_request`, `tool_batch`,
+`tool_batch_result`, `answer_proposed`, `usage`, `settled` and `error`.
 
 The host translates those frames into the same runtime events the built-in model
 runtime emits, so permits, answer acceptance, repairs, tool validation and the
