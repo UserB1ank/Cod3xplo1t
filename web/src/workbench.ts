@@ -81,6 +81,8 @@ export interface FindingPage {
   truncated: boolean;
 }
 export interface Route {
+  selecting?: boolean;
+  section?: "models" | "storage";
   project?: string;
   task?: string;
   snapshot?: string;
@@ -92,6 +94,9 @@ export function readRoute(hash: string): Route {
       .replace(/^#\/?/, "")
       .split("/")
       .map(decodeURIComponent);
+    if (root === "configuration") return { view: "configuration", section: project === "storage" ? "storage" : "models" };
+    if (root === "workspace" && ["overview", "tasks", "sources", "knowledge", "findings", "reports", "artifacts", "plugins", "workflows", "settings"].includes(project))
+      return { view: project, selecting: true };
     if (root === "settings") return { view: "settings" };
     if (root === "storage") return { view: "storage" };
     if (root !== "projects" || !project) return { view: "projects" };
@@ -124,6 +129,8 @@ export function readRoute(hash: string): Route {
   }
 }
 export function routeHash(route: Route): string {
+  if (!route.project && route.view === "configuration") return `#/configuration/${route.section === "storage" ? "storage" : "models"}`;
+  if (!route.project && route.selecting) return `#/workspace/${encodeURIComponent(route.view)}`;
   if (!route.project && route.view === "settings") return "#/settings";
   if (!route.project && route.view === "storage") return "#/storage";
   if (!route.project) return "#/projects";

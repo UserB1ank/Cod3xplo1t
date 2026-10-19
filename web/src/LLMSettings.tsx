@@ -26,10 +26,12 @@ export function LLMSettings({
   api,
   identity,
   onSaved,
+  embedded = false,
 }: {
   api: ApiClient;
   identity: Identity;
   onSaved: () => Promise<void>;
+  embedded?: boolean;
 }) {
   const [settings, setSettings] = useState<Settings>();
   const [key, setKey] = useState("");
@@ -112,7 +114,7 @@ export function LLMSettings({
       <div className="page-heading">
         <div>
           <div className="eyebrow">MODEL CONNECTION</div>
-          <h1>模型设置</h1>
+          {embedded ? <h2>模型设置</h2> : <h1>模型设置</h1>}
           <p>为所有项目配置挖掘模型，保存后立即生效。</p>
         </div>
         <span

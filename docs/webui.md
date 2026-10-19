@@ -138,7 +138,7 @@ available for CLI clients and custom multi-role deployments.
 
 ### Configure the LLM in the application
 
-1. Sign in and open **模型设置**, available to administrators even before any
+1. Sign in and open **配置 → 模型设置**, available to administrators even before any
    project exists.
 2. Choose **Chat Completions** for an OpenAI-compatible service, or **Responses**
    for a provider/model that uses that API. Enter the API root URL, including
@@ -440,3 +440,14 @@ CI keeps the three-OS Go matrix and adds a Node 22 frontend test/build job plus
 an embedded-server build. Store tests cover both memory and SQLite, including
 task isolation, paused claims, path labels, project filtering, and concurrent
 grade updates.
+
+### Navigation and configuration
+
+Project functions remain visible before a project is selected. Choosing a function
+opens the project picker; selecting or creating a project preserves that requested
+destination. Project settings remain scoped to the selected project.
+
+The sidebar bottom contains one **配置** entry, with **模型设置** and **数据存储**
+subpages. Their authentication, encrypted settings and storage probes continue to
+use the existing APIs. `#/settings` and `#/storage` remain compatible links; the
+canonical routes are `#/configuration/models` and `#/configuration/storage`.

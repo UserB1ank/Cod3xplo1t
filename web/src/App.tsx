@@ -13,7 +13,6 @@ import {
   Check,
   ChevronRight,
   Code2,
-  Database,
   FileCode2,
   FileText,
   FolderGit2,
@@ -36,7 +35,7 @@ import {
 import { ApiClient } from "./api";
 import { importArchive, validateArchive } from "./source-import";
 import { ArchivePicker } from "./ArchivePicker";
-import { LLMSettings } from "./LLMSettings";
+import { Configuration } from "./Configuration";
 import { Sources, sourceInput, readSources, type CodeSource } from "./Sources";
 import { ProjectTasks } from "./TaskList";
 import { Artifacts } from "./Artifacts";
@@ -45,7 +44,7 @@ import { Workflows, type Plan } from "./Workflows";
 import { WorkflowRun, flowStatus } from "./WorkflowRun";
 import { Knowledge } from "./Knowledge";
 import { Reports } from "./Reports";
-import { Storage } from "./Storage";
+
 import {
   Badge,
   CodeBlock,
@@ -171,6 +170,7 @@ export default function App() {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [dialog, setDialog] = useState("");
+  const [creationTarget, setCreationTarget] = useState<string>();
   const [taskSnapshot, setTaskSnapshot] = useState<string>();
   const [inspectPath, setInspectPath] = useState<AuditPath>();
   const [inspectFinding, setInspectFinding] = useState<string>();
@@ -279,6 +279,8 @@ export default function App() {
     { id: "workflows", label: "工作流", icon: GitBranch },
     { id: "settings", label: "项目设置", icon: Settings2 },
   ];
+  const configuration = !route.project && (route.view === "configuration" || (!route.selecting && ["settings", "storage"].includes(route.view)));
+  const configurationSection = route.view === "storage" || route.section === "storage" ? "storage" : "models";
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -290,54 +292,30 @@ export default function App() {
             codexploit<small>CODE VULNERABILITY LAB</small>
           </span>
         </a>
-        <button
-          className={`nav-item all-projects ${!route.project && route.view === "projects" ? "selected" : ""}`}
-          onClick={() => navigate({ view: "projects" })}
-        >
-          <FolderGit2 size={17} />
-          全部项目
-          <ChevronRight size={14} />
-        </button>
-        {identity.role === "admin" && <button className={`nav-item ${!route.project && route.view === "storage" ? "selected" : ""}`} onClick={() => navigate({ view: "storage" })}><Database size={17} />数据存储</button>}
-        {identity.role === "admin" && identity.features.llm_settings && (
+        <div className="sidebar-scroll">
           <button
-            className={`nav-item ${!route.project && route.view === "settings" ? "selected" : ""}`}
-            onClick={() => navigate({ view: "settings" })}
-          >
-            <Settings2 size={17} />
-            模型设置
-          </button>
-        )}
-        {route.project && (
-          <>
-            <div className="nav-label">当前项目</div>
-            <div className="project-selector">
-              <Box size={16} />
-              <span>{project?.name || "载入项目…"}</span>
-            </div>
-            <nav>
-              {navItems.map((item) => (
-                <button
-                  key={item.id}
-                  disabled={!availableView(item.id)}
-                  title={!availableView(item.id) ? "PostgreSQL 当前模式尚未接线" : undefined}
-                  className={`nav-item ${route.task ? (item.id === "tasks" ? "selected" : "") : route.view === item.id ? "selected" : ""}`}
-                  onClick={() =>
-                    navigate({ project: route.project, view: item.id })
-                  }
-                >
-                  <item.icon size={17} />
-                  {item.label}
-                </button>
-              ))}
-            </nav>
-            <div className="sidebar-note">
-              <BookOpen size={16} />
-              <strong>{limitedTasks ? "代码事实保留来源" : "知识在项目内共享"}</strong>
-              <p>{limitedTasks ? "当前支持直接插件分析与图谱发布。任务和工作流尚未接线。" : "任务独立运行，代码事实与证据保留版本和来源。"}</p>
-            </div>
-          </>
-        )}
+            className={`nav-item all-projects ${!route.project && route.view === "projects" ? "selected" : ""}`}
+            onClick={() => navigate({ view: "projects" })}
+          ><FolderGit2 size={17} />全部项目<ChevronRight size={14} /></button>
+          <div className="nav-label">项目工作区</div>
+          <div className="project-selector"><Box size={16} /><span>{route.project ? project?.name || "载入项目…" : "尚未选择项目"}</span></div>
+          <nav aria-label="项目功能">
+            {navItems.map((item) => {
+              const selected = route.project ? route.task ? item.id === "tasks" : route.view === item.id : !!route.selecting && route.view === item.id;
+              return <button key={item.id}
+                disabled={!availableView(item.id)}
+                title={!availableView(item.id) ? "当前服务未启用此功能" : undefined}
+                aria-current={selected ? "page" : undefined}
+                className={`nav-item ${selected ? "selected" : ""}`}
+                onClick={() => navigate(route.project ? { project: route.project, view: item.id } : { view: item.id, selecting: true })}
+              ><item.icon size={17} />{item.label}</button>;
+            })}
+          </nav>
+          <div className="sidebar-note"><BookOpen size={16} /><strong>知识在项目内共享</strong><p>{route.project ? "任务独立运行，代码事实与证据保留版本和来源。" : "选择一个项目，即可查看源码、图谱、任务与证据。"}</p></div>
+        </div>
+        <div className="sidebar-tools">
+          <button className={`nav-item ${configuration ? "selected" : ""}`} aria-current={configuration ? "page" : undefined} onClick={() => navigate({ view: "configuration", section: "models" })}><Settings2 size={17} />配置</button>
+        </div>
         <div className="sidebar-bottom">
           <span className="connection-dot connected" />
           <span>
@@ -364,7 +342,8 @@ export default function App() {
       <div className="main-shell">
         <header className="topbar">
           <div className="breadcrumbs">
-            <a href="#/projects">项目</a>
+            <a href="#/projects">{configuration ? "工作区" : "项目"}</a>
+            {configuration && <><ChevronRight size={13} /><span>配置</span><ChevronRight size={13} /><span>{configurationSection === "models" ? "模型设置" : "数据存储"}</span></>}
             {route.project && (
               <>
                 <ChevronRight size={13} />
@@ -383,15 +362,6 @@ export default function App() {
             )}
           </div>
           <div className="topbar-right">
-            {identity.role === "admin" && identity.features.llm_settings && (
-              <button
-                className="text-button"
-                onClick={() => navigate({ view: "settings" })}
-              >
-                <Settings2 size={16} />
-                模型设置
-              </button>
-            )}
             <span className="environment">
               <span />
               本地工作区
@@ -437,12 +407,9 @@ export default function App() {
               {busy}中，请保持页面打开…
             </div>
           )}
-          {!route.project && route.view === "storage" ? (
-            <Storage api={api} isAdmin={identity.role === "admin"} />
-          ) : !route.project && route.view === "settings" ? (
-            <LLMSettings
-              api={api}
-              identity={identity}
+          {configuration ? (
+            <Configuration api={api} identity={identity} section={configurationSection}
+              onSection={(section) => navigate({ view: "configuration", section })}
               onSaved={async () => {
                 setIdentity(await api.get<Identity>("/me"));
                 refresh((n) => n + 1);
@@ -456,8 +423,9 @@ export default function App() {
               loading={projects.loading}
               canWrite={canWrite}
               limitedTasks={limitedTasks}
-              onCreate={() => setDialog("project")}
-              onOpen={(id) => navigate({ project: id, view: limitedTasks ? "sources" : "tasks" })}
+              selectionLabel={route.selecting ? navItems.find((item) => item.id === route.view)?.label : undefined}
+              onCreate={() => { setCreationTarget(route.selecting ? route.view : undefined); setDialog("project"); }}
+              onOpen={(id) => navigate({ project: id, view: route.selecting ? route.view : limitedTasks ? "sources" : "tasks" })}
             />
           ) : projects.loading && !project ? (
             <Loading />
@@ -720,6 +688,7 @@ export default function App() {
                   }
                   navigate({ project: projectID, view: "sources" });
                   await importArchive(api, projectID, values.sourceID, values.name, values.file, canBuildKnowledge, values.signal);
+                  if (creationTarget) navigate({ project: projectID, view: creationTarget });
                   return;
                 }
                 if (values.kind !== "legacy_auto") {
@@ -745,6 +714,7 @@ export default function App() {
                     build_graph: canBuildKnowledge,
                     build_asg: canBuildKnowledge,
                   });
+                  if (creationTarget) navigate({ project: created.project.id, view: creationTarget });
                   return;
                 }
                 const created = await api.post<{ project: Project }>(
@@ -757,6 +727,7 @@ export default function App() {
                   build_graph: canBuildKnowledge,
                   build_asg: canBuildKnowledge,
                 });
+                if (creationTarget) navigate({ project: created.project.id, view: creationTarget });
               },
               () => setDialog(""),
             )
@@ -1071,6 +1042,7 @@ function Projects({
   limitedTasks,
   onCreate,
   onOpen,
+  selectionLabel,
 }: {
   api: ApiClient;
   revision: number;
@@ -1080,6 +1052,7 @@ function Projects({
   limitedTasks: boolean;
   onCreate: () => void;
   onOpen: (id: string) => void;
+  selectionLabel?: string;
 }) {
   const [query, setQuery] = useState("");
   const selected = projects.filter((p) =>
@@ -1090,8 +1063,8 @@ function Projects({
       <div className="page-heading">
         <div>
           <div className="eyebrow">VULNERABILITY RESEARCH</div>
-          <h1>挖掘，从项目开始。</h1>
-          <p>集中管理代码仓库，为每次探索保留完整上下文。</p>
+          <h1>{selectionLabel ? `选择项目 · ${selectionLabel}` : "挖掘，从项目开始。"}</h1>
+          <p>{selectionLabel ? `选择或创建项目后进入${selectionLabel}。` : "集中管理代码仓库，为每次探索保留完整上下文。"}</p>
         </div>
         <button
           className="button primary"
@@ -1427,8 +1400,7 @@ function TaskWorkbench({
       </div>
       {!identity.features.agent && (
         <Hint>
-          Agent 未配置。可以查看图谱和审计路径；启动服务时配置 CLI Agent
-          适配器后可执行挖掘。
+          尚未启用分析执行器。可以先查看图谱和审计路径；请在「配置 → 模型设置」启用模型，或联系管理员检查执行器。
         </Hint>
       )}
       {current.archived && (
@@ -2827,7 +2799,7 @@ function TaskForm({
           </label>
           {!canAnalyze && (
             <small>
-              模型分析不可用，请先在程序的模型设置中配置
+              模型分析不可用，请先在「配置 → 模型设置」中配置
               LLM；静态工作流可以独立运行。
             </small>
           )}

@@ -35,9 +35,11 @@ const driverNames = {
 export function Storage({
   api,
   isAdmin,
+  embedded = false,
 }: {
   api: ApiClient;
   isAdmin: boolean;
+  embedded?: boolean;
 }) {
   const [status, setStatus] = useState<StorageStatus>();
   const [error, setError] = useState("");
@@ -68,7 +70,7 @@ export function Storage({
       <div className="page-heading">
         <div>
           <div className="eyebrow">DATA STORAGE</div>
-          <h1>数据存储</h1>
+          {embedded ? <h2>数据存储</h2> : <h1>数据存储</h1>}
           <p>查看当前服务实际接通的存储能力与数据库 readiness。</p>
         </div>
         <button

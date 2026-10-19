@@ -71,7 +71,7 @@ docker compose up -d --build
 
 Open `http://localhost:18085`, create the administrator account on first startup,
 and sign in with its username and password. Then open
-**模型设置** to configure the LLM protocol, Base URL, model and API Key. Test the
+**配置 → 模型设置** to configure the LLM protocol, Base URL, model and API Key. Test the
 connection and save with LLM enabled. No LLM credentials belong in Compose,
 environment variables or repository files. Settings are encrypted in the data
 volume and take effect on new runs without restarting the container. The resident

@@ -2494,3 +2494,21 @@ pre {
 
 .source-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
 .source-fields > small { display: block; line-height: 1.7; color: var(--muted); }
+
+.sidebar-scroll { flex: 1; min-height: 0; overflow-y: auto; }
+.sidebar-tools { flex-shrink: 0; padding-top: 12px; border-top: 1px solid var(--border); }
+.sidebar-bottom { flex-shrink: 0; margin-top: 0; }
+.configuration-heading { margin-bottom: 24px; }
+.configuration-heading h1 { margin: 0 0 10px; font-size: 30px; }
+.configuration-heading p { color: var(--muted); }
+.configuration-tabs { display: flex; gap: 8px; border-bottom: 1px solid var(--border); margin-bottom: 28px; }
+.configuration-tabs button { padding: 12px 18px; border-bottom: 2px solid transparent; color: var(--muted); }
+.configuration-tabs button.selected { color: var(--accent); border-color: var(--accent); }
+.configuration-page > .page-heading { margin-top: 8px; }
+.configuration-page .page-heading h2 { font-size: 22px; margin-bottom: 10px; }
+@media (max-width: 760px) {
+  .sidebar-scroll { overflow: visible; }
+  .sidebar-bottom { display: flex; padding-top: 12px; }
+  .sidebar-tools { padding-top: 8px; }
+  .sidebar-note { display: none; }
+}
