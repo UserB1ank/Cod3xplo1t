@@ -17,6 +17,9 @@ var (
 	ErrInvalidAnswer   = errors.New("agent: invalid answer")
 	ErrUnsupportedTool = errors.New("agent: tool is not allowed for this run")
 	ErrBudgetExhausted = errors.New("agent: budget exhausted")
+	// ErrRuntimeUnavailable is a task's selected runtime missing from the
+	// deployment catalog. It must not fall back to another adapter.
+	ErrRuntimeUnavailable = errors.New("agent: the requested runtime is not available")
 	// ErrTurnDenied is what an adapter returns when the host refused a permit,
 	// a correction or an answer. The host already set the run's stop reason; the
 	// adapter must not invent one.
