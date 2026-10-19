@@ -86,6 +86,10 @@ func (s *Server) handleCaptureSource(w http.ResponseWriter, r *http.Request) {
 		s.writeSourceError(w, err)
 		return
 	}
+	s.finishSourceCapture(w, r, repo, source, snapshot, request)
+}
+
+func (s *Server) finishSourceCapture(w http.ResponseWriter, r *http.Request, repo storage.SourceRepository, source storage.SourceDefinition, snapshot *repository.Snapshot, request captureSourceRequest) {
 	if err := repo.RegisterSourceSnapshot(r.Context(), source, snapshot); err != nil {
 		writeStorageError(w, err)
 		return
@@ -164,6 +168,12 @@ func (s *Server) writeSourceError(w http.ResponseWriter, err error) {
 
 func (s *Server) captureSourceSnapshot(ctx context.Context, source storage.SourceDefinition) (*repository.Snapshot, error) {
 	input := repository.Source{Raw: source.Location, NameOverride: fmt.Sprintf("projects/%s/sources/%s/v%d", source.ProjectID, source.ID, source.Version)}
+	if source.Kind == "uploaded_archive" {
+		if source.Snapshot == "" {
+			return nil, errors.New("上传源码已移除或未完成，请重新上传")
+		}
+		return s.Manager.Load(source.Snapshot)
+	}
 	if source.Kind == "git_repository" {
 		input.Kind, input.Ref = repository.KindRemoteGit, source.Ref
 		input.ProjectID, input.CredentialRef = source.ProjectID, source.CredentialRef
@@ -208,6 +218,21 @@ type createSourceRequest struct {
 	Location      string `json:"location"`
 	Ref           string `json:"ref"`
 	CredentialRef string `json:"credential_ref,omitempty"`
+}
+
+func (s *Server) validateSourceRequest(w http.ResponseWriter, request createSourceRequest) bool {
+	schema, err := localSourceSchema()
+	if err != nil {
+		writeStorageError(w, err)
+		return false
+	}
+	raw, _ := json.Marshal(request)
+	var value any
+	if json.Unmarshal(raw, &value) != nil || schema.Validate(value) != nil {
+		writeError(w, 400, "invalid_request", errors.New("代码源标识、名称或位置无效"))
+		return false
+	}
+	return true
 }
 
 func sourceETag(source storage.SourceDefinition) string {

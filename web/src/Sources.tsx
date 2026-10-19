@@ -1,15 +1,18 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FileCode2, FolderOpen, GitBranch, Loader2, Plus } from "lucide-react";
 import { ApiClient, ApiError } from "./api";
 import { EmptyState, Hint, Modal, Panel } from "./components";
 import type { Project } from "./types";
+import { importArchive } from "./source-import";
+import { ArchivePicker } from "./ArchivePicker";
 
 export interface CodeSource {
   api_version: "codexploit/v1";
   id: string;
   project_id: string;
   name: string;
-  kind: "local_folder" | "git_repository";
+  kind: "local_folder" | "git_repository" | "uploaded_archive";
+  import?: { format: string; sha256: string; files: number; skipped: number; excluded: string[] };
   location: string;
   ref: string;
   credential_ref?: string;
@@ -125,7 +128,10 @@ export function Sources({
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [adding, setAdding] = useState(false);
-  const [kind, setKind] = useState<CodeSource["kind"]>("local_folder");
+  const [kind, setKind] = useState<CodeSource["kind"]>("uploaded_archive");
+  const [sourceID, setSourceID] = useState(() => `src-${crypto.randomUUID()}`);
+  const importController = useRef<AbortController>();
+  useEffect(() => () => importController.current?.abort(), []);
   const [selected, setSelected] = useState<string>();
   const [details, setDetails] = useState<SnapshotDetails>();
   useEffect(() => {
@@ -208,7 +214,7 @@ export function Sources({
           </p>
         ) : !sources.length ? (
           <EmptyState title="尚未添加代码源">
-            添加 /repos 下的目录或 Git 仓库；同一项目可管理多个代码源。
+            上传源码压缩包、选择已登记目录或远程 Git 仓库；同一项目可管理多个代码源。
           </EmptyState>
         ) : (
           <div className="table-scroll">
@@ -237,7 +243,7 @@ export function Sources({
                         )}
                         {source.kind === "git_repository"
                           ? "Git 仓库"
-                          : "本地文件夹"}
+                          : source.kind === "uploaded_archive" ? "上传源码" : "本地文件夹"}
                       </span>
                       <code className="source-secondary">
                         {source.location}
@@ -248,6 +254,7 @@ export function Sources({
                           ? `请求 ${source.ref}`
                           : "内容寻址"}
                       </small>
+                      {source.import && <details><summary>导入 {source.import.format} · 排除 {source.import.skipped} 项</summary><p className="muted">上传摘要：{source.import.sha256}。排除记录最多展示 200 项；快照阶段的省略另见覆盖范围。</p><ul>{source.import.excluded.map((path, index) => <li key={index}><code>{path}</code></li>)}</ul></details>}
                       {source.credential_ref && (
                         <small className="source-secondary">
                           凭据引用：{source.credential_ref}
@@ -276,7 +283,7 @@ export function Sources({
                       <div className="source-actions">
                         <button
                           className="button secondary"
-                          disabled={!canWrite || !!busy}
+                          disabled={!canWrite || !!busy || (source.kind === "uploaded_archive" && !source.snapshot)}
                           onClick={() =>
                             run(source.id, async () => {
                               const result = await api.post<{
@@ -302,7 +309,7 @@ export function Sources({
                           ) : (
                             <GitBranch size={14} />
                           )}
-                          {source.snapshot
+                          {source.kind === "uploaded_archive" ? "读取固定输入并重建" : source.snapshot
                             ? canBuildKnowledge ? "更新快照与图谱" : "更新快照"
                             : canBuildKnowledge ? "生成快照与图谱" : "生成快照"}
                         </button>
@@ -360,7 +367,10 @@ export function Sources({
             const form = event.currentTarget;
             const data = new FormData(form);
             run("add", async () => {
-              await api.post(
+              if (kind === "uploaded_archive") {
+                importController.current = new AbortController();
+                await importArchive(api, project.id, sourceID, String(data.get("name")), data.get("archive") as File, canBuildKnowledge, importController.current.signal);
+              } else await api.post(
                 `/v1/projects/${encodeURIComponent(project.id)}/sources`,
                 sourceInput(
                   project.id,
@@ -372,11 +382,13 @@ export function Sources({
                 ),
               );
               form.reset();
+              setSourceID(`src-${crypto.randomUUID()}`);
               setAdding(false);
-              setNotice(canCreateTask ? "代码源已保存，可生成快照并创建任务。" : "代码源已保存，可生成固定快照并查看产物。");
+              setNotice(kind === "uploaded_archive" ? "源码已上传并固定快照，可查看图谱、产物或手动创建任务。" : canCreateTask ? "代码源已保存，可生成快照并创建任务。" : "代码源已保存，可生成固定快照并查看产物。");
             });
           }}
         >
+          <fieldset disabled={!!busy} className="source-fields">
           <label>
             代码源名称
             <input
@@ -394,11 +406,12 @@ export function Sources({
                 setKind(event.target.value as CodeSource["kind"])
               }
             >
-              <option value="local_folder">本地文件夹</option>
+              <option value="uploaded_archive">本地代码 · 上传压缩包</option>
+              <option value="local_folder">已登记的只读目录</option>
               <option value="git_repository">Git 仓库</option>
             </select>
           </label>
-          <label>
+          {kind === "uploaded_archive" ? <ArchivePicker onChange={() => setSourceID(`src-${crypto.randomUUID()}`)} /> : <label>
             {kind === "local_folder" ? "容器内目录" : "Git 仓库 URL"}
             <input
               name="location"
@@ -413,6 +426,7 @@ export function Sources({
               }
             />
           </label>
+          }
           {kind === "git_repository" && (
             <>
               <label>
@@ -435,7 +449,7 @@ export function Sources({
             </>
           )}
           <Hint>
-            {kind === "local_folder"
+            {kind === "uploaded_archive" ? "上传后固定源码；后续本地修改需要重新上传。" : kind === "local_folder"
               ? "先把目录只读挂载到 /repos 下。目录内的 .git 不会改变读取方式。"
               : "仓库 URL 不能包含账号、密钥或查询参数。网络与凭据权限由服务端校验；SSH 需凭据引用。"}{" "}
             不会运行目标仓库代码。
@@ -445,6 +459,8 @@ export function Sources({
               {error}
             </div>
           )}
+          </fieldset>
+          {busy === "add" && kind === "uploaded_archive" && <div role="status"><progress /> 正在上传、校验并建立快照… <button type="button" className="text-button" onClick={() => importController.current?.abort()}>取消上传</button></div>}
           <div className="form-footer">
             <button className="button primary" disabled={!!busy}>
               {busy === "add" ? "正在保存…" : "添加代码源"}

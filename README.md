@@ -78,8 +78,9 @@ volume and take effect on new runs without restarting the container. The residen
 scheduler waits until a model is enabled before claiming queued work.
 
 Data persists in the `codexploit-data` volume. To clone remote repositories,
-export `CODEXPLOIT_ALLOW_NETWORK=true` before starting. Local repositories can
-be mounted read-only using `compose.local.yaml`.
+export `CODEXPLOIT_ALLOW_NETWORK=true` before starting. Local source can be uploaded as ZIP / TAR / TAR.GZ from the project form.
+Deployment-managed repositories can also be mounted read-only using
+`compose.local.yaml`. See [source imports](docs/source-imports.md) for limits.
 
 For the independent PostgreSQL deployment, use the one-command wrapper:
 

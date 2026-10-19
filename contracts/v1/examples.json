@@ -8,6 +8,10 @@
     "schema": "source.schema.json"
   },
   {
+    "file": "examples/source-upload.json",
+    "schema": "source.schema.json"
+  },
+  {
     "file": "examples/snapshot.json",
     "schema": "snapshot.schema.json"
   },

@@ -27,7 +27,8 @@
     "kind": {
       "enum": [
         "local_folder",
-        "git_repository"
+        "git_repository",
+        "uploaded_archive"
       ]
     },
     "location": {
@@ -60,6 +61,54 @@
       "description": "Immutable source definition version pinned during capture",
       "type": "integer",
       "minimum": 1
+    },
+    "import": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "enum": [
+            "zip",
+            "tar",
+            "tar.gz"
+          ]
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 67108864
+        },
+        "files": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "skipped": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "excluded": {
+          "type": "array",
+          "maxItems": 200,
+          "items": {
+            "type": "string",
+            "maxLength": 2048
+          }
+        }
+      },
+      "required": [
+        "format",
+        "sha256",
+        "bytes",
+        "files",
+        "skipped",
+        "excluded"
+      ],
+      "additionalProperties": false
     }
   },
   "required": [
@@ -130,6 +179,33 @@
           "ref": {
             "minLength": 1
           }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "uploaded_archive"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "import"
+        ],
+        "properties": {
+          "location": {
+            "pattern": "^upload:[a-f0-9]{64}$"
+          },
+          "ref": {
+            "const": ""
+          }
+        },
+        "not": {
+          "required": [
+            "credential_ref"
+          ]
         }
       }
     }

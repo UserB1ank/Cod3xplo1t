@@ -34,6 +34,8 @@ import {
   Workflow,
 } from "lucide-react";
 import { ApiClient } from "./api";
+import { importArchive, validateArchive } from "./source-import";
+import { ArchivePicker } from "./ArchivePicker";
 import { LLMSettings } from "./LLMSettings";
 import { Sources, sourceInput, readSources, type CodeSource } from "./Sources";
 import { ProjectTasks } from "./TaskList";
@@ -706,6 +708,20 @@ export default function App() {
             action(
               canBuildKnowledge ? "建立项目与图谱" : "建立项目与快照",
               async () => {
+                if (values.kind === "uploaded_archive" && values.file) {
+                  let projectID = values.projectID;
+                  if (!projectID) {
+                    const created = await api.post<{ project: Project }>("/v1/projects", {
+                      api_version: "codexploit/v1", name: values.name,
+                    }, values.signal);
+                    projectID = created.project.id;
+                    values.rememberProject(projectID);
+                    refresh((n) => n + 1);
+                  }
+                  navigate({ project: projectID, view: "sources" });
+                  await importArchive(api, projectID, values.sourceID, values.name, values.file, canBuildKnowledge, values.signal);
+                  return;
+                }
                 if (values.kind !== "legacy_auto") {
                   const created = await api.post<{ project: Project }>(
                     "/v1/projects",
@@ -2425,9 +2441,18 @@ function ProjectForm({
     ref: string;
     kind: string;
     credentialRef: string;
+    file?: File;
+    signal?: AbortSignal;
+    sourceID: string;
+    projectID?: string;
+    rememberProject: (id: string) => void;
   }) => void;
 }) {
-  const [kind, setKind] = useState("local_folder");
+  const [kind, setKind] = useState("uploaded_archive");
+  const [projectID, rememberProject] = useState<string>();
+  const [sourceID, setSourceID] = useState(() => `src-${crypto.randomUUID()}`);
+  const controller = useRef<AbortController>();
+  useEffect(() => () => controller.current?.abort(), []);
   const [error, setError] = useState("");
   return (
     <form
@@ -2440,22 +2465,31 @@ function ProjectForm({
           setError(networkError);
           return;
         }
+        const file = form.get("archive");
+        if (kind === "uploaded_archive") {
+          try { validateArchive(file as File); } catch (error) { setError(errorText(error)); return; }
+        }
         setError("");
+        controller.current = new AbortController();
         onSubmit({
           name: String(form.get("name")),
           source,
           ref: String(form.get("ref")),
           kind,
           credentialRef: String(form.get("credential_ref") || ""),
+          file: file instanceof File ? file : undefined,
+          signal: controller.current.signal, sourceID, projectID, rememberProject,
         });
       }}
     >
+      <fieldset disabled={busy} className="source-fields">
       <label>
         项目名称
         <input
           required
           maxLength={100}
           name="name"
+          onChange={() => { rememberProject(undefined); setSourceID(`src-${crypto.randomUUID()}`); }}
           placeholder="例如：订单服务漏洞挖掘"
         />
       </label>
@@ -2468,11 +2502,13 @@ function ProjectForm({
             setError("");
           }}
         >
-          <option value="local_folder">本地文件夹 · 读取当前文件</option>
+          <option value="uploaded_archive">本地代码 · 上传压缩包</option>
+          <option value="local_folder">本地代码 · 已登记的只读目录</option>
           <option value="git_repository">Git 仓库 · 固定提交</option>
           <option value="legacy_auto">既有自动识别入口</option>
         </select>
       </label>
+      {kind === "uploaded_archive" ? <ArchivePicker onChange={() => setSourceID(`src-${crypto.randomUUID()}`)} /> : <>
       <label>
         {kind === "local_folder"
           ? "容器内代码目录"
@@ -2504,7 +2540,8 @@ function ProjectForm({
           ? "已启用远程 Git 仓库访问。"
           : "远程 Git 访问需通过 --allow-network 启用。"}
       </small>
-      {kind !== "local_folder" && (
+      </>}
+      {(kind === "git_repository" || kind === "legacy_auto") && (
         <label>
           代码版本
           <input
@@ -2534,6 +2571,8 @@ function ProjectForm({
           {error}
         </div>
       )}
+      </fieldset>
+      {busy && kind === "uploaded_archive" && <div role="status"><progress /> 正在上传、校验并建立固定快照… <button type="button" className="text-button" onClick={() => controller.current?.abort()}>取消上传</button></div>}
       <FormFooter busy={busy} label={buildKnowledge ? "创建项目并建立图谱" : "创建项目并固定快照"} />
     </form>
   );

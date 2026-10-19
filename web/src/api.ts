@@ -48,7 +48,7 @@ export class ApiClient {
     const headers = new Headers(options.headers);
     headers.set('Accept', 'application/json');
     if (this.connection.token) headers.set('Authorization', `Bearer ${this.connection.token}`);
-    if (options.body) headers.set('Content-Type', 'application/json');
+    if (typeof options.body === 'string' && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
     const response = await this.fetcher(this.connection.base + path, { ...options, headers, credentials: 'same-origin', redirect: 'error', cache: 'no-store' });
     if (!response.ok && !acceptedStatuses.includes(response.status)) {
       const body = await response.json().catch(() => ({})) as { error?: string; code?: string; diagnostics?: {path: string; code: string; message: string}[] };

@@ -1,0 +1,18 @@
+{
+  "api_version": "codexploit/v1",
+  "id": "src-upload",
+  "project_id": "proj-example",
+  "name": "Uploaded source",
+  "kind": "uploaded_archive",
+  "location": "upload:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "ref": "",
+  "version": 1,
+  "import": {
+    "format": "zip",
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "bytes": 1024,
+    "files": 2,
+    "skipped": 0,
+    "excluded": []
+  }
+}

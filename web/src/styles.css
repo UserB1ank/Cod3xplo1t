@@ -2491,3 +2491,6 @@ pre {
   .storage-metrics > div { border-right: 0; border-bottom: 1px solid var(--border); }
   .storage-metrics > div:last-child { border-bottom: 0; }
 }
+
+.source-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
+.source-fields > small { display: block; line-height: 1.7; color: var(--muted); }

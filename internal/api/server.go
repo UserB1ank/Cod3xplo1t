@@ -29,6 +29,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -50,6 +51,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/repository"
 	"github.com/open-mcp-ai/Codexploit/internal/scg"
 	"github.com/open-mcp-ai/Codexploit/internal/schedule"
+	"github.com/open-mcp-ai/Codexploit/internal/sourceimport"
 	"github.com/open-mcp-ai/Codexploit/internal/storage"
 	"github.com/open-mcp-ai/Codexploit/internal/verify"
 	"github.com/open-mcp-ai/Codexploit/internal/workflow"
@@ -60,6 +62,7 @@ const maxBodyBytes = 1 << 20
 
 // Server serves the REST API.
 type Server struct {
+	sourceImports    chan struct{}
 	Workflows        *workflow.Catalog
 	WorkflowRunner   *workflow.Runner
 	WorkflowCompiler *workflow.Compiler
@@ -161,6 +164,7 @@ func WithIdempotencyTTL(ttl time.Duration) Option {
 // the caller, which keeps the API free of configuration and driver choices.
 func NewServer(store storage.FullStore, mgr *repository.Manager, analyzer *analysis.Analyzer, opts ...Option) *Server {
 	s := &Server{
+		sourceImports:  make(chan struct{}, 1),
 		Store:          store,
 		Manager:        mgr,
 		Analyzer:       analyzer,
@@ -171,6 +175,11 @@ func NewServer(store storage.FullStore, mgr *repository.Manager, analyzer *analy
 		opt(s)
 	}
 	if s.Manager != nil {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+		if err := sourceimport.CleanupExpired(cleanupCtx, os.TempDir(), time.Now()); err != nil {
+			s.Logger.Warn("expired source upload cleanup incomplete")
+		}
+		cancel()
 		s.AllowNetwork = s.Manager.AllowNetwork
 		if index, ok := store.(artifact.Index); ok {
 			s.Artifacts, _ = artifact.NewLocal(filepath.Join(s.Manager.Root, "artifacts"), index)
@@ -253,6 +262,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/auth/logout", s.handleAccountLogout)
 	mux.HandleFunc("GET /api/me", s.handleMe)
 	mux.HandleFunc("POST /api/v1/projects", s.withIdempotency(s.handleCreateSourceProject))
+	mux.HandleFunc("POST /api/v1/projects/{projectID}/imports/{sourceID}", s.handleImportSource)
 	mux.HandleFunc("GET /api/v1/projects/{id}/sources", s.handleListSources)
 	mux.HandleFunc("POST /api/v1/projects/{projectID}/knowledge/views", s.handleOpenKnowledgeView)
 	mux.HandleFunc("POST /api/v1/projects/{projectID}/knowledge/publications", s.handlePublishKnowledge)

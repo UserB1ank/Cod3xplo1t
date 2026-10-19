@@ -7,28 +7,39 @@ import (
 	"sort"
 
 	"github.com/open-mcp-ai/Codexploit/internal/repository"
+	"github.com/open-mcp-ai/Codexploit/internal/sourceimport"
 )
 
 // SourceDefinition records a versioned input owned by one project. Location is
 // a logical container path, never the deployment's physical mount root.
 type SourceDefinition struct {
-	APIVersion    string `json:"api_version"`
-	ID            string `json:"id"`
-	ProjectID     string `json:"project_id"`
-	Name          string `json:"name"`
-	Kind          string `json:"kind"`
-	Location      string `json:"location"`
-	Ref           string `json:"ref"`
-	CredentialRef string `json:"credential_ref,omitempty"`
-	Version       int64  `json:"version"`
-	Snapshot      string `json:"snapshot,omitempty"`
-	Files         int    `json:"files"`
-	Revision      int    `json:"revision"`
+	APIVersion    string               `json:"api_version"`
+	ID            string               `json:"id"`
+	ProjectID     string               `json:"project_id"`
+	Name          string               `json:"name"`
+	Kind          string               `json:"kind"`
+	Location      string               `json:"location"`
+	Ref           string               `json:"ref"`
+	CredentialRef string               `json:"credential_ref,omitempty"`
+	Version       int64                `json:"version"`
+	Snapshot      string               `json:"snapshot,omitempty"`
+	Files         int                  `json:"files"`
+	Revision      int                  `json:"revision"`
+	Import        *sourceimport.Report `json:"import,omitempty"`
 }
 
 type SourceSnapshot struct {
 	SourceID      string `json:"source_id,omitempty"`
 	SourceVersion int64  `json:"source_version,omitempty"`
+}
+
+func cloneSourceDefinition(source SourceDefinition) SourceDefinition {
+	if source.Import != nil {
+		report := *source.Import
+		report.Excluded = append([]string{}, report.Excluded...)
+		source.Import = &report
+	}
+	return source
 }
 
 // SourceRepository is separate from the legacy snapshot Store.
@@ -107,7 +118,7 @@ func (m *Memory) CreateSource(_ context.Context, source SourceDefinition) error 
 		m.sources = make(map[string]SourceDefinition)
 	}
 	source.Version = 1
-	m.sources[source.ID] = source
+	m.sources[source.ID] = cloneSourceDefinition(source)
 	return nil
 }
 
@@ -118,7 +129,7 @@ func (m *Memory) GetSource(_ context.Context, id string) (SourceDefinition, erro
 	if !ok {
 		return SourceDefinition{}, ErrNotFound
 	}
-	return source, nil
+	return cloneSourceDefinition(source), nil
 }
 
 func (m *Memory) ListSources(_ context.Context, project, cursor string, limit int) ([]SourceDefinition, error) {
@@ -127,7 +138,7 @@ func (m *Memory) ListSources(_ context.Context, project, cursor string, limit in
 	result := []SourceDefinition{}
 	for _, source := range m.sources {
 		if source.ProjectID == project && source.ID > cursor {
-			result = append(result, source)
+			result = append(result, cloneSourceDefinition(source))
 		}
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
