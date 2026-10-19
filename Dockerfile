@@ -22,11 +22,11 @@ COPY . .
 COPY --from=frontend /src/web/dist ./web/dist
 RUN CGO_ENABLED=0 go build -trimpath -tags embedui -ldflags="-s -w" -o /out/server ./cmd/server \
     && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/scanner ./cmd/scanner \
-    && mkdir -p "/out/plugin-packages/codexploit.static-patterns@1.0.3" \
-    && cp /out/scanner "/out/plugin-packages/codexploit.static-patterns@1.0.3/scanner" \
-    && cp internal/scanner/manifest.json "/out/plugin-packages/codexploit.static-patterns@1.0.3/manifest.json" \
-    && chmod 0755 "/out/plugin-packages/codexploit.static-patterns@1.0.3/scanner" \
-    && chmod 0644 "/out/plugin-packages/codexploit.static-patterns@1.0.3/manifest.json"
+    && mkdir -p "/out/plugin-packages/codexploit.static-patterns@1.0.4" \
+    && cp /out/scanner "/out/plugin-packages/codexploit.static-patterns@1.0.4/scanner" \
+    && cp internal/scanner/manifest.json "/out/plugin-packages/codexploit.static-patterns@1.0.4/manifest.json" \
+    && chmod 0755 "/out/plugin-packages/codexploit.static-patterns@1.0.4/scanner" \
+    && chmod 0644 "/out/plugin-packages/codexploit.static-patterns@1.0.4/manifest.json"
 
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends git openssh-client ca-certificates curl libstdc++6 && rm -rf /var/lib/apt/lists/* \
