@@ -18,6 +18,19 @@ export function normalizeBase(input: string) {
   return url.toString().replace(/\/+$/, '');
 }
 
+function forbiddenMessage(code?: string) {
+  switch (code) {
+    case 'network_disabled':
+      return '远程 Git 访问未启用。请使用本地文件夹，或以 CODEXPLOIT_ALLOW_NETWORK=true 重新启动服务后重试。';
+    case 'origin_forbidden':
+      return '请求来源无效。请使用部署时打印的同一地址访问，并检查反向代理是否保留 Host。';
+    case 'git_access_denied':
+      return 'Git 仓库访问被拒绝，请检查仓库权限或凭据引用。';
+    default:
+      return '当前凭据没有执行该操作的权限。';
+  }
+}
+
 function cleanPath(path: AuditPath): AuditPath {
   return { ...path, steps: path.steps || [], controls: path.controls || [], limitations: path.limitations || [], objectives: path.objectives || [], open_questions: path.open_questions || [], scg_refs: path.scg_refs || [] };
 }
@@ -39,7 +52,7 @@ export class ApiClient {
     const response = await this.fetcher(this.connection.base + path, { ...options, headers, credentials: 'same-origin', redirect: 'error', cache: 'no-store' });
     if (!response.ok && !acceptedStatuses.includes(response.status)) {
       const body = await response.json().catch(() => ({})) as { error?: string; code?: string; diagnostics?: {path: string; code: string; message: string}[] };
-      const message = response.status === 401 ? (body.code === 'invalid_credentials' ? '账号或密码不正确。' : '登录已过期或访问凭据无效，请重新登录。') : response.status === 403 ? '当前凭据没有执行该操作的权限。' : response.status === 412 ? '数据已被其他操作更新，请刷新后重试。' : body.error || `请求失败（${response.status}）`;
+      const message = response.status === 401 ? (body.code === 'invalid_credentials' ? '账号或密码不正确。' : '登录已过期或访问凭据无效，请重新登录。') : response.status === 403 ? forbiddenMessage(body.code) : response.status === 412 ? '数据已被其他操作更新，请刷新后重试。' : body.error || `请求失败（${response.status}）`;
       throw new ApiError(response.status, body.code || 'request_failed', message, body.diagnostics);
     }
     return response;

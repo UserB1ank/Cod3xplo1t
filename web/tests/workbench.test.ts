@@ -83,3 +83,31 @@ test("latest snapshot is selected without mutating server data", () => {
   assert.equal(latestSnapshot(snapshots as never).snapshot_id, "new");
   assert.equal(snapshots[0].snapshot_id, "old");
 });
+
+test("API maps actionable 403 codes instead of blaming permissions", async () => {
+  const forbidden = (code: string) =>
+    new ApiClient(
+      { base: "/api", token: "" },
+      async () =>
+        new Response(JSON.stringify({ code, error: "server detail" }), {
+          status: 403,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+  await assert.rejects(
+    () => forbidden("network_disabled").get("/projects"),
+    /远程 Git 访问未启用/,
+  );
+  await assert.rejects(
+    () => forbidden("origin_forbidden").get("/projects"),
+    /请求来源无效/,
+  );
+  await assert.rejects(
+    () => forbidden("git_access_denied").get("/projects"),
+    /Git 仓库访问被拒绝/,
+  );
+  await assert.rejects(
+    () => forbidden("forbidden").get("/projects"),
+    /没有执行该操作的权限/,
+  );
+});

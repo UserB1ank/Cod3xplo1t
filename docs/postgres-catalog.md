@@ -60,6 +60,13 @@ make postgres-down     # 停止服务，保留 PostgreSQL 与工作区数据卷
 ```
 
 可用 `CODEXPLOIT_PG_PROJECT`、`CODEXPLOIT_PG_PORT` 修改项目名和宿主端口。
+默认 `CODEXPLOIT_ALLOW_NETWORK=false`，只能使用挂载在 `/repos` 下的本地目录；
+需要克隆远程 Git 仓库时使用：
+
+```sh
+CODEXPLOIT_ALLOW_NETWORK=true make postgres-up
+```
+
 首次打开页面时创建管理员账号。备份时必须同时保存 PostgreSQL 卷和凭据目录；
 只备份数据库而丢失 `settings-key` 会导致模型设置无法解密。
 

@@ -91,7 +91,9 @@ make postgres-up SOURCE_ROOT=/absolute/path/to/source
 
 It generates the database password, DSN and installation key outside the
 repository, reuses them on later runs, and serves the application at
-`http://localhost:18095`. Use `make postgres-status`, `make postgres-logs` and
+`http://localhost:18095`. Remote Git cloning is disabled by default; rebuild the
+stack with `CODEXPLOIT_ALLOW_NETWORK=true make postgres-up` if the project needs
+a Git URL. Use `make postgres-status`, `make postgres-logs` and
 `make postgres-down` to inspect or stop it. See
 [PostgreSQL deployment](docs/postgres-catalog.md#一键启动推荐) for secret
 locations, overrides and backup requirements.
