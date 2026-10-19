@@ -210,6 +210,35 @@ Deleting a snapshot deletes its runs, events and hypotheses. The audit and run l
 use different method names (`AppendEvents` versus `AppendRunEvents`) because Go has
 no overloading and because a reader should never have to guess which log they hold.
 
+## Pi worker protocol (v1)
+
+A Pi run is one fixed worker process spawned with deployment argv and spoken to
+over JSONL. The worker is trusted code, not a sandbox; what makes it safe is that
+it owns no authority. It never receives the lease, the registry or the budget, and
+every distinct action is a request the host answers.
+
+The worker speaks first: `hello` inside five seconds. The host then sends a
+private `init` frame — model endpoint and credentials, never logged, recorded or
+projected — followed by the public `start` frame with the rendered task, native
+tool descriptors and limits. Public frames carry `run_id`, `generation` and a
+strictly increasing `seq`; requests and replies pair through `request_id` and
+`reply_to`. The frame types are `request_permit`, `tool_request`,
+`answer_proposed`, `usage`, `settled` and `error`.
+
+The host translates those frames into the same runtime events the built-in model
+runtime emits, so permits, answer acceptance, repairs, tool validation and the
+ledger have one implementation. A tool request is executed by the host, with the
+task's trusted scope injected; the worker only forwards the call and receives the
+result envelope. An answer is accepted only after the host's validator says so,
+and then a `settled` frame closes the run.
+
+Limits: one frame is at most 1 MiB, cumulative public output 16 MiB, stderr 64 KiB,
+the handshake 5 seconds, cancellation grace 2 seconds, and the run deadline bounds
+everything. A frame with a stale generation or an old sequence, a stream that ends
+before `settled`, a non-zero exit or a protocol error fails the run explicitly.
+The worker is started with an isolated temporary working directory and an empty
+private `HOME`; the environment is the minimal set plus the explicit configuration.
+
 ## Native tool contracts
 
 Every tool has one contract: `ToolDescriptor{name, description, input_schema,

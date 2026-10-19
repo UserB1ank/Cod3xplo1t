@@ -283,3 +283,17 @@ func ToolScopeFrom(ctx context.Context) ToolScope {
 	scope, _ := ctx.Value(toolScopeKey{}).(ToolScope)
 	return scope
 }
+
+type runIDKey struct{}
+
+// WithRunID binds the run identifier to the adapter context. A worker echoes it in
+// every frame so a reply from another attempt cannot be mistaken for this one.
+func WithRunID(ctx context.Context, runID string) context.Context {
+	return context.WithValue(ctx, runIDKey{}, runID)
+}
+
+// RunIDFrom returns the bound run identifier, if any.
+func RunIDFrom(ctx context.Context) string {
+	value, _ := ctx.Value(runIDKey{}).(string)
+	return value
+}

@@ -317,6 +317,7 @@ func (r *Runner) execute(ctx context.Context, auditID string, p *path.Path, owne
 	}
 
 	adapterCtx := WithRunGeneration(ctx, generationOf(p))
+	adapterCtx = WithRunID(adapterCtx, run.ID)
 	adapterCtx = WithAliasTable(adapterCtx, aliases)
 	adapterCtx = WithRenderedTask(adapterCtx, rendered)
 	handle, err := r.Runtime.Start(adapterCtx, task)
