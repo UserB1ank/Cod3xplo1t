@@ -158,8 +158,11 @@ type VerificationConfig struct {
 type AgentConfig struct {
 	Enabled       bool
 	ModelSettings *llm.Manager
-	// Runtime is "cli" or "scripted".
+	// Runtime is the deployment default: "cli", "scripted", "llm" or "pi".
 	Runtime string
+	// Runtimes is the catalog a task may choose from. Empty means only Runtime.
+	// The deployment controls this list; a client cannot add a path or a command.
+	Runtimes []string
 	// Command is the argv of the CLI adapter. It is executed directly, never
 	// through a shell.
 	Command []string
@@ -222,6 +225,9 @@ type Runtime struct {
 	// checks a request's allowlist against the registry's own names, so the
 	// advertised tools are exactly the enforced ones.
 	AgentRegistry *agent.Registry
+	// AgentRuntimeInfo is the public catalog of selectable runtimes. It carries
+	// readiness and versions, never credentials.
+	AgentRuntimeInfo []agent.RuntimeInfo
 	// AgentConfig is the configuration the agent was wired from. It is kept so a
 	// caller (and a test) can reproduce the policy a run was bounded by.
 	AgentConfig AgentConfig
@@ -445,8 +451,14 @@ func (r *Runtime) wireModelSettings(keyFile string) error {
 		r.LLMSettings = r.AgentConfig.ModelSettings
 		return nil
 	}
-	mode := strings.ToLower(strings.TrimSpace(r.AgentConfig.Runtime))
-	if !r.AgentConfig.Enabled || (mode != AgentRuntimeLLM && mode != AgentRuntimePi) {
+	needsModel := strings.EqualFold(strings.TrimSpace(r.AgentConfig.Runtime), AgentRuntimeLLM) ||
+		strings.EqualFold(strings.TrimSpace(r.AgentConfig.Runtime), AgentRuntimePi)
+	for _, name := range r.AgentConfig.Runtimes {
+		if strings.EqualFold(strings.TrimSpace(name), AgentRuntimeLLM) || strings.EqualFold(strings.TrimSpace(name), AgentRuntimePi) {
+			needsModel = true
+		}
+	}
+	if !r.AgentConfig.Enabled || !needsModel {
 		return nil
 	}
 	if repo, ok := storage.SettingsRepository(r.Store); ok && storage.IsPostgres(r.Store) {
@@ -591,31 +603,69 @@ func (r *Runtime) wireAgent(cfg AgentConfig) error {
 	policy.TokenBudget = cfg.TokenBudget
 	policy.AllowedTools = allowed
 
-	runtime, err := r.buildAgentRuntime(mode, cfg)
-	if err != nil {
-		return err
+	catalogNames := normaliseRuntimeNames(cfg.Runtimes, mode)
+	catalog := make(map[string]agent.Runtime, len(catalogNames))
+	for _, name := range catalogNames {
+		entry, err := r.buildAgentRuntime(name, cfg)
+		if err != nil {
+			return err
+		}
+		if model, ok := entry.(*agent.ModelRuntime); ok {
+			model.Tools = registry.Descriptors(policy.AllowedTools)
+		}
+		if pi, ok := entry.(*agent.PiRuntime); ok {
+			pi.SetTools(registry.Descriptors(policy.AllowedTools))
+		}
+		catalog[name] = entry
 	}
-	if model, ok := runtime.(*agent.ModelRuntime); ok {
-		model.Tools = registry.Descriptors(policy.AllowedTools)
-	}
-	if pi, ok := runtime.(*agent.PiRuntime); ok {
-		pi.SetTools(registry.Descriptors(policy.AllowedTools))
+	r.AgentRuntimeInfo = make([]agent.RuntimeInfo, 0, len(catalogNames))
+	for _, name := range catalogNames {
+		r.AgentRuntimeInfo = append(r.AgentRuntimeInfo, agent.DescribeRuntime(name, catalog[name]))
 	}
 	facts := graph.NewAgentFacts(r.Graph, r.ASG, agent.BuildOptions{AllowedTools: policy.AllowedTools})
 	r.AgentRegistry = registry
 	r.Agent = &agent.Runner{
-		Store:    r.Store,
-		Registry: registry,
-		Runtime:  runtime,
-		Tasks:    facts,
-		Paths:    graph.NewAgentCoordinator(r.Audit, cfg.Owner),
-		Policy:   policy,
-		Owner:    cfg.Owner,
+		Store:          r.Store,
+		Registry:       registry,
+		Runtime:        catalog[mode],
+		Runtimes:       catalog,
+		DefaultRuntime: mode,
+		RuntimeFor: func(auditID string) string {
+			audit, err := r.Store.GetAudit(auditID)
+			if err != nil {
+				return ""
+			}
+			return audit.Runtime
+		},
+		Tasks:  facts,
+		Paths:  graph.NewAgentCoordinator(r.Audit, cfg.Owner),
+		Policy: policy,
+		Owner:  cfg.Owner,
 	}
 	if cfg.HeartbeatSeconds > 0 {
 		r.Agent.HeartbeatEvery = time.Duration(cfg.HeartbeatSeconds) * time.Second
 	}
 	return nil
+}
+
+// normaliseRuntimeNames de-duplicates the catalog and always includes the
+// deployment default, so a request can name it even when the catalog omits it.
+func normaliseRuntimeNames(names []string, defaultName string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(names)+1)
+	add := func(name string) {
+		name = strings.ToLower(strings.TrimSpace(name))
+		if name == "" || seen[name] {
+			return
+		}
+		seen[name] = true
+		out = append(out, name)
+	}
+	for _, name := range names {
+		add(name)
+	}
+	add(defaultName)
+	return out
 }
 
 // Agent runtimes accepted by --agent-runtime. "disabled" is spelled out rather
@@ -676,6 +726,13 @@ func (r *Runtime) buildAgentRuntime(mode string, cfg AgentConfig) (agent.Runtime
 			WorkingDir: cfg.WorkingDir,
 			Env:        cfg.Env,
 			InitSource: func() (json.RawMessage, error) { return piModelInit(cfg.ModelSettings) },
+			PinSource: func() (agent.RuntimePin, error) {
+				_, public, err := cfg.ModelSettings.Snapshot()
+				if err != nil {
+					return agent.RuntimePin{}, err
+				}
+				return agent.RuntimePin{Model: public.Model, ConfigVersion: public.Version}, nil
+			},
 		})
 	case AgentRuntimeCLI:
 		if len(cfg.Command) == 0 || strings.TrimSpace(cfg.Command[0]) == "" {

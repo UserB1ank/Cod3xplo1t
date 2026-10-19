@@ -65,6 +65,7 @@ import type {
   GraphSummary,
   Project,
   Run,
+  RuntimeInfo,
   Snapshot,
 } from "./types";
 import {
@@ -1481,6 +1482,14 @@ function TaskWorkbench({
                       <tr key={run.run_id}>
                         <td className="mono">
                           {shortId(run.run_id)}
+                          {run.pin?.runtime && (
+                            <span className="subtle-label">
+                              {" "}
+                              {run.pin.runtime}
+                              {run.pin.model ? ` · ${run.pin.model}` : ""}
+                              {run.pin.config_version ? ` · 配置 ${shortId(run.pin.config_version)}` : ""}
+                            </span>
+                          )}
                           {run.tool_schema_digest && <span className="subtle-label"> 契约 {shortId(run.tool_schema_digest)}</span>}
                         </td>
                         <td>
@@ -2630,6 +2639,15 @@ function TaskForm({
     latestSnapshot(available);
   const [planCursors, setPlanCursors] = useState([""]);
   const [selectedPlan, setSelectedPlan] = useState<Plan>();
+  const runtimes = useResource(
+    async (signal) => api.get<{ runtimes: RuntimeInfo[] }>("/agent/runtimes", signal),
+    [api],
+  );
+  const [runtime, setRuntime] = useState("");
+  useEffect(() => {
+    const ready = runtimes.data?.runtimes.find((entry) => entry.ready);
+    if (ready && !runtime) setRuntime(ready.name);
+  }, [runtimes.data, runtime]);
   const planDirectory = useResource(
     async (signal) =>
       current && projectID
@@ -2674,6 +2692,7 @@ function TaskForm({
               : [],
           name: form.get("name"),
           objective: form.get("objective"),
+          runtime: selectedPlan ? "" : runtime,
           snapshot_id: form.get("snapshot"),
           source_id:
             snapshots.find(
@@ -2751,6 +2770,31 @@ function TaskForm({
           ))}
         </select>
       </label>
+      <label>
+        Agent 运行时
+        <select
+          aria-label="任务 Agent 运行时"
+          value={selectedPlan ? "" : runtime}
+          onChange={(e) => setRuntime(e.target.value)}
+          disabled={!!selectedPlan}
+        >
+          {(runtimes.data?.runtimes || []).map((entry) => (
+            <option key={entry.name} value={entry.name} disabled={!entry.ready}>
+              {entry.name}
+              {entry.model ? ` · ${entry.model}` : ""}
+              {entry.ready ? "" : ` · 不可用：${entry.reason || "未就绪"}`}
+            </option>
+          ))}
+        </select>
+      </label>
+      {!selectedPlan &&
+        (runtimes.data?.runtimes || [])
+          .filter((entry) => !entry.ready)
+          .map((entry) => (
+            <Hint key={entry.name}>
+              {entry.name} 当前不可用：{entry.reason || "未就绪"}
+            </Hint>
+          ))}
       <label>
         执行方式 / 固定计划
         <select

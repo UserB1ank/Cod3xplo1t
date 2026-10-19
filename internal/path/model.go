@@ -374,6 +374,9 @@ type Audit struct {
 	Budget       Budget   `json:"budget"`
 	Limits       Limits   `json:"limits"`
 	ScoreVersion int      `json:"score_version"`
+	// Runtime is the agent runtime the task chose. Empty means the deployment
+	// default; it is persisted with the task so a later run keeps the choice.
+	Runtime string `json:"runtime,omitempty"`
 	// ConfigHash covers the inputs that change the produced set, so the same
 	// request maps to the same audit.
 	ConfigHash         string         `json:"config_hash"`

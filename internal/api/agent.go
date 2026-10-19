@@ -40,6 +40,12 @@ const maxRunsPerRequest = 10
 // run an agent must not look like one whose runs are missing.
 func WithAgent(runner *agent.Runner) Option { return func(s *Server) { s.Agent = runner } }
 
+// WithAgentRuntimes exposes the deployment's selectable runtimes. The list is
+// built by the app from its own catalog; a client cannot extend it.
+func WithAgentRuntimes(provider func() []agent.RuntimeInfo) Option {
+	return func(s *Server) { s.AgentRuntimes = provider }
+}
+
 // agentUnavailable mirrors auditUnavailable: a server without the orchestrator
 // says "not configured" rather than answering as if a run had vanished.
 func (s *Server) agentUnavailable(w http.ResponseWriter) bool {
@@ -611,4 +617,28 @@ func runStatusNames() []string {
 func hypothesisStatusNames() []string {
 	return []string{agent.HypothesisCandidate, agent.HypothesisConfirmed,
 		agent.HypothesisRefuted, agent.HypothesisInconclusive}
+}
+
+// handleAgentRuntimes reports which runtimes a task may choose, with readiness,
+// capabilities and secret-free versions.
+func (s *Server) handleAgentRuntimes(w http.ResponseWriter, _ *http.Request) {
+	runtimes := []agent.RuntimeInfo{}
+	if s.AgentRuntimes != nil {
+		runtimes = append(runtimes, s.AgentRuntimes()...)
+	}
+	sort.Slice(runtimes, func(i, j int) bool { return runtimes[i].Name < runtimes[j].Name })
+	writeJSON(w, http.StatusOK, map[string]any{"runtimes": runtimes})
+}
+
+// runtimeInfo looks up one runtime in the deployment catalog.
+func (s *Server) runtimeInfo(name string) (agent.RuntimeInfo, bool) {
+	if s.AgentRuntimes == nil {
+		return agent.RuntimeInfo{}, false
+	}
+	for _, info := range s.AgentRuntimes() {
+		if strings.EqualFold(info.Name, name) {
+			return info, true
+		}
+	}
+	return agent.RuntimeInfo{}, false
 }

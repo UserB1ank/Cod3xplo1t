@@ -42,13 +42,16 @@ func (s *Service) now() time.Time {
 // CreateAuditRequest is one audit request.
 type CreateAuditRequest struct {
 	// TaskKey isolates task execution while all tasks reuse the snapshot graph.
-	TaskKey     string
-	Name        string
-	Objective   string
-	Scope       []string
-	SnapshotID  string
-	Budget      Budget
-	Limits      Limits
+	TaskKey    string
+	Name       string
+	Objective  string
+	Scope      []string
+	SnapshotID string
+	Budget     Budget
+	Limits     Limits
+	// Runtime is the agent runtime this task chose. It is validated by the API
+	// against the deployment catalog; the path engine only stores it.
+	Runtime     string
 	Sensitivity map[string]float64
 	// Force regenerates and rescores even when the audit already exists. The path
 	// ids stay the same because they are derived from the attack surface, so a
@@ -132,6 +135,7 @@ func (s *Service) CreateAudit(ctx context.Context, req CreateAuditRequest) (*Aud
 		Name: req.Name, Objective: req.Objective, Scope: append([]string(nil), req.Scope...),
 		ID: auditID, SnapshotID: req.SnapshotID, Status: AuditGenerating,
 		Budget: budget, Limits: limits, ScoreVersion: ScoreVersion, ConfigHash: configHash,
+		Runtime:        strings.TrimSpace(req.Runtime),
 		CountsByStatus: map[string]int{}, CountsByPathStatus: map[string]int{},
 		Limitations: []string{},
 		CreatedAt:   now, UpdatedAt: now, Version: 1,

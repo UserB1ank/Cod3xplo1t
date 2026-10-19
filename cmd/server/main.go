@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/open-mcp-ai/Codexploit/internal/access"
+	"github.com/open-mcp-ai/Codexploit/internal/agent"
 	"github.com/open-mcp-ai/Codexploit/internal/api"
 	"github.com/open-mcp-ai/Codexploit/internal/app"
 	"github.com/open-mcp-ai/Codexploit/internal/graph"
@@ -66,6 +67,7 @@ func run() error {
 		idemTTL         = flag.Duration("idempotency-ttl", 24*time.Hour, "how long a stored write response may be replayed")
 
 		agentRuntime    = flag.String("agent-runtime", app.AgentRuntimeDisabled, "agent adapter: disabled, scripted, cli, llm or pi")
+		agentRuntimes   = flag.String("agent-runtimes", "", "comma-separated runtimes a task may choose (default: only --agent-runtime)")
 		agentWorkDir    = flag.String("agent-working-dir", "", "working directory of the agent process")
 		piNode          = flag.String("pi-node", "node", "node binary used by the pi runtime")
 		piWorker        = flag.String("pi-worker", "/app/pi-worker/dist/main.js", "pi worker entrypoint (runtime/pi-worker dist)")
@@ -158,6 +160,7 @@ func run() error {
 		Agent: app.AgentConfig{
 			Enabled:            !strings.EqualFold(strings.TrimSpace(*agentRuntime), app.AgentRuntimeDisabled),
 			Runtime:            *agentRuntime,
+			Runtimes:           commaSeparated(*agentRuntimes),
 			Command:            agentCommand,
 			PiNode:             *piNode,
 			PiWorker:           *piWorker,
@@ -262,6 +265,7 @@ func run() error {
 		api.WithASGBuilder(rt.ASGBuilder),
 		api.WithAudit(rt.Audit),
 		api.WithAgent(rt.Agent),
+		api.WithAgentRuntimes(func() []agent.RuntimeInfo { return rt.AgentRuntimeInfo }),
 		api.WithLLMSettings(rt.LLMSettings),
 		api.WithVerifier(rt.Verifier),
 		api.WithVerifyPlanner(rt.VerifyPlanner),

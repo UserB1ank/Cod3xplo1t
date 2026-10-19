@@ -361,6 +361,8 @@ func requiredCapability(method, path string) (Capability, bool) {
 		return CapAdmin, true
 	case rest == "me" && method == http.MethodGet:
 		return CapRead, true
+	case rest == "agent/runtimes" && method == http.MethodGet:
+		return CapRead, true
 	case strings.HasPrefix(rest, "knowledge/findings/") && method == http.MethodGet:
 		return CapRead, true
 	case strings.HasPrefix(rest, "tasks/"):

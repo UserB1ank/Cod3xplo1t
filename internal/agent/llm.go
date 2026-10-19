@@ -12,9 +12,10 @@ import (
 // ModelRuntime snapshots live settings per run. Saving new settings cannot
 // replace the credentials or model of an already running request.
 type ModelRuntime struct {
-	fixed    *llm.Config
-	Settings *llm.Manager
-	Tools    []ToolDescriptor
+	fixed        *llm.Config
+	fixedVersion string
+	Settings     *llm.Manager
+	Tools        []ToolDescriptor
 }
 
 func (r *ModelRuntime) Ready() error {
@@ -351,5 +352,31 @@ func (r *ModelRuntime) Freeze() (*ModelRuntime, llm.Public, error) {
 	if err != nil {
 		return nil, metadata, err
 	}
-	return &ModelRuntime{Settings: r.Settings, Tools: append([]ToolDescriptor(nil), r.Tools...), fixed: &cfg}, metadata, nil
+	return &ModelRuntime{
+		Settings: r.Settings, Tools: append([]ToolDescriptor(nil), r.Tools...),
+		fixed: &cfg, fixedVersion: metadata.Version,
+	}, metadata, nil
+}
+
+// Pin reports the model and settings version a run would use. It reads the frozen
+// configuration when this runtime was frozen, so a run that started before a
+// settings change keeps its original pin.
+func (r *ModelRuntime) Pin() (RuntimePin, error) {
+	if r.fixed != nil {
+		return RuntimePin{
+			Runtime: "llm", RuntimeVersion: "1", ProtocolVersion: "1",
+			PromptVersion: PromptVersion, Model: r.fixed.Model, ConfigVersion: r.fixedVersion,
+		}, nil
+	}
+	if r.Settings == nil {
+		return RuntimePin{}, errors.New("agent: the llm runtime has no settings manager")
+	}
+	public, err := r.Settings.Public()
+	if err != nil {
+		return RuntimePin{}, err
+	}
+	return RuntimePin{
+		Runtime: "llm", RuntimeVersion: "1", ProtocolVersion: "1",
+		PromptVersion: PromptVersion, Model: public.Model, ConfigVersion: public.Version,
+	}, nil
 }

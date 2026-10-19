@@ -210,6 +210,26 @@ Deleting a snapshot deletes its runs, events and hypotheses. The audit and run l
 use different method names (`AppendEvents` versus `AppendRunEvents`) because Go has
 no overloading and because a reader should never have to guess which log they hold.
 
+## Runtime selection and run pins
+
+The deployment owns the catalog: `--agent-runtimes=llm,pi` lists what a task may
+choose, and `--agent-runtime` names the default. A client never supplies an
+executable, environment or module path. `GET /api/agent/runtimes` reports each
+entry's readiness, capabilities and secret-free versions; a runtime that is not
+ready is refused at task creation instead of falling back to another adapter.
+
+A task stores its choice (`audit.runtime`); an empty value means the deployment
+default. The orchestrator resolves the choice when the run starts and fails
+closed if the catalog no longer offers it. Every run records a pin — runtime and
+adapter version, protocol and worker versions where applicable, prompt version,
+model, encrypted-settings version and the native tool schema digest. The pin is
+public and never contains credentials; the run detail shows the runtime, model
+and configuration version it used.
+
+Selecting a runtime for a workflow plan is not wired yet: the API refuses that
+combination explicitly rather than storing a choice the workflow path would
+ignore. The workflow `$analyze` pin follows in the same issue.
+
 ## Deploying the Pi runtime
 
 `--agent-runtime=pi` selects the worker; `--pi-worker` points at its entrypoint

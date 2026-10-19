@@ -212,6 +212,12 @@ func serveTestEnv(t *testing.T, rt *app.Runtime, allowNetwork bool) *testEnv {
 		WithASGBuilder(rt.ASGBuilder),
 		WithAudit(rt.Audit),
 		WithAgent(rt.Agent),
+		WithAgentRuntimes(func() []agent.RuntimeInfo {
+			return []agent.RuntimeInfo{
+				{Name: "llm", Version: "1", Ready: true},
+				{Name: "pi", Version: "1", Ready: false, Reason: "worker is not installed"},
+			}
+		}),
 		WithVerifier(rt.Verifier),
 		WithVerifyPlanner(rt.VerifyPlanner),
 		// A runtime without a scheduler leaves this nil, which is what keeps the

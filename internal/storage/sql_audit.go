@@ -20,7 +20,7 @@ var auditColumnNames = []string{
 	"score_version", "config_hash", "path_count", "counts_by_status_json", "counts_by_path_status_json",
 	"coverage_json", "limitations_json", "created_at", "updated_at", "version",
 	"task_name", "objective", "scope_json", "paused",
-	"task_pinned", "task_archived", "task_category",
+	"task_pinned", "task_archived", "task_category", "runtime",
 }
 
 var pathColumnNames = []string{
@@ -156,7 +156,7 @@ func auditWriteValues(audit path.Audit) ([]any, error) {
 		audit.ScoreVersion, audit.ConfigHash, audit.PathCount, counts, countsByPath, coverage, limitations,
 		audit.CreatedAt, audit.UpdatedAt, audit.Version,
 		audit.Name, audit.Objective, scope, boolToInt(audit.Paused),
-		boolToInt(audit.Pinned), boolToInt(audit.Archived), audit.Category,
+		boolToInt(audit.Pinned), boolToInt(audit.Archived), audit.Category, audit.Runtime,
 	}, nil
 }
 
@@ -170,7 +170,7 @@ func scanAuditRow(scan func(...any) error) (path.Audit, error) {
 	if err := scan(&audit.ID, &audit.SnapshotID, &audit.SCGVersion, &audit.ASGVersion, &audit.Status, &budget,
 		&limits, &audit.ScoreVersion, &audit.ConfigHash, &audit.PathCount, &counts, &countsByPath, &coverage,
 		&limitations, &audit.CreatedAt, &audit.UpdatedAt, &audit.Version,
-		&audit.Name, &audit.Objective, &scope, &audit.Paused, &audit.Pinned, &audit.Archived, &audit.Category); err != nil {
+		&audit.Name, &audit.Objective, &scope, &audit.Paused, &audit.Pinned, &audit.Archived, &audit.Category, &audit.Runtime); err != nil {
 		return path.Audit{}, err
 	}
 	for _, column := range []struct {

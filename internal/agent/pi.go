@@ -59,6 +59,8 @@ type PiConfig struct {
 	// WorkerFile is the entrypoint the deployment claims to have installed. When
 	// set, readiness requires it to exist; the command itself may carry flags.
 	WorkerFile string
+	// PinSource reports the model and config version used for the private init.
+	PinSource func() (RuntimePin, error)
 	// Tools are the native descriptors the worker may advertise; the host still
 	// authorises every call against the run policy.
 	Tools []ToolDescriptor
@@ -544,4 +546,22 @@ func drainWithGrace(cmd *exec.Cmd, lines <-chan []byte, grace time.Duration) {
 			return
 		}
 	}
+}
+
+// Pin reports the model and settings version the worker would receive. The
+// worker and protocol versions are fixed by this adapter.
+func (r *PiRuntime) Pin() (RuntimePin, error) {
+	pin := RuntimePin{
+		Runtime: "pi", RuntimeVersion: r.version, ProtocolVersion: "1",
+		WorkerVersion: "1.3.0", PromptVersion: PromptVersion,
+	}
+	if r.cfg.PinSource == nil {
+		return pin, nil
+	}
+	extra, err := r.cfg.PinSource()
+	if err != nil {
+		return pin, err
+	}
+	pin.Model, pin.ConfigVersion = extra.Model, extra.ConfigVersion
+	return pin, nil
 }

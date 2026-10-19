@@ -35,6 +35,7 @@ type taskRequest struct {
 	AcceptPartialNodes []string    `json:"accept_partial_nodes,omitempty"`
 	WorkflowPlanID     string      `json:"workflow_plan_id,omitempty"`
 	AnalyzeCandidates  bool        `json:"analyze_candidates"`
+	Runtime            string      `json:"runtime,omitempty"`
 	SourceID           string      `json:"source_id"`
 	Name               string      `json:"name"`
 	Objective          string      `json:"objective"`
@@ -112,6 +113,26 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_source", errors.New("snapshot does not belong to the selected source"))
 		return
 	}
+	runtimeName := strings.ToLower(strings.TrimSpace(req.Runtime))
+	if runtimeName != "" {
+		if req.WorkflowPlanID != "" {
+			writeError(w, http.StatusBadRequest, "runtime_not_supported_for_workflow",
+				errors.New("selecting an agent runtime for a workflow task is not available yet"))
+			return
+		}
+		info, ok := s.runtimeInfo(runtimeName)
+		if !ok {
+			writeError(w, http.StatusBadRequest, "runtime_unavailable",
+				fmt.Errorf("runtime %q is not offered by this deployment", runtimeName))
+			return
+		}
+		if !info.Ready {
+			writeError(w, http.StatusBadRequest, "runtime_unavailable",
+				fmt.Errorf("runtime %q is unavailable: %s", runtimeName, strings.TrimSpace(info.Reason)))
+			return
+		}
+		req.Runtime = info.Name
+	}
 	if req.WorkflowPlanID != "" {
 		if s.WorkflowRunner == nil {
 			writeWorkflowError(w, errors.New("runner unavailable"))
@@ -131,7 +152,7 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 201, map[string]any{"task": sourceTask{Audit: *task, SourceSnapshot: binding}, "project_id": projectID, "workflow_run": run})
 		return
 	}
-	result, err := s.Audit.CreateAudit(r.Context(), path.CreateAuditRequest{TaskKey: rand.Text(), Name: req.Name, Objective: req.Objective, Scope: req.Scope, SnapshotID: req.SnapshotID, Budget: req.Budget, Limits: req.Limits})
+	result, err := s.Audit.CreateAudit(r.Context(), path.CreateAuditRequest{TaskKey: rand.Text(), Name: req.Name, Objective: req.Objective, Scope: req.Scope, SnapshotID: req.SnapshotID, Runtime: req.Runtime, Budget: req.Budget, Limits: req.Limits})
 	if err != nil {
 		writeAuditError(w, err, req.SnapshotID)
 		return

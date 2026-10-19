@@ -1,3 +1,4 @@
+import { RuntimeStatus } from "./Runtimes";
 import { useEffect, useState, type FormEvent } from "react";
 import {
   Check,
@@ -126,6 +127,7 @@ export function LLMSettings({
           {identity.features.agent ? "模型已启用" : "等待配置"}
         </span>
       </div>
+      <RuntimeStatus api={api} />
       {error && (
         <div className="error-message" role="alert">
           {error}

@@ -12,28 +12,28 @@ import (
 // refuse a task the adapter cannot honour instead of discovering it halfway.
 type RuntimeCapabilities struct {
 	// Name and Version identify the adapter in the run record.
-	Name    string
-	Version string
+	Name    string `json:"name"`
+	Version string `json:"version"`
 	// ToolCalls reports whether the adapter can ask for whitelisted tool calls. An
 	// adapter that cannot gets a task without a tool budget.
-	ToolCalls bool
+	ToolCalls bool `json:"tool_calls"`
 	// Expansions reports whether the adapter can request more room.
-	Expansions bool
+	Expansions bool `json:"expansions"`
 	// Resume reports whether a run can continue after a pause. Most CLI adapters
 	// cannot, which is why the orchestrator checkpoints instead of trusting a
 	// session.
-	Resume bool
+	Resume bool `json:"resume"`
 	// Streaming reports whether events arrive while the run is in progress.
-	Streaming bool
+	Streaming bool `json:"streaming"`
 	// TokenUsage reports whether the adapter reports token counts. Without them the
 	// token budget cannot be enforced, and the run says so.
-	TokenUsage bool
+	TokenUsage bool `json:"token_usage"`
 	// TurnControl reports whether the adapter asks for permission before each
 	// provider request and submits proposed answers for validation. Without it the
 	// adapter is still bounded by the tool gate, but its provider requests and
 	// repairs are only a legacy estimate.
-	TurnControl bool
-	Notes       []string
+	TurnControl bool     `json:"turn_control"`
+	Notes       []string `json:"notes,omitempty"`
 }
 
 // runGenerationKey carries the run's fencing generation to the adapter. The
@@ -296,4 +296,69 @@ func WithRunID(ctx context.Context, runID string) context.Context {
 func RunIDFrom(ctx context.Context) string {
 	value, _ := ctx.Value(runIDKey{}).(string)
 	return value
+}
+
+// PromptVersion names the model-facing prompt and task projection. A run records
+// it so a resumed run does not silently answer a different contract.
+const PromptVersion = "1"
+
+// RuntimePin is the public, secret-free identity of the runtime configuration a
+// run used. It is recorded with the run and exposed to the API; credentials stay
+// in the encrypted settings and never enter this struct.
+type RuntimePin struct {
+	Runtime          string `json:"runtime"`
+	RuntimeVersion   string `json:"runtime_version,omitempty"`
+	ProtocolVersion  string `json:"protocol_version,omitempty"`
+	WorkerVersion    string `json:"worker_version,omitempty"`
+	PromptVersion    string `json:"prompt_version,omitempty"`
+	Model            string `json:"model,omitempty"`
+	ConfigVersion    string `json:"config_version,omitempty"`
+	ToolSchemaDigest string `json:"tool_schema_digest,omitempty"`
+}
+
+// PinProvider is the optional ability to describe the configuration a runtime
+// would use now. The orchestrator calls it once per run, before the adapter
+// starts, and stores the result with the run.
+type PinProvider interface {
+	Pin() (RuntimePin, error)
+}
+
+// RuntimeInfo is the deployment's answer to "which runtimes can a task choose?".
+type RuntimeInfo struct {
+	Name            string              `json:"name"`
+	Version         string              `json:"version"`
+	Ready           bool                `json:"ready"`
+	Reason          string              `json:"reason,omitempty"`
+	Capabilities    RuntimeCapabilities `json:"capabilities"`
+	Model           string              `json:"model,omitempty"`
+	ConfigVersion   string              `json:"config_version,omitempty"`
+	WorkerVersion   string              `json:"worker_version,omitempty"`
+	ProtocolVersion string              `json:"protocol_version,omitempty"`
+}
+
+// DescribeRuntime merges readiness and capabilities into one public record.
+func DescribeRuntime(name string, runtime Runtime) RuntimeInfo {
+	info := RuntimeInfo{Name: name}
+	if runtime == nil {
+		info.Reason = "runtime is not configured"
+		return info
+	}
+	info.Capabilities = runtime.Capabilities()
+	info.Version = info.Capabilities.Version
+	if ready, ok := runtime.(interface{ Ready() error }); ok {
+		if err := ready.Ready(); err != nil {
+			info.Reason = err.Error()
+			return info
+		}
+	}
+	info.Ready = true
+	if provider, ok := runtime.(PinProvider); ok {
+		if pin, err := provider.Pin(); err == nil {
+			info.Model = pin.Model
+			info.ConfigVersion = pin.ConfigVersion
+			info.WorkerVersion = pin.WorkerVersion
+			info.ProtocolVersion = pin.ProtocolVersion
+		}
+	}
+	return info
 }

@@ -30,8 +30,18 @@ export interface RunMetrics {
   // Empty means an older record: the counters are unknown, not zero.
   source?: '' | 'reported' | 'legacy_estimate';
 }
+export interface RuntimeInfo {
+  name: string; version: string; ready: boolean; reason?: string;
+  capabilities?: { name: string; version: string; tool_calls: boolean; turn_control?: boolean; token_usage: boolean };
+  model?: string; config_version?: string; worker_version?: string; protocol_version?: string;
+}
+export interface RuntimePin {
+  runtime: string; runtime_version?: string; protocol_version?: string; worker_version?: string;
+  prompt_version?: string; model?: string; config_version?: string; tool_schema_digest?: string;
+}
 export interface Run {
   run_id: string; path_id: string; audit_id: string; snapshot_id: string; runtime: string; status: string;
+  pin?: RuntimePin;
   started_at: string; heartbeat_at: string; tool_calls: number; input_tokens: number; output_tokens: number;
   elapsed_ms: number; stop_reason?: string; task?: { security_goal: string }; error?: string;
   tool_schema_digest?: string;

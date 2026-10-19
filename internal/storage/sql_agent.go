@@ -18,7 +18,7 @@ var agentRunColumnNames = []string{
 	"task_json", "exploration_json", "budget_json", "tool_calls", "expansions", "input_tokens",
 	"output_tokens", "elapsed_ms", "owner", "started_at", "deadline_at", "heartbeat_at",
 	"finished_at", "exit_code", "stop_reason", "error", "output_json", "created_at", "updated_at", "version", "lease_epoch",
-	"metrics_json", "aliases_json", "tools_digest",
+	"metrics_json", "aliases_json", "tools_digest", "pin_json",
 }
 
 var agentEventColumnNames = []string{
@@ -82,6 +82,13 @@ func agentRunWriteValues(run agent.Run) ([]any, error) {
 			return nil, err
 		}
 	}
+	pin := ""
+	if run.Pin != nil {
+		pin, err = jsonString(run.Pin)
+		if err != nil {
+			return nil, err
+		}
+	}
 	var exit any
 	if run.ExitCode != nil {
 		exit = *run.ExitCode
@@ -91,7 +98,7 @@ func agentRunWriteValues(run agent.Run) ([]any, error) {
 		task, exploration, budget, run.ToolCalls, run.Expansions, run.InputTokens, run.OutputTokens,
 		run.ElapsedMS, run.Owner, run.StartedAt, run.DeadlineAt, run.HeartbeatAt, run.FinishedAt, exit,
 		run.StopReason, run.Error, output, run.CreatedAt, run.UpdatedAt, run.Version, run.LeaseEpoch,
-		metrics, aliases, run.ToolSchemaDigest,
+		metrics, aliases, run.ToolSchemaDigest, pin,
 	}, nil
 }
 
@@ -100,14 +107,14 @@ func scanAgentRunRow(scan func(...any) error) (agent.Run, error) {
 	var (
 		run                                       agent.Run
 		status, task, exploration, budget, output string
-		metrics, aliases                          string
+		metrics, aliases, pin                     string
 		exit                                      sql.NullInt64
 	)
 	if err := scan(&run.ID, &run.PathID, &run.AuditID, &run.SnapshotID, &run.Runtime, &run.RuntimeVersion,
 		&status, &task, &exploration, &budget, &run.ToolCalls, &run.Expansions, &run.InputTokens,
 		&run.OutputTokens, &run.ElapsedMS, &run.Owner, &run.StartedAt, &run.DeadlineAt, &run.HeartbeatAt,
 		&run.FinishedAt, &exit, &run.StopReason, &run.Error, &output, &run.CreatedAt, &run.UpdatedAt,
-		&run.Version, &run.LeaseEpoch, &metrics, &aliases, &run.ToolSchemaDigest); err != nil {
+		&run.Version, &run.LeaseEpoch, &metrics, &aliases, &run.ToolSchemaDigest, &pin); err != nil {
 		return agent.Run{}, err
 	}
 	run.Status = agent.RunStatus(status)
@@ -147,6 +154,13 @@ func scanAgentRunRow(scan func(...any) error) (agent.Run, error) {
 			return agent.Run{}, fmt.Errorf("storage: run %s: %w", run.ID, err)
 		}
 		run.Aliases = &table
+	}
+	if pin != "" {
+		var recorded agent.RuntimePin
+		if err := decodeJSON(pin, &recorded); err != nil {
+			return agent.Run{}, fmt.Errorf("storage: run %s: %w", run.ID, err)
+		}
+		run.Pin = &recorded
 	}
 	return run, nil
 }

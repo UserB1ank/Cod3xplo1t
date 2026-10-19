@@ -94,6 +94,9 @@ type Server struct {
 	// deployment can serve the SCG/ASG without the P4 layer, in which case every
 	// audit route answers 501 instead of pretending an audit is missing.
 	Audit *path.Service
+	// AgentRuntimes is the deployment's selectable runtime catalog. It is nil
+	// when the deployment exposes no choice.
+	AgentRuntimes func() []agent.RuntimeInfo
 	// Agent is the P5 orchestrator. Like Audit it is separate from the graph
 	// services so a deployment can serve the P4 surface without the P5 layer, in
 	// which case every run route answers 501 instead of pretending a run is
@@ -261,6 +264,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/auth/login", s.handleAccountLogin(false))
 	mux.HandleFunc("POST /api/auth/logout", s.handleAccountLogout)
 	mux.HandleFunc("GET /api/me", s.handleMe)
+	mux.HandleFunc("GET /api/agent/runtimes", s.handleAgentRuntimes)
 	mux.HandleFunc("POST /api/v1/projects", s.withIdempotency(s.handleCreateSourceProject))
 	mux.HandleFunc("POST /api/v1/projects/{projectID}/imports/{sourceID}", s.handleImportSource)
 	mux.HandleFunc("GET /api/v1/projects/{id}/sources", s.handleListSources)

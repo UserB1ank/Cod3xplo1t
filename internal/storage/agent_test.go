@@ -78,6 +78,10 @@ func newAgentRunFixture(runID, pathID, auditID, snapshotID string) agent.Run {
 			InvalidCalls: 1, Truncations: 2, Source: agent.MetricsSourceReported,
 		},
 		ToolSchemaDigest: "tools-digest-1",
+		Pin: &agent.RuntimePin{
+			Runtime: "llm", RuntimeVersion: "1", ProtocolVersion: "1", PromptVersion: agent.PromptVersion,
+			Model: "test-model", ConfigVersion: "config-1",
+		},
 		Aliases: &agent.AliasTable{
 			Version: agent.AliasTableVersion,
 			Entries: []agent.AliasEntry{

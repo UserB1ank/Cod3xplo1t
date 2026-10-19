@@ -633,9 +633,12 @@ type Run struct {
 	// ToolSchemaDigest pins the exact native tool contracts the run used. A
 	// resumed run under a different schema must not reinterpret old calls.
 	ToolSchemaDigest string `json:"tool_schema_digest,omitempty"`
-	CreatedAt        string `json:"created_at"`
-	UpdatedAt        string `json:"updated_at"`
-	Version          int64  `json:"version"`
+	// Pin records the runtime, model and configuration versions used for the run.
+	// It is nil for a run stored before the field existed.
+	Pin       *RuntimePin `json:"pin,omitempty"`
+	CreatedAt string      `json:"created_at"`
+	UpdatedAt string      `json:"updated_at"`
+	Version   int64       `json:"version"`
 }
 
 // Event is one append-only entry of a run's exchange log.

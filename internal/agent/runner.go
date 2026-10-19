@@ -114,8 +114,15 @@ type Runner struct {
 	Store    Store
 	Registry *Registry
 	Runtime  Runtime
-	Tasks    TaskBuilder
-	Paths    PathCoordinator
+	// Runtimes is the deployment's selectable catalog. A task's audit names one;
+	// an empty or unknown name falls back to DefaultRuntime and then Runtime.
+	Runtimes       map[string]Runtime
+	DefaultRuntime string
+	// RuntimeFor resolves a task's runtime choice. The app wires it to the audit
+	// store; a nil resolver means "use the default".
+	RuntimeFor func(auditID string) string
+	Tasks      TaskBuilder
+	Paths      PathCoordinator
 	// Policy is the starting exploration policy of a run. It is normalized, then
 	// handed to the task builder, and it is the policy every request is judged
 	// against until an approved expansion widens it.
@@ -212,7 +219,12 @@ func (r *Runner) RunPath(ctx context.Context, pathID, owner string, ttl time.Dur
 // build to the settlement lives here, once.
 func (r *Runner) execute(ctx context.Context, auditID string, p *path.Path, owner string, policy ExplorationPolicy) (*Run, error) {
 	ctx = path.WithLease(ctx, p.ID, p.LeaseEpoch)
-	caps := r.Runtime.Capabilities()
+	adapter, err := r.selectRuntime(auditID)
+	if err != nil {
+		r.releaseQuietly(ctx, p.ID, owner, err.Error())
+		return nil, err
+	}
+	caps := adapter.Capabilities()
 	runtimeName := caps.Name
 	if strings.TrimSpace(runtimeName) == "" {
 		runtimeName = "runtime"
@@ -270,9 +282,24 @@ func (r *Runner) execute(ctx context.Context, auditID string, p *path.Path, owne
 	timeout := time.Duration(policy.TimeoutSeconds) * time.Second
 
 	toolDigest := ToolSchemaDigest(r.Registry.Descriptors(policy.AllowedTools))
+	pin := RuntimePin{
+		Runtime: runtimeName, RuntimeVersion: caps.Version,
+		PromptVersion: PromptVersion, ToolSchemaDigest: toolDigest,
+	}
+	if provider, ok := adapter.(PinProvider); ok {
+		resolved, err := provider.Pin()
+		if err != nil {
+			r.releaseQuietly(ctx, p.ID, owner, "the runtime configuration could not be pinned: "+err.Error())
+			return nil, fmt.Errorf("agent: pin the runtime of path %s: %w", p.ID, err)
+		}
+		resolved.Runtime, resolved.RuntimeVersion = runtimeName, caps.Version
+		resolved.PromptVersion, resolved.ToolSchemaDigest = PromptVersion, toolDigest
+		pin = resolved
+	}
 	run := &Run{
 		ID:               RunID(p.ID, runtimeName, attempt),
 		ToolSchemaDigest: toolDigest,
+		Pin:              &pin,
 		PathID:           p.ID,
 		AuditID:          runAuditID,
 		SnapshotID:       task.SnapshotID,
@@ -320,7 +347,7 @@ func (r *Runner) execute(ctx context.Context, auditID string, p *path.Path, owne
 	adapterCtx = WithRunID(adapterCtx, run.ID)
 	adapterCtx = WithAliasTable(adapterCtx, aliases)
 	adapterCtx = WithRenderedTask(adapterCtx, rendered)
-	handle, err := r.Runtime.Start(adapterCtx, task)
+	handle, err := adapter.Start(adapterCtx, task)
 	if err != nil {
 		return r.finishAdapterStartFailure(ctx, p, owner, run, attempt, maxAttempts, err)
 	}
@@ -1499,6 +1526,41 @@ func (r *Runner) maxAttempts(p *path.Path) int {
 	return path.DefaultLimits().MaxAttempts
 }
 
+// selectRuntime resolves the runtime a task chose. The audit is the durable
+// choice; an empty name means the deployment default. Unknown names fail closed:
+// a task must not silently run under a different adapter.
+func (r *Runner) selectRuntime(auditID string) (Runtime, error) {
+	name := ""
+	if r.RuntimeFor != nil {
+		name = strings.TrimSpace(r.RuntimeFor(auditID))
+	}
+	defaultName := strings.TrimSpace(r.DefaultRuntime)
+	if defaultName == "" && r.Runtime != nil {
+		defaultName = r.Runtime.Capabilities().Name
+	}
+	if name == "" {
+		name = defaultName
+	}
+	// The default name prefers the Runtime field: it is the object the deployment
+	// (and a test) wired as the default, and it may have been replaced after the
+	// catalog was built. A non-default name must come from the catalog.
+	if name == defaultName && r.Runtime != nil {
+		return r.Runtime, nil
+	}
+	if r.Runtimes != nil {
+		if selected, ok := r.Runtimes[name]; ok {
+			return selected, nil
+		}
+		if name != "" && name != defaultName {
+			return nil, fmt.Errorf("%w: runtime %q is not available", ErrRuntimeUnavailable, name)
+		}
+	}
+	if r.Runtime != nil {
+		return r.Runtime, nil
+	}
+	return nil, fmt.Errorf("%w: no runtime is configured", ErrRuntimeUnavailable)
+}
+
 func (r *Runner) configured() error {
 	if r == nil {
 		return errRunnerNotConfigured
@@ -1507,7 +1569,7 @@ func (r *Runner) configured() error {
 	if r.Store == nil {
 		missing = append(missing, "Store")
 	}
-	if r.Runtime == nil {
+	if r.Runtime == nil && len(r.Runtimes) == 0 {
 		missing = append(missing, "Runtime")
 	}
 	if r.Tasks == nil {
