@@ -221,7 +221,10 @@ func (r *Runner) RunPath(ctx context.Context, pathID, owner string, ttl time.Dur
 // build to the settlement lives here, once.
 func (r *Runner) execute(ctx context.Context, auditID string, p *path.Path, owner string, policy ExplorationPolicy, seed *runSeed) (*Run, error) {
 	ctx = path.WithLease(ctx, p.ID, p.LeaseEpoch)
-	adapter, err := r.selectRuntime(auditID)
+	// A scheduler claims a path by id and has no audit argument; the runtime
+	// choice lives on the path's audit, so the empty argument must not silently
+	// select the deployment default.
+	adapter, err := r.selectRuntime(runnerFirstNonEmpty(auditID, p.AuditID))
 	if err != nil {
 		r.releaseQuietly(ctx, p.ID, owner, err.Error())
 		return nil, err

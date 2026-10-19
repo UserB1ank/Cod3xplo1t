@@ -102,3 +102,34 @@ func TestRunnerRejectsAnUnknownSelectedRuntime(t *testing.T) {
 		t.Fatal("the default runtime ran despite an unknown selection")
 	}
 }
+
+// TestRunPathUsesTheAuditsRuntime covers the scheduler entry point: it claims a
+// path by id and has no audit argument, so the runtime choice must come from the
+// path's audit instead of silently defaulting.
+func TestRunPathUsesTheAuditsRuntime(t *testing.T) {
+	fixture := aliasFixtureTask()
+	fixture.Exploration.AllowedTools = []string{"graph.query"}
+	var alphaUsed, betaUsed atomic.Int32
+	alpha := selectionRuntime(t, "alpha", &alphaUsed)
+	beta := selectionRuntime(t, "beta", &betaUsed)
+	registry := NewRegistry()
+	registry.Register(&runnerTestTool{name: "graph.query", result: `{"ok":true}`})
+	store := newRunnerTestStore()
+	paths := newRunnerTestPaths(runnerTestPath("audit-1", "path-1"))
+	runner := runnerTestRunner(store, paths, &aliasTaskBuilder{task: fixture}, alpha, registry, fixture.Exploration)
+	runner.Runtimes = map[string]Runtime{"alpha": alpha, "beta": beta}
+	runner.DefaultRuntime = "alpha"
+	runner.RuntimeFor = func(auditID string) string {
+		if auditID == "audit-1" {
+			return "beta"
+		}
+		return ""
+	}
+	run, err := runner.RunPath(context.Background(), "path-1", "worker-1", 0, fixture.Exploration)
+	if err != nil {
+		t.Fatalf("RunPath: %v", err)
+	}
+	if run.Status != RunSucceeded || run.Runtime != "beta" || betaUsed.Load() != 1 || alphaUsed.Load() != 0 {
+		t.Fatalf("run = %s runtime=%q alpha=%d beta=%d, want the audit's beta", run.Status, run.Runtime, alphaUsed.Load(), betaUsed.Load())
+	}
+}

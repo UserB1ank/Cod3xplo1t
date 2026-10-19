@@ -69,8 +69,19 @@ func (c *AgentCoordinator) ClaimSpecificPath(ctx context.Context, pathID, owner 
 		return nil, err
 	}
 	// A claim by the holder extends the lease: it is a transfer of nothing.
+	// The heartbeat projection carries the lease, not the path's identity, so the
+	// audit and snapshot are restored from the row the scheduler claimed. RunPath
+	// needs them to select the task's runtime and scope.
 	if current.LeaseOwner == owner {
-		return c.Paths.Heartbeat(pathID, owner, ttl)
+		renewed, err := c.Paths.Heartbeat(pathID, owner, ttl)
+		if err != nil {
+			return nil, err
+		}
+		if renewed == nil {
+			return nil, path.ErrNotFound
+		}
+		renewed.AuditID, renewed.SnapshotID = current.AuditID, current.SnapshotID
+		return renewed, nil
 	}
 	if current.LeaseOwner != "" {
 		return nil, fmt.Errorf("%w: path %s is leased by %s", path.ErrLeaseHeld, pathID, current.LeaseOwner)

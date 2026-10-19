@@ -213,7 +213,9 @@ no overloading and because a reader should never have to guess which log they ho
 ## Runtime selection and run pins
 
 The deployment owns the catalog: `--agent-runtimes=llm,pi` lists what a task may
-choose, and `--agent-runtime` names the default. A client never supplies an
+choose, and `--agent-runtime` names the default. The shipped Compose deployments set
+`--agent-runtimes=${CODEXPLOIT_AGENT_RUNTIMES:-llm,pi}` with `--pi-worker`, so both
+runtimes are selectable on the page while the default stays `llm`. A client never supplies an
 executable, environment or module path. `GET /api/agent/runtimes` reports each
 entry's readiness, capabilities and secret-free versions; a runtime that is not
 ready is refused at task creation instead of falling back to another adapter.

@@ -212,6 +212,11 @@ func TestCoordinatorClaimSpecificPath(t *testing.T) {
 	if again.ID != next.ID || again.LeaseOwner != "worker-1" {
 		t.Errorf("renewed claim = %+v, want the same path and owner", again)
 	}
+	// The renewal must keep the identity RunPath needs to select the runtime and
+	// the task scope; the heartbeat projection alone does not carry it.
+	if again.AuditID != next.AuditID || again.SnapshotID != next.SnapshotID {
+		t.Errorf("renewed claim lost its scope: audit %q snapshot %q", again.AuditID, again.SnapshotID)
+	}
 
 	// A path that left the queue is not claimable.
 	if err := coordinator.CompletePath(ctx, next.ID, "worker-1", "hypothesis formed"); err != nil {
