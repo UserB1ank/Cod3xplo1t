@@ -192,3 +192,34 @@ func (r *Registry) Descriptions() []string {
 	sort.Strings(out)
 	return out
 }
+
+// AliasTable and the rendered task travel with the adapter context: the host
+// builds both once per run, persists the table, and hands the projection to the
+// adapter. An adapter never allocates aliases and never sees the canonical ids
+// behind them except through resolve requests.
+type aliasTableKey struct{}
+
+type renderedTaskKey struct{}
+
+// WithAliasTable binds one run's alias table to the adapter context.
+func WithAliasTable(ctx context.Context, table *AliasTable) context.Context {
+	return context.WithValue(ctx, aliasTableKey{}, table)
+}
+
+// AliasTableFrom returns the bound table, or nil for an adapter started outside
+// the orchestrator.
+func AliasTableFrom(ctx context.Context) *AliasTable {
+	table, _ := ctx.Value(aliasTableKey{}).(*AliasTable)
+	return table
+}
+
+// WithRenderedTask binds the model-facing task projection.
+func WithRenderedTask(ctx context.Context, rendered string) context.Context {
+	return context.WithValue(ctx, renderedTaskKey{}, rendered)
+}
+
+// RenderedTaskFrom returns the rendered task and whether one was bound.
+func RenderedTaskFrom(ctx context.Context) (string, bool) {
+	rendered, ok := ctx.Value(renderedTaskKey{}).(string)
+	return rendered, ok && rendered != ""
+}

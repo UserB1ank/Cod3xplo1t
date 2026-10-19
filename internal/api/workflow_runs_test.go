@@ -456,8 +456,18 @@ func TestWorkflowKeepsCapturedModelAfterApplicationSettingsChange(t *testing.T) 
 		}
 		var task agent.Task
 		for _, message := range body.Messages {
-			if message.Role == "user" {
-				_ = json.Unmarshal([]byte(message.Content), &task)
+			if message.Role != "user" {
+				continue
+			}
+			if json.Unmarshal([]byte(message.Content), &task) != nil {
+				// Turn-control runs deliver the rendered task, not JSON: read the one
+				// field this provider needs from its GOAL section.
+				if start := strings.Index(message.Content, "\nGOAL\n"); start >= 0 {
+					rest := message.Content[start+len("\nGOAL\n"):]
+					if end := strings.Index(rest, "\n\n"); end >= 0 {
+						task.SecurityGoal = strings.TrimSpace(rest[:end])
+					}
+				}
 			}
 		}
 		observed <- observedRequest{body.Model, r.Header.Get("Authorization")}

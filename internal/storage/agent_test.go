@@ -77,6 +77,14 @@ func newAgentRunFixture(runID, pathID, auditID, snapshotID string) agent.Run {
 			Rounds: 5, ModelRequests: 5, Repairs: 1, Exchanges: 4, Novelty: []int{2, 1, 0, 1},
 			InvalidCalls: 1, Truncations: 2, Source: agent.MetricsSourceReported,
 		},
+		Aliases: &agent.AliasTable{
+			Version: agent.AliasTableVersion,
+			Entries: []agent.AliasEntry{
+				{Alias: "P1", Kind: agent.AliasKindPath, ID: pathID},
+				{Alias: "E1", Kind: agent.AliasKindEvidence, ID: "fact-2"},
+				{Alias: "S1", Kind: agent.AliasKindSymbol, ID: "sym-1"},
+			},
+		},
 		Answer: &agent.Answer{
 			SchemaVersion: agent.SchemaVersion,
 			SecurityGoal:  task.SecurityGoal,

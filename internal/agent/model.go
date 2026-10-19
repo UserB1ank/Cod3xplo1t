@@ -598,7 +598,11 @@ type Run struct {
 	Answer         *Answer           `json:"answer,omitempty"`
 	// Metrics is nil for a run that never started an adapter, and absent for a
 	// record stored before the field existed.
-	Metrics   *RunMetrics `json:"metrics,omitempty"`
+	Metrics *RunMetrics `json:"metrics,omitempty"`
+	// Aliases is the run's versioned model-facing alias table. The ledger and every
+	// business reference stay canonical; only the projection uses short names. A
+	// resumed run keeps the table it was created with.
+	Aliases   *AliasTable `json:"alias_table,omitempty"`
 	CreatedAt string      `json:"created_at"`
 	UpdatedAt string      `json:"updated_at"`
 	Version   int64       `json:"version"`

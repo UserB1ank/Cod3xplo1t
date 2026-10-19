@@ -210,6 +210,37 @@ Deleting a snapshot deletes its runs, events and hypotheses. The audit and run l
 use different method names (`AppendEvents` versus `AppendRunEvents`) because Go has
 no overloading and because a reader should never have to guess which log they hold.
 
+## Alias table and task rendering
+
+The model never reads the canonical task JSON. Once per run the orchestrator builds
+a versioned **alias table** and a deterministic rendered projection; the table is
+stored with the run, the projection is bound to the adapter context. The ledger,
+events, hypotheses, findings and reports keep canonical ids — only the model-facing
+projection and the table entry themselves use short names.
+
+Aliases are allocated by first appearance and are typed: `P` path, `A` audit, `E`
+evidence, `S` symbol or ASG node, `C` call site. The same task always produces the
+same table, so a prompt can be compared across runs and a resumed run can prove
+which vocabulary it was given.
+
+Resolution happens in the host, never in the adapter:
+
+- Tool arguments that carry ids (`symbol_id`, `node_id`, `call_site_id`,
+  `path_id`, `audit_id`, `evidence_id`, `ref`, `from`, `to`) are resolved before
+  policy checks. An alias that is not in this run's table, or a canonical id from
+  outside the task's scope, is denied and counted as an invalid call — it never
+  reaches a tool. Free-text arguments are not rewritten.
+- Structured tool results are projected back: only known id fields and id arrays
+  are shortened; free text and unknown fields keep the text the tool produced.
+- A proposed answer is resolved before validation, so the stored hypothesis and
+  finding cite canonical evidence. Prose is never rewritten.
+
+The rendered task states the goal, path endpoints, evidence, prior findings,
+untrusted source blocks, unresolved questions, limitations, obligations, budget and
+output contract. Repository content is fenced with a fence longer than any backtick
+run inside it and labelled untrusted; it is data, never instructions. The renderer
+reads no files, so a repository's `AGENTS.md` or skills cannot enter the prompt.
+
 ## Turn control
 
 An adapter that declares `TurnControl` may not act on its own: every provider

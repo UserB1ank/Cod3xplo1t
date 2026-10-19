@@ -244,6 +244,12 @@ func (r *Runner) execute(ctx context.Context, auditID string, p *path.Path, owne
 		r.releaseQuietly(ctx, p.ID, owner, "task is not deliverable: "+err.Error())
 		return nil, err
 	}
+	// One table and one projection per run. The table is persisted with the run, so
+	// a resumed or audited run can resolve the aliases it handed the model; the
+	// projection is what the model actually reads.
+	aliases := NewAliasTable(task)
+	rendered := RenderTask(task, aliases)
+
 	// The delivered policy is the one the exchange is judged against; the runner
 	// only fills in for a builder that left it empty.
 	if !runnerPolicyEmpty(task.Exploration) {
@@ -275,6 +281,7 @@ func (r *Runner) execute(ctx context.Context, auditID string, p *path.Path, owne
 		Exploration:    policy,
 		Budget:         Budget{TimeoutSeconds: policy.TimeoutSeconds, TokenBudget: policy.TokenBudget},
 		Owner:          owner,
+		Aliases:        aliases,
 		LeaseEpoch:     p.LeaseEpoch,
 		DeadlineAt:     NowString(now.Add(timeout)),
 		CreatedAt:      NowString(now),
@@ -307,11 +314,21 @@ func (r *Runner) execute(ctx context.Context, auditID string, p *path.Path, owne
 		return run, fmt.Errorf("agent: mark run %s running: %w", run.ID, err)
 	}
 
-	handle, err := r.Runtime.Start(WithRunGeneration(ctx, generationOf(p)), task)
+	adapterCtx := WithRunGeneration(ctx, generationOf(p))
+	adapterCtx = WithAliasTable(adapterCtx, aliases)
+	adapterCtx = WithRenderedTask(adapterCtx, rendered)
+	handle, err := r.Runtime.Start(adapterCtx, task)
 	if err != nil {
 		return r.finishAdapterStartFailure(ctx, p, owner, run, attempt, maxAttempts, err)
 	}
 
+	// Aliases are the model-facing vocabulary of turn-control adapters. A scripted
+	// or cli adapter sends canonical ids, so resolving them would deny calls that
+	// are already in scope; those adapters keep working unchanged.
+	sessionAliases := aliases
+	if !caps.TurnControl {
+		sessionAliases = nil
+	}
 	session := &runnerSession{
 		runner:       r,
 		run:          run,
@@ -325,6 +342,7 @@ func (r *Runner) execute(ctx context.Context, auditID string, p *path.Path, owne
 		branches:     1, // the run itself is the first active branch
 		status:       RunRunning,
 		generation:   generationOf(p),
+		aliases:      sessionAliases,
 		reservations: map[string]int{},
 		usageSeen:    map[string]bool{},
 		proposals:    map[string]proposalVerdict{},
@@ -561,6 +579,7 @@ type runnerSession struct {
 	// requests, repairs counts granted corrections, reserved is the sum of the
 	// reservations still outstanding.
 	generation    int64
+	aliases       *AliasTable
 	modelRequests int
 	repairs       int
 	reserved      int
@@ -881,7 +900,11 @@ func (s *runnerSession) applyProposal(ctx context.Context, ev RuntimeEvent) bool
 		reply = prior.decision
 		return prior.decision.Decision != DecisionRepair || s.failPersistIfNeeded()
 	}
-	answer, err := DecodeAnswer(proposal.Raw, s.task)
+	raw := proposal.Raw
+	if s.aliases != nil {
+		raw = s.aliases.ResolveAnswer(raw)
+	}
+	answer, err := DecodeAnswer(raw, s.task)
 	if err == nil {
 		s.answer = answer
 		reply = AnswerDecision{Decision: DecisionAccepted, RepairsUsed: s.repairs}
@@ -993,6 +1016,24 @@ func (s *runnerSession) applyTool(ctx context.Context, ev RuntimeEvent) bool {
 		Summary: "tool requested: " + runnerCapText(req.Tool, MaxNotesChars),
 		Detail:  map[string]string{"arguments": fmt.Sprint(len(req.Args))},
 	}
+	// The model speaks in aliases. Only the id-bearing arguments are resolved, and
+	// an unknown alias is a denial, not a pass-through: an id from another run or
+	// outside this task's scope must never reach a tool.
+	if s.aliases != nil {
+		resolved, err := s.aliases.ResolveArgs(req.Args)
+		if err != nil {
+			s.invalidCalls++
+			denied := Event{
+				Type: EventToolDenied, Actor: runnerActorOrchestrator,
+				CallID: req.CallID, Tool: req.Tool,
+				Summary: "tool denied: " + err.Error(),
+				Detail:  map[string]string{"reason": err.Error()},
+			}
+			reply.Error = "tool request denied: " + err.Error()
+			return s.append(asked, denied)
+		}
+		req.Args = resolved
+	}
 	if err := ValidateToolRequest(req, s.policy, s.toolCalls); err != nil {
 		denied := Event{
 			Type: EventToolDenied, Actor: runnerActorOrchestrator,
@@ -1033,6 +1074,9 @@ func (s *runnerSession) applyTool(ctx context.Context, ev RuntimeEvent) bool {
 	if callErr == nil {
 		reply.OK, reply.Error, reply.Refs = result.OK, result.Error, result.Refs
 		payload, truncated = TruncateToolResult(result.Result)
+		if s.aliases != nil {
+			payload = s.aliases.ProjectJSON(payload)
+		}
 		reply.Result = payload
 		if truncated {
 			s.truncations++

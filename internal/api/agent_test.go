@@ -458,6 +458,11 @@ func TestAgentRunEventsAreOrderedAndFilterable(t *testing.T) {
 	if run.Metrics == nil || run.Metrics.Source != agent.MetricsSourceLegacyEstimate {
 		t.Errorf("scripted run metrics = %+v, want the legacy estimate labelled", run.Metrics)
 	}
+	// The alias table is run metadata: the model-facing vocabulary is persisted with
+	// the run, while every business field stays canonical.
+	if run.Aliases == nil || run.Aliases.Version != agent.AliasTableVersion {
+		t.Errorf("run alias table = %+v, want a persisted version", run.Aliases)
+	}
 
 	// The run is listable by path, audit, snapshot and status.
 	for _, query := range []string{
