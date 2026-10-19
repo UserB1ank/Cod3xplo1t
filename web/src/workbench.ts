@@ -177,3 +177,16 @@ export function taskGradeCounts(findings: ProjectFinding[], taskID: string) {
   }
   return counts;
 }
+
+export function sourceNetworkError(
+  kind: string,
+  location: string,
+  network: boolean,
+): string {
+  if (network) return "";
+  if (kind === "git_repository")
+    return "远程 Git 访问未启用。请改用本地文件夹，或以 CODEXPLOIT_ALLOW_NETWORK=true 重新启动服务。";
+  if (kind === "legacy_auto" && /^(https|ssh):\/\//i.test(location.trim()))
+    return "远程 Git 访问未启用。请改用本地文件夹，或以 CODEXPLOIT_ALLOW_NETWORK=true 重新启动服务。";
+  return "";
+}

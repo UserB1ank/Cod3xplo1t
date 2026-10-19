@@ -4,6 +4,7 @@ import {
   latestSnapshot,
   readRoute,
   routeHash,
+  sourceNetworkError,
   taskGradeCounts,
   taskState,
   type Task,
@@ -110,4 +111,20 @@ test("API maps actionable 403 codes instead of blaming permissions", async () =>
     () => forbidden("forbidden").get("/projects"),
     /没有执行该操作的权限/,
   );
+});
+
+test("remote sources are blocked before a project is created when network is off", () => {
+  assert.match(
+    sourceNetworkError("git_repository", "https://example.invalid/repo.git", false),
+    /远程 Git 访问未启用/,
+  );
+  assert.match(
+    sourceNetworkError("legacy_auto", "ssh://example.invalid/repo.git", false),
+    /远程 Git 访问未启用/,
+  );
+  assert.equal(
+    sourceNetworkError("git_repository", "https://example.invalid/repo.git", true),
+    "",
+  );
+  assert.equal(sourceNetworkError("local_folder", "/repos/service", false), "");
 });

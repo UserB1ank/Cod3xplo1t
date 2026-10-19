@@ -68,6 +68,7 @@ import {
   latestSnapshot,
   readRoute,
   routeHash,
+  sourceNetworkError,
   taskGradeCounts,
   taskState,
   type FindingPage,
@@ -2427,14 +2428,22 @@ function ProjectForm({
   }) => void;
 }) {
   const [kind, setKind] = useState("local_folder");
+  const [error, setError] = useState("");
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
         const form = new FormData(e.currentTarget);
+        const source = String(form.get("source"));
+        const networkError = sourceNetworkError(kind, source, network);
+        if (networkError) {
+          setError(networkError);
+          return;
+        }
+        setError("");
         onSubmit({
           name: String(form.get("name")),
-          source: String(form.get("source")),
+          source,
           ref: String(form.get("ref")),
           kind,
           credentialRef: String(form.get("credential_ref") || ""),
@@ -2452,7 +2461,13 @@ function ProjectForm({
       </label>
       <label>
         代码源类型
-        <select value={kind} onChange={(event) => setKind(event.target.value)}>
+        <select
+          value={kind}
+          onChange={(event) => {
+            setKind(event.target.value);
+            setError("");
+          }}
+        >
           <option value="local_folder">本地文件夹 · 读取当前文件</option>
           <option value="git_repository">Git 仓库 · 固定提交</option>
           <option value="legacy_auto">既有自动识别入口</option>
@@ -2514,6 +2529,11 @@ function ProjectForm({
         {kind === "local_folder" &&
           "包含未提交修改；目录内的 .git 不会切换读取方式。"}
       </Hint>
+      {error && (
+        <div className="error-message" role="alert">
+          {error}
+        </div>
+      )}
       <FormFooter busy={busy} label={buildKnowledge ? "创建项目并建立图谱" : "创建项目并固定快照"} />
     </form>
   );
