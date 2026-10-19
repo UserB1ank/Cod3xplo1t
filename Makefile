@@ -4,7 +4,7 @@ TEST_FLAGS := -count=1 -shuffle=on -race -timeout 240s
 # Staticcheck is pinned: a new release may add checks and turn a green tree red.
 STATICCHECK_VERSION ?= v0.8.2
 
-.PHONY: help run standalone down logs build build-web build-scanner build-backend test-web check-contracts docker-build docker-up postgres-up postgres-down postgres-status postgres-logs test test-stress bench-agent lint fmt-check vet staticcheck fmt tidy clean run-server run-cli run-mcp
+.PHONY: help run standalone down logs build build-web build-scanner build-backend test-web check-contracts docker-build docker-up postgres-up postgres-down postgres-status postgres-logs test test-stress bench-agent bench-runtime lint fmt-check vet staticcheck fmt tidy clean run-server run-cli run-mcp
 
 help:
 	@echo "make build        # build Web UI into bin/server, bin/cli, bin/mcp and the scanner package"
@@ -118,6 +118,9 @@ test-stress:
 # Stop-quality baseline: the golden scenarios replay without a model, so the same
 # script always produces the same counters. The summary is machine readable and is
 # what later loop changes are compared against.
+bench-runtime:
+	go run ./cmd/bench-runtime $(BENCH_ARGS)
+
 bench-agent:
 	@mkdir -p dist
 	AGENT_BENCH_OUT=$(CURDIR)/dist/agent-baseline.json $(GO) test ./internal/agent -run TestGoldenBaseline -count=1 -v
