@@ -463,6 +463,9 @@ func TestAgentRunEventsAreOrderedAndFilterable(t *testing.T) {
 	if run.Aliases == nil || run.Aliases.Version != agent.AliasTableVersion {
 		t.Errorf("run alias table = %+v, want a persisted version", run.Aliases)
 	}
+	if run.ToolSchemaDigest == "" {
+		t.Error("run has no tool schema digest: the native contract is not pinned")
+	}
 
 	// The run is listable by path, audit, snapshot and status.
 	for _, query := range []string{

@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"sort"
 	"sync"
 )
@@ -140,8 +142,12 @@ type ToolExecutor interface {
 	Name() string
 	// Describe returns a one-line description, which is what a task advertises.
 	Describe() string
-	// Call runs the tool. It must be read-only and it must respect the context.
-	Call(ctx context.Context, args map[string]string) (ToolResult, error)
+	// Descriptor is the native tool contract: name, description, JSON Schema and
+	// version. The registry validates it at registration time.
+	Descriptor() ToolDescriptor
+	// Call runs the tool with native JSON arguments. It must be read-only and it
+	// must respect the context.
+	Call(ctx context.Context, args json.RawMessage) (ToolResult, error)
 }
 
 // NewRegistry builds an empty tool registry.
@@ -158,7 +164,38 @@ func (r *Registry) Register(executor ToolExecutor) {
 	if _, exists := r.entries[name]; exists {
 		panic("agent: duplicate tool " + name)
 	}
+	descriptor := executor.Descriptor()
+	if descriptor.Name != name || name == "" {
+		panic(fmt.Sprintf("agent: tool %q has descriptor name %q", name, descriptor.Name))
+	}
+	if descriptor.Version == "" {
+		panic("agent: tool " + name + " has no descriptor version")
+	}
+	if _, err := ParseToolSchema(descriptor.InputSchema); err != nil {
+		panic(fmt.Sprintf("agent: tool %q has an invalid input schema: %v", name, err))
+	}
 	r.entries[name] = executor
+}
+
+// Descriptor returns one tool's native contract.
+func (r *Registry) Descriptor(name string) (ToolDescriptor, bool) {
+	executor, ok := r.Lookup(name)
+	if !ok {
+		return ToolDescriptor{}, false
+	}
+	return executor.Descriptor(), true
+}
+
+// Descriptors returns the contracts of the named tools in the given order, so a
+// whitelist and the model's tool list cannot drift apart.
+func (r *Registry) Descriptors(names []string) []ToolDescriptor {
+	out := make([]ToolDescriptor, 0, len(names))
+	for _, name := range names {
+		if descriptor, ok := r.Descriptor(name); ok {
+			out = append(out, descriptor)
+		}
+	}
+	return out
 }
 
 // Lookup finds a tool.
@@ -222,4 +259,27 @@ func WithRenderedTask(ctx context.Context, rendered string) context.Context {
 func RenderedTaskFrom(ctx context.Context) (string, bool) {
 	rendered, ok := ctx.Value(renderedTaskKey{}).(string)
 	return rendered, ok && rendered != ""
+}
+
+// ToolScope is the trusted scope the host injects into a tool call. A model
+// cannot widen it: scope fields are not part of any tool's input schema, and the
+// executor reads them here rather than from the request.
+type ToolScope struct {
+	SnapshotID string
+	PathID     string
+	AuditID    string
+	RunID      string
+}
+
+type toolScopeKey struct{}
+
+// WithToolScope binds the run's trusted scope to one tool call.
+func WithToolScope(ctx context.Context, scope ToolScope) context.Context {
+	return context.WithValue(ctx, toolScopeKey{}, scope)
+}
+
+// ToolScopeFrom returns the bound scope.
+func ToolScopeFrom(ctx context.Context) ToolScope {
+	scope, _ := ctx.Value(toolScopeKey{}).(ToolScope)
+	return scope
 }

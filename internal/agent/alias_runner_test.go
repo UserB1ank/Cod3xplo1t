@@ -52,7 +52,7 @@ func TestRunnerResolvesAliasesAndProjectsResults(t *testing.T) {
 		}
 		toolReply := make(chan ToolResult, 1)
 		events <- RuntimeEvent{Type: EventToolRequested, Tool: &ToolRequest{
-			CallID: "model-0", Tool: "graph.query", Args: map[string]string{"symbol_id": "S1", "query": "S1"},
+			CallID: "model-0", Tool: "graph.query", Args: json.RawMessage(`{"symbol_id":"S1","query":"S1"}`),
 		}, ToolReply: toolReply}
 		result := <-toolReply
 		modelToolResult = result.Result
@@ -94,12 +94,20 @@ func TestRunnerResolvesAliasesAndProjectsResults(t *testing.T) {
 		t.Errorf("free-text query = %q, want S1 untouched", got)
 	}
 
-	// The model sees aliases, including in the tool result.
-	if !strings.Contains(modelToolResult, `"id":"S1"`) || !strings.Contains(modelToolResult, `"refs":["S1","E1"]`) {
-		t.Fatalf("tool result was not projected: %s", modelToolResult)
+	// The model sees aliases, including in the tool result. The runner wraps the
+	// payload with the host receipt; the payload itself is the projection.
+	var envelope struct {
+		OK     bool   `json:"ok"`
+		Result string `json:"result"`
 	}
-	if !strings.Contains(modelToolResult, `"summary":"entry-1 is the entry"`) {
-		t.Fatalf("free text in the tool result was rewritten: %s", modelToolResult)
+	if err := json.Unmarshal([]byte(modelToolResult), &envelope); err != nil {
+		t.Fatalf("tool result is not the host envelope: %v (%s)", err, modelToolResult)
+	}
+	if !strings.Contains(envelope.Result, `"id":"S1"`) || !strings.Contains(envelope.Result, `"refs":["S1","E1"]`) {
+		t.Fatalf("tool result was not projected: %s", envelope.Result)
+	}
+	if !strings.Contains(envelope.Result, `"summary":"entry-1 is the entry"`) {
+		t.Fatalf("free text in the tool result was rewritten: %s", envelope.Result)
 	}
 
 	// The stored answer carries the canonical evidence id, not the alias.

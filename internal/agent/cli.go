@@ -390,7 +390,7 @@ type cliEvent struct {
 	Type         string            `json:"type"`
 	Summary      string            `json:"summary"`
 	Detail       map[string]string `json:"detail"`
-	Tool         *ToolRequest      `json:"tool"`
+	Tool         *cliToolRequest   `json:"tool"`
 	Expansion    *ExpansionAsk     `json:"expansion"`
 	Answer       json.RawMessage   `json:"answer"`
 	InputTokens  int               `json:"input_tokens"`
@@ -450,7 +450,7 @@ func (r *CLIRuntime) eventFromWire(wire cliEvent, task Task) (RuntimeEvent, *Ans
 		Type:         resolved,
 		Summary:      truncateSummary(wire.Summary),
 		Detail:       wire.Detail,
-		Tool:         wire.Tool,
+		Tool:         wire.Tool.request(),
 		Expansion:    wire.Expansion,
 		InputTokens:  wire.InputTokens,
 		OutputTokens: wire.OutputTokens,
@@ -683,4 +683,20 @@ func mergeDetail(detail map[string]string, key, value string) map[string]string 
 	}
 	merged[key] = value
 	return merged
+}
+
+// cliToolRequest is the protocol-v1 shape of a tool request: every argument is a
+// string. The host converts only the fields the tool schema declares; a native v2
+// worker will send typed JSON directly and is a different adapter, not a flag.
+type cliToolRequest struct {
+	CallID string            `json:"call_id"`
+	Tool   string            `json:"tool"`
+	Args   map[string]string `json:"args"`
+}
+
+func (r *cliToolRequest) request() *ToolRequest {
+	if r == nil {
+		return nil
+	}
+	return &ToolRequest{CallID: r.CallID, Tool: r.Tool, LegacyArgs: r.Args}
 }

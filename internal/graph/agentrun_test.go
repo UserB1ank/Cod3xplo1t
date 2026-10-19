@@ -40,7 +40,7 @@ func TestGraphAssemblyRunsAnAgentOverARealPath(t *testing.T) {
 	runtime := agent.NewScriptedRuntime("scripted", "test", []agent.ScriptStep{
 		agent.ScriptTool(agent.ToolRequest{
 			CallID: "call-1", Tool: graph.ToolGetSymbol,
-			Args: map[string]string{"snapshot_id": agentSnapID, "symbol_id": sym.ID},
+			LegacyArgs: map[string]string{"snapshot_id": agentSnapID, "symbol_id": sym.ID},
 		}),
 		agent.ScriptAnswer(agent.Answer{
 			SchemaVersion: agent.SchemaVersionObligations,

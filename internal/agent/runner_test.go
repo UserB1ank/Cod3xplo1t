@@ -583,7 +583,16 @@ var _ ToolExecutor = (*runnerTestTool)(nil)
 func (t *runnerTestTool) Name() string     { return t.name }
 func (t *runnerTestTool) Describe() string { return "runner test tool" }
 
-func (t *runnerTestTool) Call(_ context.Context, args map[string]string) (ToolResult, error) {
+func (t *runnerTestTool) Descriptor() ToolDescriptor {
+	return ToolDescriptor{
+		Name: t.name, Description: t.Describe(), Version: "1",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"symbol":{"type":"string"},"symbol_id":{"type":"string"},"query":{"type":"string"},"cmd":{"type":"string"},"path_id":{"type":"string"},"audit_id":{"type":"string"},"max_depth":{"type":"integer"}},"additionalProperties":false}`),
+	}
+}
+
+func (t *runnerTestTool) Call(_ context.Context, raw json.RawMessage) (ToolResult, error) {
+	var args map[string]string
+	_ = json.Unmarshal(raw, &args)
 	t.mu.Lock()
 	t.calls++
 	copied := make(map[string]string, len(args))
@@ -765,7 +774,7 @@ func TestRunnerToolRequests(t *testing.T) {
 	t.Run("an allowed tool is executed and its result shares the call id", func(t *testing.T) {
 		policy := runnerTestPolicy()
 		store, paths, tool, r := newRunner([]ScriptStep{
-			ScriptTool(ToolRequest{CallID: "call-1", Tool: "graph.query", Args: map[string]string{"symbol": "sink-1"}}),
+			ScriptTool(ToolRequest{CallID: "call-1", Tool: "graph.query", LegacyArgs: map[string]string{"symbol": "sink-1"}}),
 			ScriptAnswer(runnerTestAnswer()),
 		}, policy)
 		run, err := r.RunOnce(context.Background(), "audit-1")
@@ -813,7 +822,7 @@ func TestRunnerToolRequests(t *testing.T) {
 	t.Run("a tool outside the allowlist is denied and the run continues", func(t *testing.T) {
 		policy := runnerTestPolicy()
 		store, paths, tool, r := newRunner([]ScriptStep{
-			ScriptTool(ToolRequest{CallID: "call-2", Tool: "shell.exec", Args: map[string]string{"cmd": "id"}}),
+			ScriptTool(ToolRequest{CallID: "call-2", Tool: "shell.exec", LegacyArgs: map[string]string{"cmd": "id"}}),
 			ScriptAnswer(runnerTestAnswer()),
 		}, policy)
 		run, err := r.RunOnce(context.Background(), "audit-1")
@@ -1633,5 +1642,19 @@ func TestRunnerRunPathRefusesUnclaimableStatus(t *testing.T) {
 	}
 	if store.runCount() != 0 {
 		t.Errorf("runs = %d, want 0", store.runCount())
+	}
+}
+
+// testToolDescriptor is the permissive contract the in-package tool fakes speak.
+// Real tools carry tighter schemas; the fake only needs to accept the fields the
+// tests exercise.
+func testToolDescriptor(name string) ToolDescriptor {
+	return ToolDescriptor{
+		Name: name, Description: "test tool", Version: "1",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{` +
+			`"symbol":{"type":"string"},"symbol_id":{"type":"string"},"query":{"type":"string"},` +
+			`"cmd":{"type":"string"},"path_id":{"type":"string"},"audit_id":{"type":"string"},` +
+			`"max_depth":{"type":"integer"}},` +
+			`"additionalProperties":false}`),
 	}
 }

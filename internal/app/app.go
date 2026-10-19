@@ -591,7 +591,7 @@ func (r *Runtime) wireAgent(cfg AgentConfig) error {
 		return err
 	}
 	if model, ok := runtime.(*agent.ModelRuntime); ok {
-		model.ToolDescriptions = registry.Descriptions()
+		model.Tools = registry.Descriptors(policy.AllowedTools)
 	}
 	facts := graph.NewAgentFacts(r.Graph, r.ASG, agent.BuildOptions{AllowedTools: policy.AllowedTools})
 	r.AgentRegistry = registry

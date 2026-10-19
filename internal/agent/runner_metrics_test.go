@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -15,7 +16,14 @@ var _ ToolExecutor = (*failingTool)(nil)
 
 func (t *failingTool) Name() string     { return t.name }
 func (t *failingTool) Describe() string { return "always fails" }
-func (t *failingTool) Call(context.Context, map[string]string) (ToolResult, error) {
+func (t *failingTool) Descriptor() ToolDescriptor {
+	return ToolDescriptor{
+		Name: t.Name(), Description: "always fails", Version: "1",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+	}
+}
+
+func (t *failingTool) Call(context.Context, json.RawMessage) (ToolResult, error) {
 	return ToolResult{Tool: t.name, OK: false, Error: "symbol not found"}, nil
 }
 

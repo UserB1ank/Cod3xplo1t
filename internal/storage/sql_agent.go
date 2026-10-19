@@ -18,7 +18,7 @@ var agentRunColumnNames = []string{
 	"task_json", "exploration_json", "budget_json", "tool_calls", "expansions", "input_tokens",
 	"output_tokens", "elapsed_ms", "owner", "started_at", "deadline_at", "heartbeat_at",
 	"finished_at", "exit_code", "stop_reason", "error", "output_json", "created_at", "updated_at", "version", "lease_epoch",
-	"metrics_json", "aliases_json",
+	"metrics_json", "aliases_json", "tools_digest",
 }
 
 var agentEventColumnNames = []string{
@@ -91,7 +91,7 @@ func agentRunWriteValues(run agent.Run) ([]any, error) {
 		task, exploration, budget, run.ToolCalls, run.Expansions, run.InputTokens, run.OutputTokens,
 		run.ElapsedMS, run.Owner, run.StartedAt, run.DeadlineAt, run.HeartbeatAt, run.FinishedAt, exit,
 		run.StopReason, run.Error, output, run.CreatedAt, run.UpdatedAt, run.Version, run.LeaseEpoch,
-		metrics, aliases,
+		metrics, aliases, run.ToolSchemaDigest,
 	}, nil
 }
 
@@ -107,7 +107,7 @@ func scanAgentRunRow(scan func(...any) error) (agent.Run, error) {
 		&status, &task, &exploration, &budget, &run.ToolCalls, &run.Expansions, &run.InputTokens,
 		&run.OutputTokens, &run.ElapsedMS, &run.Owner, &run.StartedAt, &run.DeadlineAt, &run.HeartbeatAt,
 		&run.FinishedAt, &exit, &run.StopReason, &run.Error, &output, &run.CreatedAt, &run.UpdatedAt,
-		&run.Version, &run.LeaseEpoch, &metrics, &aliases); err != nil {
+		&run.Version, &run.LeaseEpoch, &metrics, &aliases, &run.ToolSchemaDigest); err != nil {
 		return agent.Run{}, err
 	}
 	run.Status = agent.RunStatus(status)

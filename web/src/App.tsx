@@ -1479,7 +1479,10 @@ function TaskWorkbench({
                   <tbody>
                     {runs.data.runs.map((run) => (
                       <tr key={run.run_id}>
-                        <td className="mono">{shortId(run.run_id)}</td>
+                        <td className="mono">
+                          {shortId(run.run_id)}
+                          {run.tool_schema_digest && <span className="subtle-label"> 契约 {shortId(run.tool_schema_digest)}</span>}
+                        </td>
                         <td>
                           <Badge status={run.status} />
                         </td>

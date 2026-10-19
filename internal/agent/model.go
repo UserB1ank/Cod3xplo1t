@@ -20,6 +20,7 @@ package agent
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -436,9 +437,35 @@ type ExpansionAsk struct {
 // orchestrator executes it; the agent never touches the process, the network or
 // the filesystem itself.
 type ToolRequest struct {
-	CallID string            `json:"call_id"`
-	Tool   string            `json:"tool"`
-	Args   map[string]string `json:"args"`
+	CallID string          `json:"call_id"`
+	Tool   string          `json:"tool"`
+	Args   json.RawMessage `json:"args"`
+	// LegacyArgs is how a protocol-v1 adapter (the CLI JSON lines, a scripted Go
+	// value) reports its string-valued arguments. The host converts only the
+	// fields the tool schema declares, then validates the result like any other
+	// request; the strings never reach a tool.
+	LegacyArgs map[string]string `json:"-"`
+}
+
+// BudgetReceipt is the host's authoritative statement of what is left. A model
+// reading a tool result must never have to estimate its own remaining budget.
+type BudgetReceipt struct {
+	CallsLeft         int    `json:"calls_left"`
+	TokensLeft        *int   `json:"tokens_left"`
+	RepairsLeft       int    `json:"repairs_left"`
+	ObligationsClosed int    `json:"obligations_closed"`
+	ObligationsTotal  int    `json:"obligations_total"`
+	BudgetEnforced    bool   `json:"budget_enforced"`
+	UsageSource       string `json:"usage_source"`
+}
+
+// ToolResultEnvelope is the one model-facing shape of a tool result: outcome,
+// payload (or error) and the host's budget receipt.
+type ToolResultEnvelope struct {
+	OK     bool           `json:"ok"`
+	Result string         `json:"result,omitempty"`
+	Error  string         `json:"error,omitempty"`
+	Budget *BudgetReceipt `json:"budget,omitempty"`
 }
 
 // ToolResult is what the orchestrator returns for one call.
@@ -602,10 +629,13 @@ type Run struct {
 	// Aliases is the run's versioned model-facing alias table. The ledger and every
 	// business reference stay canonical; only the projection uses short names. A
 	// resumed run keeps the table it was created with.
-	Aliases   *AliasTable `json:"alias_table,omitempty"`
-	CreatedAt string      `json:"created_at"`
-	UpdatedAt string      `json:"updated_at"`
-	Version   int64       `json:"version"`
+	Aliases *AliasTable `json:"alias_table,omitempty"`
+	// ToolSchemaDigest pins the exact native tool contracts the run used. A
+	// resumed run under a different schema must not reinterpret old calls.
+	ToolSchemaDigest string `json:"tool_schema_digest,omitempty"`
+	CreatedAt        string `json:"created_at"`
+	UpdatedAt        string `json:"updated_at"`
+	Version          int64  `json:"version"`
 }
 
 // Event is one append-only entry of a run's exchange log.

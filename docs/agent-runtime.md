@@ -210,6 +210,40 @@ Deleting a snapshot deletes its runs, events and hypotheses. The audit and run l
 use different method names (`AppendEvents` versus `AppendRunEvents`) because Go has
 no overloading and because a reader should never have to guess which log they hold.
 
+## Native tool contracts
+
+Every tool has one contract: `ToolDescriptor{name, description, input_schema,
+version}`. The registry validates the schema at registration time — a missing,
+malformed or open schema is a startup panic, not a runtime surprise — and refuses
+to register a tool whose descriptor disagrees with its name. The model runtime
+compiles exactly these schemas into provider tools; it does not wrap them in a
+generic query tool, so an argument means the same thing to every runtime.
+
+Arguments are native JSON. Integers and booleans are numbers and booleans, not
+strings; enums and length/range limits live in the schema. Before a tool runs the
+host validates the request against that same schema: unknown fields, wrong types,
+quoted numbers, out-of-range values and a missing required field are denials, not
+coercions. The tool then decodes the validated object.
+
+**Scope is not an argument.** Snapshot, path, audit and run ids are absent from
+every schema. The host injects them into the tool context from the task, so a
+client cannot substitute another object even by sending a field the schema does
+not declare. A protocol-v1 adapter (the CLI JSON lines, a scripted Go value) may
+still report string-valued arguments; the host converts only the fields the schema
+declares, drops legacy scope fields, and validates the result exactly like a
+native request.
+
+**Receipts.** Every tool result is returned in one envelope: `{ok, result, error,
+budget}`. The budget is the host's count — `calls_left`, `tokens_left` (or null
+when no token budget is enforced), `repairs_left`, `obligations{closed,total}`,
+`budget_enforced` and `usage_source`. A model never estimates its own remaining
+budget from the conversation. Reservations still outstanding are subtracted from
+`tokens_left`, so the number is what can still be spent.
+
+The run records `tool_schema_digest`, a digest of the contracts its allowlist
+resolved to. A resumed run under a different schema is a different contract and
+must not reinterpret old tool calls.
+
 ## Alias table and task rendering
 
 The model never reads the canonical task JSON. Once per run the orchestrator builds

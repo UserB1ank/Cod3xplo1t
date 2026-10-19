@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/open-mcp-ai/Codexploit/internal/agent"
@@ -137,21 +135,24 @@ type toolEnv struct {
 type agentReadTool struct {
 	name     string
 	describe string
-	call     func(ctx context.Context, env toolEnv, args map[string]string) (agent.ToolResult, error)
+	schema   string
+	call     func(ctx context.Context, env toolEnv, args json.RawMessage) (agent.ToolResult, error)
 }
 
 // boundTool is one tool closed over its wiring, which is what the registry stores.
 type boundTool struct {
 	name     string
 	describe string
-	call     func(ctx context.Context, args map[string]string) (agent.ToolResult, error)
+	schema   json.RawMessage
+	call     func(ctx context.Context, args json.RawMessage) (agent.ToolResult, error)
 }
 
 func (t agentReadTool) bind(env toolEnv) *boundTool {
 	return &boundTool{
 		name:     t.name,
 		describe: t.describe,
-		call: func(ctx context.Context, args map[string]string) (agent.ToolResult, error) {
+		schema:   json.RawMessage(t.schema),
+		call: func(ctx context.Context, args json.RawMessage) (agent.ToolResult, error) {
 			return t.call(ctx, env, args)
 		},
 	}
@@ -159,7 +160,16 @@ func (t agentReadTool) bind(env toolEnv) *boundTool {
 
 func (t *boundTool) Name() string     { return t.name }
 func (t *boundTool) Describe() string { return t.describe }
-func (t *boundTool) Call(ctx context.Context, args map[string]string) (agent.ToolResult, error) {
+
+// Descriptor is the native contract every runtime compiles from. The version is
+// bumped when the meaning of an argument changes, not when a tool is added.
+func (t *boundTool) Descriptor() agent.ToolDescriptor {
+	return agent.ToolDescriptor{
+		Name: t.name, Description: t.describe, InputSchema: t.schema, Version: "1",
+	}
+}
+
+func (t *boundTool) Call(ctx context.Context, args json.RawMessage) (agent.ToolResult, error) {
 	if err := ctx.Err(); err != nil {
 		return agent.ToolResult{Tool: t.name}, err
 	}
@@ -173,51 +183,61 @@ func agentToolset() []agentReadTool {
 	return []agentReadTool{
 		{
 			name:     ToolGetSymbol,
+			schema:   schemaGetSymbol,
 			describe: "Fetch one declaration (symbol_id: id or qualified name); returns the declaration and its meta.",
 			call:     callGetSymbol,
 		},
 		{
 			name:     ToolListSymbols,
+			schema:   schemaListSymbols,
 			describe: "Search declarations (module_id?, kind?, name_contains?, qualified_name?, limit?, offset?); returns a bounded page and the total match count.",
 			call:     callListSymbols,
 		},
 		{
 			name:     ToolGetCallers,
+			schema:   schemaGetCallers,
 			describe: "List symbols that reach a symbol over observed CALLS edges (symbol_id, max_depth?, max_nodes?, limit?); carries the unresolved call sites inside them.",
 			call:     callGetCallers,
 		},
 		{
 			name:     ToolGetCallees,
+			schema:   schemaGetCallees,
 			describe: "List symbols a symbol reaches over observed CALLS edges (symbol_id, max_depth?, max_nodes?, limit?); carries the unresolved call sites inside them.",
 			call:     callGetCallees,
 		},
 		{
 			name:     ToolFindCallPaths,
+			schema:   schemaFindCallPaths,
 			describe: "Enumerate bounded call paths (source_symbol_id, sink_symbol_id, max_depth?, max_paths?); reachability, never proof that data flows.",
 			call:     callFindCallPaths,
 		},
 		{
 			name:     ToolGetCodeSlice,
+			schema:   schemaGetCodeSlice,
 			describe: "Read a bounded source excerpt (symbol_id, or file+start_line+end_line; include?, max_lines?).",
 			call:     callGetCodeSlice,
 		},
 		{
 			name:     ToolGraphSummary,
+			schema:   schemaGraphSummary,
 			describe: "Snapshot call-graph summary (snapshot_id): counts, call-site resolution, coverage and limitations.",
 			call:     callGraphSummary,
 		},
 		{
 			name:     ToolGetPath,
+			schema:   schemaGetPath,
 			describe: "Fetch one AuditPath (path_id): ends, steps, refs, objectives and open questions.",
 			call:     callGetPath,
 		},
 		{
 			name:     ToolListAuditPaths,
+			schema:   schemaListAuditPaths,
 			describe: "List an audit's paths (audit_id, status?, limit?, offset?) as a bounded page.",
 			call:     callListAuditPaths,
 		},
 		{
 			name:     ToolListHypotheses,
+			schema:   schemaListHypotheses,
 			describe: "List stored hypotheses (path_id | audit_id | run_id | snapshot_id, status?, limit?, offset?).",
 			call:     callListHypotheses,
 		},
@@ -226,46 +246,37 @@ func agentToolset() []agentReadTool {
 
 // --- argument parsing -------------------------------------------------------
 
-// onlyArgs rejects an argument the tool does not define. Without it a typo would
-// silently do nothing, and the agent would keep asking a question the tool never
-// heard.
-func onlyArgs(args map[string]string, allowed ...string) error {
-	known := make(map[string]bool, len(allowed))
-	for _, key := range allowed {
-		known[key] = true
-	}
-	var unknown []string
-	for key := range args {
-		if !known[key] {
-			unknown = append(unknown, key)
-		}
-	}
-	if len(unknown) == 0 {
-		return nil
-	}
-	sort.Strings(unknown)
-	return fmt.Errorf("%w: unknown argument(s) %s; accepted: %s",
-		agent.ErrInvalidArgument, strings.Join(unknown, ", "), strings.Join(allowed, ", "))
+// The host validates every request against the tool's schema before it reaches
+// this layer, so these readers decode declared fields and report a missing
+// required one. They are deliberately small: the schema is the contract, not
+// these helpers.
+
+// textArg reads a declared string field; the host already validated its type.
+func textArg(args json.RawMessage, key string) string {
+	value, _ := agent.ToolArgString(args, key)
+	return value
 }
 
-func requiredArg(args map[string]string, key string) (string, error) {
-	value := strings.TrimSpace(args[key])
+func requiredJSONArg(args json.RawMessage, key string) (string, error) {
+	value, err := agent.ToolArgString(args, key)
+	if err != nil {
+		return "", err
+	}
 	if value == "" {
 		return "", fmt.Errorf("%w: %s is required", agent.ErrInvalidArgument, key)
 	}
 	return value, nil
 }
 
-// boundedArg parses an optional integer and clamps it into [min,max]. The second
-// return value reports a clamp, which the caller must state in the result.
-func boundedArg(args map[string]string, key string, def, min, max int) (int, bool, error) {
-	raw := strings.TrimSpace(args[key])
-	if raw == "" {
-		return def, false, nil
-	}
-	value, err := strconv.Atoi(raw)
+// boundedJSONArg clamps an optional integer into [min,max]. The second return
+// value reports a clamp, which the caller must state in the result.
+func boundedJSONArg(args json.RawMessage, key string, def, min, max int) (int, bool, error) {
+	value, present, err := agent.ToolArgIntMaybe(args, key)
 	if err != nil {
-		return 0, false, fmt.Errorf("%w: %s must be an integer, got %q", agent.ErrInvalidArgument, key, raw)
+		return 0, false, err
+	}
+	if !present {
+		return def, false, nil
 	}
 	switch {
 	case value < min:
@@ -275,6 +286,30 @@ func boundedArg(args map[string]string, key string, def, min, max int) (int, boo
 	default:
 		return value, false, nil
 	}
+}
+
+// scopeSnapshot and friends read the host-injected scope. They are the only way a
+// tool learns the snapshot, path or audit: those are not request arguments, so a
+// model cannot substitute another object.
+func scopeSnapshot(ctx context.Context) (string, error) {
+	if value := agent.ToolScopeFrom(ctx).SnapshotID; value != "" {
+		return value, nil
+	}
+	return "", fmt.Errorf("%w: snapshot scope is missing", agent.ErrInvalidArgument)
+}
+
+func scopePath(ctx context.Context) (string, error) {
+	if value := agent.ToolScopeFrom(ctx).PathID; value != "" {
+		return value, nil
+	}
+	return "", fmt.Errorf("%w: path scope is missing", agent.ErrInvalidArgument)
+}
+
+func scopeAudit(ctx context.Context) (string, error) {
+	if value := agent.ToolScopeFrom(ctx).AuditID; value != "" {
+		return value, nil
+	}
+	return "", fmt.Errorf("%w: audit scope is missing", agent.ErrInvalidArgument)
 }
 
 func clampNote(key string, value, max int) string {
@@ -405,16 +440,13 @@ func compactCallSite(site scg.CallSite) toolCallSite {
 
 // --- tool implementations ---------------------------------------------------
 
-func callGetSymbol(ctx context.Context, env toolEnv, args map[string]string) (agent.ToolResult, error) {
+func callGetSymbol(ctx context.Context, env toolEnv, args json.RawMessage) (agent.ToolResult, error) {
 	const name = ToolGetSymbol
-	if err := onlyArgs(args, "snapshot_id", "symbol_id"); err != nil {
-		return invalidArg(name, err), nil
-	}
-	snapshot, err := requiredArg(args, "snapshot_id")
+	snapshot, err := scopeSnapshot(ctx)
 	if err != nil {
 		return invalidArg(name, err), nil
 	}
-	symbolID, err := requiredArg(args, "symbol_id")
+	symbolID, err := requiredJSONArg(args, "symbol_id")
 	if err != nil {
 		return invalidArg(name, err), nil
 	}
@@ -438,12 +470,9 @@ var agentSymbolKinds = []scg.SymbolKind{
 	scg.KindInterface, scg.KindConst, scg.KindVar, scg.KindPackage,
 }
 
-func callListSymbols(ctx context.Context, env toolEnv, args map[string]string) (agent.ToolResult, error) {
+func callListSymbols(ctx context.Context, env toolEnv, args json.RawMessage) (agent.ToolResult, error) {
 	const name = ToolListSymbols
-	if err := onlyArgs(args, "snapshot_id", "module_id", "kind", "name_contains", "qualified_name", "limit", "offset"); err != nil {
-		return invalidArg(name, err), nil
-	}
-	snapshot, err := requiredArg(args, "snapshot_id")
+	snapshot, err := scopeSnapshot(ctx)
 	if err != nil {
 		return invalidArg(name, err), nil
 	}
@@ -451,7 +480,7 @@ func callListSymbols(ctx context.Context, env toolEnv, args map[string]string) (
 		return missingService(name, "source graph"), nil
 	}
 	var kinds []scg.SymbolKind
-	if raw := strings.TrimSpace(args["kind"]); raw != "" {
+	if raw := strings.TrimSpace(textArg(args, "kind")); raw != "" {
 		known := false
 		for _, kind := range agentSymbolKinds {
 			if string(kind) == raw {
@@ -468,11 +497,11 @@ func callListSymbols(ctx context.Context, env toolEnv, args map[string]string) (
 				agent.ErrInvalidArgument, raw, strings.Join(names, ", "))), nil
 		}
 	}
-	limit, clampedLimit, err := boundedArg(args, "limit", agentToolDefaultLimit, 1, agentToolMaxSymbols)
+	limit, clampedLimit, err := boundedJSONArg(args, "limit", agentToolDefaultLimit, 1, agentToolMaxSymbols)
 	if err != nil {
 		return invalidArg(name, err), nil
 	}
-	offset, clampedOffset, err := boundedArg(args, "offset", 0, 0, agentToolMaxOffset)
+	offset, clampedOffset, err := boundedJSONArg(args, "offset", 0, 0, agentToolMaxOffset)
 	if err != nil {
 		return invalidArg(name, err), nil
 	}
@@ -484,10 +513,10 @@ func callListSymbols(ctx context.Context, env toolEnv, args map[string]string) (
 		notes = append(notes, clampNote("offset", offset, agentToolMaxOffset))
 	}
 	page, err := env.graph.Symbols(ctx, snapshot, SymbolQuery{
-		ModuleID:      strings.TrimSpace(args["module_id"]),
+		ModuleID:      strings.TrimSpace(textArg(args, "module_id")),
 		Kinds:         kinds,
-		NameContains:  args["name_contains"],
-		QualifiedName: strings.TrimSpace(args["qualified_name"]),
+		NameContains:  textArg(args, "name_contains"),
+		QualifiedName: strings.TrimSpace(textArg(args, "qualified_name")),
 		Options:       Options{Limit: limit, Offset: offset},
 	})
 	if err != nil {
@@ -509,40 +538,37 @@ func callListSymbols(ctx context.Context, env toolEnv, args map[string]string) (
 	}{rows, page.Total, graphToolMeta(page.Meta)}, notes, refs)
 }
 
-func callGetCallers(ctx context.Context, env toolEnv, args map[string]string) (agent.ToolResult, error) {
+func callGetCallers(ctx context.Context, env toolEnv, args json.RawMessage) (agent.ToolResult, error) {
 	return callNeighborhood(ctx, env, args, ToolGetCallers, true)
 }
 
-func callGetCallees(ctx context.Context, env toolEnv, args map[string]string) (agent.ToolResult, error) {
+func callGetCallees(ctx context.Context, env toolEnv, args json.RawMessage) (agent.ToolResult, error) {
 	return callNeighborhood(ctx, env, args, ToolGetCallees, false)
 }
 
 // callNeighborhood implements get_callers and get_callees: one traversal shape,
 // two directions.
-func callNeighborhood(ctx context.Context, env toolEnv, args map[string]string, name string, callers bool) (agent.ToolResult, error) {
-	if err := onlyArgs(args, "snapshot_id", "symbol_id", "max_depth", "max_nodes", "limit"); err != nil {
-		return invalidArg(name, err), nil
-	}
-	snapshot, err := requiredArg(args, "snapshot_id")
+func callNeighborhood(ctx context.Context, env toolEnv, args json.RawMessage, name string, callers bool) (agent.ToolResult, error) {
+	snapshot, err := scopeSnapshot(ctx)
 	if err != nil {
 		return invalidArg(name, err), nil
 	}
-	symbolID, err := requiredArg(args, "symbol_id")
+	symbolID, err := requiredJSONArg(args, "symbol_id")
 	if err != nil {
 		return invalidArg(name, err), nil
 	}
 	if env.graph == nil {
 		return missingService(name, "source graph"), nil
 	}
-	depth, clampedDepth, err := boundedArg(args, "max_depth", agentToolDefaultDepth, 1, agentToolMaxDepth)
+	depth, clampedDepth, err := boundedJSONArg(args, "max_depth", agentToolDefaultDepth, 1, agentToolMaxDepth)
 	if err != nil {
 		return invalidArg(name, err), nil
 	}
-	nodes, clampedNodes, err := boundedArg(args, "max_nodes", agentToolDefaultNodes, 1, agentToolMaxNodes)
+	nodes, clampedNodes, err := boundedJSONArg(args, "max_nodes", agentToolDefaultNodes, 1, agentToolMaxNodes)
 	if err != nil {
 		return invalidArg(name, err), nil
 	}
-	limit, clampedLimit, err := boundedArg(args, "limit", agentToolDefaultLimit, 1, agentToolMaxNeighbors)
+	limit, clampedLimit, err := boundedJSONArg(args, "limit", agentToolDefaultLimit, 1, agentToolMaxNeighbors)
 	if err != nil {
 		return invalidArg(name, err), nil
 	}
@@ -600,31 +626,28 @@ func callNeighborhood(ctx context.Context, env toolEnv, args map[string]string, 
 	}{hood.Root.ID, hood.Direction, rows, sites, hood.Limitations, graphToolMeta(hood.Meta)}, notes, refs)
 }
 
-func callFindCallPaths(ctx context.Context, env toolEnv, args map[string]string) (agent.ToolResult, error) {
+func callFindCallPaths(ctx context.Context, env toolEnv, args json.RawMessage) (agent.ToolResult, error) {
 	const name = ToolFindCallPaths
-	if err := onlyArgs(args, "snapshot_id", "source_symbol_id", "sink_symbol_id", "max_depth", "max_paths"); err != nil {
-		return invalidArg(name, err), nil
-	}
-	snapshot, err := requiredArg(args, "snapshot_id")
+	snapshot, err := scopeSnapshot(ctx)
 	if err != nil {
 		return invalidArg(name, err), nil
 	}
-	source, err := requiredArg(args, "source_symbol_id")
+	source, err := requiredJSONArg(args, "source_symbol_id")
 	if err != nil {
 		return invalidArg(name, err), nil
 	}
-	sink, err := requiredArg(args, "sink_symbol_id")
+	sink, err := requiredJSONArg(args, "sink_symbol_id")
 	if err != nil {
 		return invalidArg(name, err), nil
 	}
 	if env.graph == nil {
 		return missingService(name, "source graph"), nil
 	}
-	depth, clampedDepth, err := boundedArg(args, "max_depth", agentToolDefaultDepthPath, 1, agentToolMaxDepthPath)
+	depth, clampedDepth, err := boundedJSONArg(args, "max_depth", agentToolDefaultDepthPath, 1, agentToolMaxDepthPath)
 	if err != nil {
 		return invalidArg(name, err), nil
 	}
-	maxPaths, clampedPaths, err := boundedArg(args, "max_paths", agentToolDefaultPaths, 1, agentToolMaxPaths)
+	maxPaths, clampedPaths, err := boundedJSONArg(args, "max_paths", agentToolDefaultPaths, 1, agentToolMaxPaths)
 	if err != nil {
 		return invalidArg(name, err), nil
 	}
@@ -667,21 +690,18 @@ func callFindCallPaths(ctx context.Context, env toolEnv, args map[string]string)
 	}{set.Source.QualifiedName, set.Sink.QualifiedName, paths, set.Limitations, graphToolMeta(set.Meta)}, notes, refs)
 }
 
-func callGetCodeSlice(ctx context.Context, env toolEnv, args map[string]string) (agent.ToolResult, error) {
+func callGetCodeSlice(ctx context.Context, env toolEnv, args json.RawMessage) (agent.ToolResult, error) {
 	const name = ToolGetCodeSlice
-	if err := onlyArgs(args, "snapshot_id", "symbol_id", "file", "include", "start_line", "end_line", "max_lines"); err != nil {
-		return invalidArg(name, err), nil
-	}
-	snapshot, err := requiredArg(args, "snapshot_id")
+	snapshot, err := scopeSnapshot(ctx)
 	if err != nil {
 		return invalidArg(name, err), nil
 	}
-	symbolID := strings.TrimSpace(args["symbol_id"])
-	file := strings.TrimSpace(args["file"])
+	symbolID := strings.TrimSpace(textArg(args, "symbol_id"))
+	file := strings.TrimSpace(textArg(args, "file"))
 	if symbolID == "" && file == "" {
 		return invalidArg(name, fmt.Errorf("%w: symbol_id or file is required", agent.ErrInvalidArgument)), nil
 	}
-	include := strings.TrimSpace(args["include"])
+	include := strings.TrimSpace(textArg(args, "include"))
 	if include == "" {
 		include = SectionDeclaration
 	}
@@ -692,15 +712,15 @@ func callGetCodeSlice(ctx context.Context, env toolEnv, args map[string]string) 
 	if env.graph == nil {
 		return missingService(name, "source graph"), nil
 	}
-	maxLines, clampedLines, err := boundedArg(args, "max_lines", agentToolDefaultLines, 1, agentToolMaxLines)
+	maxLines, clampedLines, err := boundedJSONArg(args, "max_lines", agentToolDefaultLines, 1, agentToolMaxLines)
 	if err != nil {
 		return invalidArg(name, err), nil
 	}
-	start, clampedStart, err := boundedArg(args, "start_line", 0, 0, agentToolMaxOffset)
+	start, clampedStart, err := boundedJSONArg(args, "start_line", 0, 0, agentToolMaxOffset)
 	if err != nil {
 		return invalidArg(name, err), nil
 	}
-	end, clampedEnd, err := boundedArg(args, "end_line", 0, 0, agentToolMaxOffset)
+	end, clampedEnd, err := boundedJSONArg(args, "end_line", 0, 0, agentToolMaxOffset)
 	if err != nil {
 		return invalidArg(name, err), nil
 	}
@@ -756,12 +776,9 @@ var agentSliceIncludes = map[string]bool{
 	"neighbors":        true,
 }
 
-func callGraphSummary(ctx context.Context, env toolEnv, args map[string]string) (agent.ToolResult, error) {
+func callGraphSummary(ctx context.Context, env toolEnv, args json.RawMessage) (agent.ToolResult, error) {
 	const name = ToolGraphSummary
-	if err := onlyArgs(args, "snapshot_id"); err != nil {
-		return invalidArg(name, err), nil
-	}
-	snapshot, err := requiredArg(args, "snapshot_id")
+	snapshot, err := scopeSnapshot(ctx)
 	if err != nil {
 		return invalidArg(name, err), nil
 	}
@@ -805,12 +822,9 @@ func callGraphSummary(ctx context.Context, env toolEnv, args map[string]string) 
 	return toolJSON(name, result, notes, nil)
 }
 
-func callGetPath(ctx context.Context, env toolEnv, args map[string]string) (agent.ToolResult, error) {
+func callGetPath(ctx context.Context, env toolEnv, args json.RawMessage) (agent.ToolResult, error) {
 	const name = ToolGetPath
-	if err := onlyArgs(args, "path_id"); err != nil {
-		return invalidArg(name, err), nil
-	}
-	pathID, err := requiredArg(args, "path_id")
+	pathID, err := scopePath(ctx)
 	if err != nil {
 		return invalidArg(name, err), nil
 	}
@@ -872,12 +886,9 @@ func capList(values []string, max int, label string, notes *[]string) []string {
 	return append([]string(nil), values[:max]...)
 }
 
-func callListAuditPaths(ctx context.Context, env toolEnv, args map[string]string) (agent.ToolResult, error) {
+func callListAuditPaths(ctx context.Context, env toolEnv, args json.RawMessage) (agent.ToolResult, error) {
 	const name = ToolListAuditPaths
-	if err := onlyArgs(args, "audit_id", "status", "limit", "offset"); err != nil {
-		return invalidArg(name, err), nil
-	}
-	auditID, err := requiredArg(args, "audit_id")
+	auditID, err := scopeAudit(ctx)
 	if err != nil {
 		return invalidArg(name, err), nil
 	}
@@ -885,17 +896,17 @@ func callListAuditPaths(ctx context.Context, env toolEnv, args map[string]string
 		return missingService(name, "audit"), nil
 	}
 	var statuses []path.Status
-	if raw := strings.TrimSpace(args["status"]); raw != "" {
+	if raw := strings.TrimSpace(textArg(args, "status")); raw != "" {
 		if !path.ValidStatus(path.Status(raw)) {
 			return invalidArg(name, fmt.Errorf("%w: unknown status %q", agent.ErrInvalidArgument, raw)), nil
 		}
 		statuses = append(statuses, path.Status(raw))
 	}
-	limit, clampedLimit, err := boundedArg(args, "limit", agentToolDefaultLimit, 1, agentToolMaxLimit)
+	limit, clampedLimit, err := boundedJSONArg(args, "limit", agentToolDefaultLimit, 1, agentToolMaxLimit)
 	if err != nil {
 		return invalidArg(name, err), nil
 	}
-	offset, clampedOffset, err := boundedArg(args, "offset", 0, 0, agentToolMaxOffset)
+	offset, clampedOffset, err := boundedJSONArg(args, "offset", 0, 0, agentToolMaxOffset)
 	if err != nil {
 		return invalidArg(name, err), nil
 	}
@@ -930,36 +941,32 @@ func callListAuditPaths(ctx context.Context, env toolEnv, args map[string]string
 	}{rows, total, offset}, notes, refs)
 }
 
-func callListHypotheses(ctx context.Context, env toolEnv, args map[string]string) (agent.ToolResult, error) {
+func callListHypotheses(ctx context.Context, env toolEnv, args json.RawMessage) (agent.ToolResult, error) {
 	const name = ToolListHypotheses
-	if err := onlyArgs(args, "path_id", "audit_id", "run_id", "snapshot_id", "status", "finding_candidates_only", "limit", "offset"); err != nil {
-		return invalidArg(name, err), nil
-	}
 	if env.store == nil {
 		return missingService(name, "hypothesis store"), nil
 	}
+	scope := agent.ToolScopeFrom(ctx)
+	if scope.PathID == "" && scope.AuditID == "" && scope.RunID == "" && scope.SnapshotID == "" {
+		return invalidArg(name, fmt.Errorf("%w: the run has no hypothesis scope", agent.ErrInvalidArgument)), nil
+	}
 	query := agent.HypothesisQuery{
-		PathID: strings.TrimSpace(args["path_id"]), AuditID: strings.TrimSpace(args["audit_id"]),
-		RunID: strings.TrimSpace(args["run_id"]), SnapshotID: strings.TrimSpace(args["snapshot_id"]),
+		PathID: scope.PathID, AuditID: scope.AuditID,
+		RunID: scope.RunID, SnapshotID: scope.SnapshotID,
 	}
-	if query.PathID == "" && query.AuditID == "" && query.RunID == "" && query.SnapshotID == "" {
-		return invalidArg(name, fmt.Errorf("%w: one of path_id, audit_id, run_id or snapshot_id is required", agent.ErrInvalidArgument)), nil
-	}
-	if raw := strings.TrimSpace(args["status"]); raw != "" {
+	if raw := textArg(args, "status"); raw != "" {
 		query.Status = []string{raw}
 	}
-	if raw := strings.TrimSpace(args["finding_candidates_only"]); raw != "" {
-		value, err := strconv.ParseBool(raw)
-		if err != nil {
-			return invalidArg(name, fmt.Errorf("%w: finding_candidates_only must be true or false, got %q", agent.ErrInvalidArgument, raw)), nil
-		}
-		query.FindingCandidatesOnly = value
+	if raw, err := agent.ToolArgBool(args, "finding_candidates_only"); err != nil {
+		return invalidArg(name, err), nil
+	} else {
+		query.FindingCandidatesOnly = raw
 	}
-	limit, clampedLimit, err := boundedArg(args, "limit", agentToolDefaultLimit, 1, 50)
+	limit, clampedLimit, err := boundedJSONArg(args, "limit", agentToolDefaultLimit, 1, 50)
 	if err != nil {
 		return invalidArg(name, err), nil
 	}
-	offset, clampedOffset, err := boundedArg(args, "offset", 0, 0, agentToolMaxOffset)
+	offset, clampedOffset, err := boundedJSONArg(args, "offset", 0, 0, agentToolMaxOffset)
 	if err != nil {
 		return invalidArg(name, err), nil
 	}
@@ -1113,3 +1120,60 @@ type toolHypothesis struct {
 	SeverityHint     string `json:"severity_hint,omitempty"`
 	CreatedAt        string `json:"created_at,omitempty"`
 }
+
+// --- native input schemas ---------------------------------------------------
+//
+// These are the single description of what each tool accepts. The host validates
+// requests against them before a tool runs, the model runtime compiles them into
+// provider tools, and a missing or malformed schema is a registration panic. They
+// deliberately omit snapshot, path, audit and run ids: those are host-injected
+// scope, so a request cannot name another object.
+
+const (
+	schemaGetSymbol = `{"type":"object","properties":{"symbol_id":{"type":"string","maxLength":512}},"required":["symbol_id"],"additionalProperties":false}`
+
+	schemaListSymbols = `{"type":"object","properties":{` +
+		`"module_id":{"type":"string","maxLength":256},` +
+		`"kind":{"type":"string","enum":["function","method","type","interface","const","var","package"]},` +
+		`"name_contains":{"type":"string","maxLength":256},` +
+		`"qualified_name":{"type":"string","maxLength":512},` +
+		`"limit":{"type":"integer","minimum":1,"maximum":10000},` +
+		`"offset":{"type":"integer","minimum":0,"maximum":10000}},"additionalProperties":false}`
+
+	schemaGetCallers = `{"type":"object","properties":{` +
+		`"symbol_id":{"type":"string","maxLength":512},` +
+		`"max_depth":{"type":"integer","minimum":1,"maximum":10000},` +
+		`"max_nodes":{"type":"integer","minimum":1,"maximum":10000},` +
+		`"limit":{"type":"integer","minimum":1,"maximum":10000}},"required":["symbol_id"],"additionalProperties":false}`
+
+	schemaGetCallees = schemaGetCallers
+
+	schemaFindCallPaths = `{"type":"object","properties":{` +
+		`"source_symbol_id":{"type":"string","maxLength":512},` +
+		`"sink_symbol_id":{"type":"string","maxLength":512},` +
+		`"max_depth":{"type":"integer","minimum":1,"maximum":10000},` +
+		`"max_paths":{"type":"integer","minimum":1,"maximum":10000}},"required":["source_symbol_id","sink_symbol_id"],"additionalProperties":false}`
+
+	schemaGetCodeSlice = `{"type":"object","properties":{` +
+		`"symbol_id":{"type":"string","maxLength":512},` +
+		`"file":{"type":"string","maxLength":1024},` +
+		`"include":{"type":"string","enum":["declaration","callers","calls","neighbors"]},` +
+		`"start_line":{"type":"integer","minimum":0,"maximum":10000},` +
+		`"end_line":{"type":"integer","minimum":0,"maximum":10000},` +
+		`"max_lines":{"type":"integer","minimum":1,"maximum":10000}},"additionalProperties":false}`
+
+	schemaGraphSummary = `{"type":"object","properties":{},"additionalProperties":false}`
+
+	schemaGetPath = `{"type":"object","properties":{},"additionalProperties":false}`
+
+	schemaListAuditPaths = `{"type":"object","properties":{` +
+		`"status":{"type":"string","enum":["DISCOVERED","QUEUED","ANALYZING","LOCAL_EXPLORING","HYPOTHESIS_FORMED","VERIFYING","CONCLUDED","BLOCKED","PAUSED","FAILED","CANCELLED","INTERRUPTED"]},` +
+		`"limit":{"type":"integer","minimum":1,"maximum":10000},` +
+		`"offset":{"type":"integer","minimum":0,"maximum":10000}},"additionalProperties":false}`
+
+	schemaListHypotheses = `{"type":"object","properties":{` +
+		`"status":{"type":"string","maxLength":64},` +
+		`"finding_candidates_only":{"type":"boolean"},` +
+		`"limit":{"type":"integer","minimum":1,"maximum":10000},` +
+		`"offset":{"type":"integer","minimum":0,"maximum":10000}},"additionalProperties":false}`
+)

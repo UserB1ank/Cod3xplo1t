@@ -89,7 +89,14 @@ var _ ToolExecutor = (*goldenTool)(nil)
 func (t *goldenTool) Name() string     { return t.name }
 func (t *goldenTool) Describe() string { return "deterministic golden tool" }
 
-func (t *goldenTool) Call(_ context.Context, _ map[string]string) (ToolResult, error) {
+func (t *goldenTool) Descriptor() ToolDescriptor {
+	return ToolDescriptor{
+		Name: t.name, Description: t.Describe(), Version: "1",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"},"direction":{"type":"string"},"file":{"type":"string"},"include":{"type":"string"},"symbol_id":{"type":"string"},"max_depth":{"type":"integer"}},"additionalProperties":false}`),
+	}
+}
+
+func (t *goldenTool) Call(_ context.Context, _ json.RawMessage) (ToolResult, error) {
 	return ToolResult{Tool: t.name, OK: true, Result: t.result, Refs: append([]string(nil), t.refs...)}, nil
 }
 
@@ -178,7 +185,7 @@ func runGoldenOnce(t *testing.T, scenario goldenScenario) (goldenOutcome, error)
 			steps = append(steps, ScriptNoteDetail(step.Summary, step.Detail))
 		case "tool":
 			steps = append(steps, ScriptTool(ToolRequest{
-				CallID: fmt.Sprintf("call-%02d", i), Tool: step.Tool, Args: step.Args,
+				CallID: fmt.Sprintf("call-%02d", i), Tool: step.Tool, LegacyArgs: step.Args,
 			}))
 		case "answer":
 			if len(step.Answer) == 0 {

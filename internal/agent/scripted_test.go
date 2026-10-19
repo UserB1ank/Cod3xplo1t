@@ -117,7 +117,7 @@ func TestScriptedRuntimeReplaysSteps(t *testing.T) {
 	answer := adapterTestAnswer(task)
 	runtime := NewScriptedRuntime("scripted", "1", []ScriptStep{
 		ScriptNote("scanning the minimal slice"),
-		ScriptTool(ToolRequest{CallID: "call-1", Tool: "graph.query", Args: map[string]string{"symbol": "sym-1"}}),
+		ScriptTool(ToolRequest{CallID: "call-1", Tool: "graph.query", LegacyArgs: map[string]string{"symbol": "sym-1"}}),
 		ScriptExpansion(ExpansionAsk{TargetNodeID: "node-2", Purpose: "confirm the sink", ExpectedGain: "one hop", EstimatedCost: "1 hop"}),
 		ScriptAnswer(answer),
 	})
@@ -319,7 +319,7 @@ func TestScriptedRuntimeRejectsConfirmedAnswer(t *testing.T) {
 func TestScriptedRuntimeToolOutsideAllowlist(t *testing.T) {
 	task := adapterTestTask()
 	runtime := NewScriptedRuntime("scripted", "1", []ScriptStep{
-		ScriptTool(ToolRequest{CallID: "call-9", Tool: "shell.exec", Args: map[string]string{"cmd": "rm -rf /"}}),
+		ScriptTool(ToolRequest{CallID: "call-9", Tool: "shell.exec", LegacyArgs: map[string]string{"cmd": "rm -rf /"}}),
 	})
 	handle, err := runtime.Start(context.Background(), task)
 	if err != nil {

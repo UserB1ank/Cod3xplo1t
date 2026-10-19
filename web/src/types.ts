@@ -34,6 +34,7 @@ export interface Run {
   run_id: string; path_id: string; audit_id: string; snapshot_id: string; runtime: string; status: string;
   started_at: string; heartbeat_at: string; tool_calls: number; input_tokens: number; output_tokens: number;
   elapsed_ms: number; stop_reason?: string; task?: { security_goal: string }; error?: string;
+  tool_schema_digest?: string;
   metrics?: RunMetrics;
 }
 export interface AuditEvent { event_id: string; path_id?: string; run_id?: string; seq: number; type: string; actor?: string; reason?: string; summary?: string; created_at: string }

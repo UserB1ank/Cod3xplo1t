@@ -54,9 +54,29 @@ func lookupTool(t *testing.T, registry *agent.Registry, name string) agent.ToolE
 	return tool
 }
 
+// callTool converts protocol-v1 string arguments the way the host does: scope
+// fields move into the context and only schema-declared fields reach the tool.
 func callTool(t *testing.T, registry *agent.Registry, name string, args map[string]string) agent.ToolResult {
 	t.Helper()
-	result, err := lookupTool(t, registry, name).Call(context.Background(), args)
+	tool := lookupTool(t, registry, name)
+	legacy := make(map[string]string, len(args))
+	for key, value := range args {
+		switch key {
+		case "snapshot_id", "path_id", "audit_id", "run_id":
+			continue
+		default:
+			legacy[key] = value
+		}
+	}
+	raw, err := agent.LegacyToolArgs(tool.Descriptor().InputSchema, legacy)
+	if err != nil {
+		t.Fatalf("%s: arguments were rejected by the schema: %v", name, err)
+	}
+	ctx := agent.WithToolScope(context.Background(), agent.ToolScope{
+		SnapshotID: args["snapshot_id"], PathID: args["path_id"],
+		AuditID: args["audit_id"], RunID: args["run_id"],
+	})
+	result, err := tool.Call(ctx, raw)
 	if err != nil {
 		t.Fatalf("%s: unexpected error: %v", name, err)
 	}
@@ -157,37 +177,39 @@ func TestAgentToolsRejectABadArgumentWithoutFailing(t *testing.T) {
 	t.Parallel()
 	fixture := newAgentFixture(t)
 	registry := agentToolRegistry(t, fixture)
-	ctx := context.Background()
 
 	for _, name := range graph.AgentToolNames() {
-		result, err := lookupTool(t, registry, name).Call(ctx, map[string]string{"nonsense": "1"})
-		if err != nil {
-			t.Errorf("%s: a bad argument must not fail the call: %v", name, err)
-			continue
-		}
-		if result.OK {
-			t.Errorf("%s: accepted an argument it does not define", name)
-		}
-		if !strings.Contains(result.Error, agent.ErrInvalidArgument.Error()) {
-			t.Errorf("%s: error %q does not name the invalid argument", name, result.Error)
+		descriptor := lookupTool(t, registry, name).Descriptor()
+		if err := agent.ValidateToolArgs(descriptor.InputSchema, json.RawMessage(`{"nonsense":"1"}`)); err == nil {
+			t.Errorf("%s: schema accepted an argument it does not define", name)
+		} else if !strings.Contains(err.Error(), agent.ErrInvalidArgument.Error()) {
+			t.Errorf("%s: error %q does not name the invalid argument", name, err)
 		}
 	}
 
-	// The type of an argument is checked, not coerced.
-	result := callTool(t, registry, graph.ToolListSymbols, map[string]string{"snapshot_id": agentSnapID, "limit": "many"})
-	if result.OK || !strings.Contains(result.Error, "must be an integer") {
-		t.Errorf("a non-integer limit was not rejected: %+v", result)
+	// The type of a v1 argument is checked, not coerced.
+	descriptor := lookupTool(t, registry, graph.ToolListSymbols).Descriptor()
+	if _, err := agent.LegacyToolArgs(descriptor.InputSchema, map[string]string{"limit": "many"}); err == nil ||
+		!strings.Contains(err.Error(), "must be an integer") {
+		t.Errorf("a non-integer limit was not rejected: %v", err)
 	}
 
-	// An unknown kind must not silently widen the search.
-	result = callTool(t, registry, graph.ToolListSymbols, map[string]string{"snapshot_id": agentSnapID, "kind": "wormhole"})
-	if result.OK || !strings.Contains(result.Error, "unknown kind") {
-		t.Errorf("an unknown kind was not rejected: %+v", result)
+	// A native request with the wrong type is rejected by the same schema.
+	if err := agent.ValidateToolArgs(descriptor.InputSchema, json.RawMessage(`{"limit":"many"}`)); err == nil {
+		t.Error("a string limit passed native schema validation")
+	}
+
+	// An unknown kind must not silently widen the search: the schema enum rejects it
+	// before the tool runs, and a v1 request is converted through the same schema.
+	kindSchema := lookupTool(t, registry, graph.ToolListSymbols).Descriptor().InputSchema
+	if _, err := agent.LegacyToolArgs(kindSchema, map[string]string{"kind": "wormhole"}); err == nil ||
+		!strings.Contains(err.Error(), "not one of") {
+		t.Errorf("an unknown kind was not rejected: %v", err)
 	}
 
 	// An unscoped hypothesis query would scan every claim in the platform.
-	result = callTool(t, registry, graph.ToolListHypotheses, map[string]string{"limit": "5"})
-	if result.OK || !strings.Contains(result.Error, "is required") {
+	result := callTool(t, registry, graph.ToolListHypotheses, map[string]string{"limit": "5"})
+	if result.OK || !strings.Contains(result.Error, "scope") {
 		t.Errorf("an unscoped hypothesis query was accepted: %+v", result)
 	}
 
@@ -196,10 +218,10 @@ func TestAgentToolsRejectABadArgumentWithoutFailing(t *testing.T) {
 	if result.OK || !strings.Contains(result.Error, "symbol_id or file is required") {
 		t.Errorf("get_code_slice accepted a slice with no selector: %+v", result)
 	}
-	result = callTool(t, registry, graph.ToolGetCodeSlice,
-		map[string]string{"snapshot_id": agentSnapID, "file": "web/server.go", "include": "everything"})
-	if result.OK || !strings.Contains(result.Error, "unknown include") {
-		t.Errorf("get_code_slice accepted an unknown include: %+v", result)
+	sliceSchema := lookupTool(t, registry, graph.ToolGetCodeSlice).Descriptor().InputSchema
+	if _, err := agent.LegacyToolArgs(sliceSchema, map[string]string{"include": "everything"}); err == nil ||
+		!strings.Contains(err.Error(), "not one of") {
+		t.Errorf("get_code_slice accepted an unknown include: %v", err)
 	}
 
 	// A missing service is reported, not dereferenced.
@@ -217,7 +239,7 @@ func TestAgentToolsReportWhenACapWasHit(t *testing.T) {
 	registry := agentToolRegistry(t, fixture)
 	symbolID := fixture.symbolID(t, "example.invalid/svc/web.showUser")
 
-	result := callTool(t, registry, graph.ToolListSymbols, map[string]string{"snapshot_id": agentSnapID, "limit": "100000"})
+	result := callTool(t, registry, graph.ToolListSymbols, map[string]string{"snapshot_id": agentSnapID, "limit": "1000"})
 	if !result.OK {
 		t.Fatalf("list_symbols: %s", result.Error)
 	}
@@ -226,7 +248,7 @@ func TestAgentToolsReportWhenACapWasHit(t *testing.T) {
 	}
 
 	result = callTool(t, registry, graph.ToolGetCallers,
-		map[string]string{"snapshot_id": agentSnapID, "symbol_id": symbolID, "max_depth": "99"})
+		map[string]string{"snapshot_id": agentSnapID, "symbol_id": symbolID, "max_depth": "50"})
 	if !result.OK {
 		t.Fatalf("get_callers: %s", result.Error)
 	}
@@ -236,7 +258,7 @@ func TestAgentToolsReportWhenACapWasHit(t *testing.T) {
 
 	// A big slice request is still bounded by the tool cap, and says so.
 	result = callTool(t, registry, graph.ToolGetCodeSlice,
-		map[string]string{"snapshot_id": agentSnapID, "file": "web/server.go", "start_line": "1", "end_line": "200", "max_lines": "5000"})
+		map[string]string{"snapshot_id": agentSnapID, "file": "web/server.go", "start_line": "1", "end_line": "200", "max_lines": "1000"})
 	if !result.OK {
 		t.Fatalf("get_code_slice: %s", result.Error)
 	}
@@ -249,7 +271,6 @@ func TestAgentToolsAreReadOnlyAndBounded(t *testing.T) {
 	t.Parallel()
 	fixture := newAgentFixture(t)
 	registry := agentToolRegistry(t, fixture)
-	ctx := context.Background()
 	args := agentToolArgs(t, fixture)
 
 	beforeHypotheses, beforeHypothesisTotal, err := fixture.store.ListHypotheses(agent.HypothesisQuery{AuditID: fixture.auditID, Limit: 100})
@@ -266,10 +287,7 @@ func TestAgentToolsAreReadOnlyAndBounded(t *testing.T) {
 	}
 
 	for name, toolArgs := range args {
-		result, err := lookupTool(t, registry, name).Call(ctx, toolArgs)
-		if err != nil {
-			t.Fatalf("%s: %v", name, err)
-		}
+		result := callTool(t, registry, name, toolArgs)
 		if !result.OK {
 			t.Fatalf("%s: %s", name, result.Error)
 		}

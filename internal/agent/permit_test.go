@@ -32,7 +32,7 @@ func runTurnScenario(t *testing.T, policy ExplorationPolicy, responses ...string
 	paths := newRunnerTestPaths(runnerTestPath("audit-1", "path-1"))
 	registry := NewRegistry()
 	registry.Register(&runnerTestTool{name: "graph.query", result: "edge-list"})
-	runtime := &ModelRuntime{Settings: settings}
+	runtime := &ModelRuntime{Settings: settings, Tools: []ToolDescriptor{testToolDescriptor("graph.query")}}
 	run, err := runnerTestRunner(store, paths, &runnerTestTasks{}, runtime, registry, policy).
 		RunOnce(context.Background(), "audit-1")
 	if err != nil {

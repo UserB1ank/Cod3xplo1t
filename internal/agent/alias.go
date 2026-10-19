@@ -271,3 +271,34 @@ func (t *AliasTable) ResolveAnswer(raw []byte) []byte {
 	}
 	return resolved
 }
+
+// ResolveToolArgs is ResolveArgs for the native JSON argument object. Only
+// declared id-bearing string fields are resolved; every other value is untouched.
+func (t *AliasTable) ResolveToolArgs(args json.RawMessage) (json.RawMessage, error) {
+	if t == nil || len(args) == 0 {
+		return args, nil
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(args, &fields); err != nil {
+		return nil, fmt.Errorf("arguments must be a JSON object: %w", err)
+	}
+	for key, value := range fields {
+		if !aliasArgKeys[key] {
+			continue
+		}
+		text, ok := value.(string)
+		if !ok || strings.TrimSpace(text) == "" {
+			continue
+		}
+		id, ok := t.Resolve(text)
+		if !ok {
+			return nil, fmt.Errorf("unknown alias %q for %s", text, key)
+		}
+		fields[key] = id
+	}
+	resolved, err := json.Marshal(fields)
+	if err != nil {
+		return nil, err
+	}
+	return resolved, nil
+}

@@ -22,6 +22,7 @@ type repairProvider struct {
 	mu        sync.Mutex
 	requests  int
 	last      []llm.Message
+	all       [][]llm.Message
 	responses []string
 	index     int
 }
@@ -41,6 +42,7 @@ func newRepairProvider(t *testing.T, responses ...string) (*repairProvider, *htt
 		provider.mu.Lock()
 		provider.requests++
 		provider.last = body.Messages
+		provider.all = append(provider.all, append([]llm.Message(nil), body.Messages...))
 		response := provider.responses[len(provider.responses)-1]
 		if provider.index < len(provider.responses) {
 			response = provider.responses[provider.index]
@@ -68,7 +70,7 @@ func (p *repairProvider) count() int {
 func chatToolCall(id, arguments string) string {
 	return chatToolCalls(map[string]any{
 		"id": id, "type": "function",
-		"function": map[string]string{"name": "graph_query", "arguments": arguments},
+		"function": map[string]string{"name": "graph.query", "arguments": arguments},
 	})
 }
 
@@ -118,7 +120,7 @@ func runRepairScenario(t *testing.T, responses ...string) (*Run, *repairProvider
 	paths := newRunnerTestPaths(runnerTestPath("audit-1", "path-1"))
 	registry := NewRegistry()
 	registry.Register(&runnerTestTool{name: "graph.query", result: "edge-list"})
-	runtime := &ModelRuntime{Settings: settings}
+	runtime := &ModelRuntime{Settings: settings, Tools: []ToolDescriptor{testToolDescriptor("graph.query")}}
 	run, err := runnerTestRunner(store, paths, &runnerTestTasks{}, runtime, registry, runnerTestPolicy()).
 		RunOnce(context.Background(), "audit-1")
 	if err != nil {
@@ -130,16 +132,18 @@ func runRepairScenario(t *testing.T, responses ...string) (*Run, *repairProvider
 // TestModelRepairsInvalidToolArguments is the exact failure the baseline exposed:
 // a numeric argument used to end the run and discard every token already spent.
 func TestModelRepairsInvalidToolArguments(t *testing.T) {
+	d := testToolDescriptor("graph.query")
+	_ = d
 	run, provider := runRepairScenario(t,
-		chatToolCall("model-call-1", `{"tool":"graph.query","args":{"max_depth":2}}`),
-		chatToolCall("model-call-2", `{"tool":"graph.query","args":{"max_depth":"2"}}`),
+		chatToolCall("model-call-1", `{"max_depth":"2"}`),
+		chatToolCall("model-call-2", `{"max_depth":2}`),
 		chatAnswer(runnerTestAnswer()),
 	)
 	if run.Status != RunSucceeded || run.ToolCalls != 1 {
-		t.Fatalf("run = %s calls=%d, want SUCCEEDED with 1 call", run.Status, run.ToolCalls)
+		t.Fatalf("run = %s calls=%d requests=%d err=%q metrics=%+v, want SUCCEEDED with 1 call", run.Status, run.ToolCalls, provider.count(), run.Error, run.Metrics)
 	}
-	if !repairMessageSeen(provider.lastRequest(), "model-call-1", "invalid_tool_arguments") {
-		t.Fatal("the rejected call did not receive a repair explaining the argument problem")
+	if !repairMessageSeen(provider.lastRequest(), "model-call-1", "must be an integer") {
+		t.Fatal("the rejected call did not receive the host's schema error")
 	}
 }
 
@@ -148,19 +152,19 @@ func TestModelRepairsInvalidToolArguments(t *testing.T) {
 func TestModelRepairsMultipleToolCalls(t *testing.T) {
 	first := map[string]any{
 		"id": "call-a", "type": "function",
-		"function": map[string]string{"name": "graph_query", "arguments": `{"tool":"graph.query","args":{}}`},
+		"function": map[string]string{"name": "graph_query", "arguments": `{}`},
 	}
 	second := map[string]any{
 		"id": "call-b", "type": "function",
-		"function": map[string]string{"name": "graph_query", "arguments": `{"tool":"graph.query","args":{}}`},
+		"function": map[string]string{"name": "graph_query", "arguments": `{}`},
 	}
 	run, provider := runRepairScenario(t,
 		chatToolCalls(first, second),
-		chatToolCall("model-call-3", `{"tool":"graph.query","args":{}}`),
+		chatToolCall("model-call-3", `{}`),
 		chatAnswer(runnerTestAnswer()),
 	)
 	if run.Status != RunSucceeded || run.ToolCalls != 1 {
-		t.Fatalf("run = %s calls=%d, want SUCCEEDED with 1 call", run.Status, run.ToolCalls)
+		t.Fatalf("run = %s calls=%d requests=%d err=%q metrics=%+v, want SUCCEEDED with 1 call", run.Status, run.ToolCalls, provider.count(), run.Error, run.Metrics)
 	}
 	messages := provider.lastRequest()
 	if !repairMessageSeen(messages, "call-a", "one_tool_call_per_turn") || !repairMessageSeen(messages, "call-b", "one_tool_call_per_turn") {
@@ -227,7 +231,7 @@ func lastUserMessage(messages []llm.Message) string {
 // timings are a second copy paid for on every turn.
 func TestModelToolResultOmitsBookkeeping(t *testing.T) {
 	_, provider := runRepairScenario(t,
-		chatToolCall("model-call-1", `{"tool":"graph.query","args":{}}`),
+		chatToolCall("model-call-1", `{}`),
 		chatAnswer(runnerTestAnswer()),
 	)
 	var content string

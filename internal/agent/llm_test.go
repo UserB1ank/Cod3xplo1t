@@ -25,7 +25,7 @@ func TestModelRuntimeUsesOrchestratorFeedbackAndLiveSettings(t *testing.T) {
 			return
 		}
 		if calls.Add(1) == 1 {
-			_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"model-call-1","type":"function","function":{"name":"graph_query","arguments":"{\"tool\":\"graph.query\",\"args\":{}}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":5}}`))
+			_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"model-call-1","type":"function","function":{"name":"graph.query","arguments":"{}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":5}}`))
 			return
 		}
 		last := body.Messages[len(body.Messages)-1]
@@ -45,7 +45,7 @@ func TestModelRuntimeUsesOrchestratorFeedbackAndLiveSettings(t *testing.T) {
 	tool := &runnerTestTool{name: "graph.query", result: "edge-list"}
 	registry := NewRegistry()
 	registry.Register(tool)
-	runtime := &ModelRuntime{Settings: settings}
+	runtime := &ModelRuntime{Settings: settings, Tools: []ToolDescriptor{testToolDescriptor("graph.query")}}
 	runner := runnerTestRunner(store, paths, &runnerTestTasks{}, runtime, registry, runnerTestPolicy())
 	if _, err := runner.RunOnce(context.Background(), "audit-1"); err == nil || len(paths.claimIDs()) != 0 {
 		t.Fatal("unconfigured model consumed queued work")

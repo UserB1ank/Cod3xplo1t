@@ -36,14 +36,15 @@ var (
 // Caps on the answer. They exist so an adapter cannot make the orchestrator store
 // an essay, and so "no hidden reasoning" is a limit and not a request.
 const (
-	MaxStatementChars  = 2000
-	MaxNotesChars      = 1000
-	MaxEvidenceItems   = 20
-	MaxQuoteChars      = 500
-	MaxNextAction      = 500
-	MaxExpansionText   = 500
-	MaxToolArgs        = 12
-	MaxToolArgChars    = 2000
+	MaxStatementChars = 2000
+	MaxNotesChars     = 1000
+	MaxEvidenceItems  = 20
+	MaxQuoteChars     = 500
+	MaxNextAction     = 500
+	MaxExpansionText  = 500
+	// MaxToolArgBytes bounds one argument object before any tool sees it. The
+	// per-field limits live in each tool's schema, which the host validates.
+	MaxToolArgBytes    = 32000
 	MaxToolResultChars = 20000
 	// MaxObligationReason bounds the justification attached to one verdict. The
 	// checklist is a decision record, not a reasoning transcript.
@@ -313,13 +314,8 @@ func ValidateToolRequest(req ToolRequest, policy ExplorationPolicy, used int) er
 	if policy.MaxToolCalls > 0 && used >= policy.MaxToolCalls {
 		return fmt.Errorf("%w: %d of %d tool calls used", ErrBudgetExhausted, used, policy.MaxToolCalls)
 	}
-	if len(req.Args) > MaxToolArgs {
-		return fmt.Errorf("%w: %d arguments, at most %d are accepted", ErrInvalidAnswer, len(req.Args), MaxToolArgs)
-	}
-	for key, value := range req.Args {
-		if len(value) > MaxToolArgChars {
-			return fmt.Errorf("%w: argument %q exceeds %d characters", ErrInvalidAnswer, key, MaxToolArgChars)
-		}
+	if len(req.Args) > MaxToolArgBytes {
+		return fmt.Errorf("%w: arguments exceed %d bytes", ErrInvalidAnswer, MaxToolArgBytes)
 	}
 	return nil
 }

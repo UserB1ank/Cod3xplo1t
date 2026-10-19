@@ -269,24 +269,26 @@ func (r *Runner) execute(ctx context.Context, auditID string, p *path.Path, owne
 	now := r.now()
 	timeout := time.Duration(policy.TimeoutSeconds) * time.Second
 
+	toolDigest := ToolSchemaDigest(r.Registry.Descriptors(policy.AllowedTools))
 	run := &Run{
-		ID:             RunID(p.ID, runtimeName, attempt),
-		PathID:         p.ID,
-		AuditID:        runAuditID,
-		SnapshotID:     task.SnapshotID,
-		Runtime:        runtimeName,
-		RuntimeVersion: caps.Version,
-		Status:         RunCreated,
-		Task:           task,
-		Exploration:    policy,
-		Budget:         Budget{TimeoutSeconds: policy.TimeoutSeconds, TokenBudget: policy.TokenBudget},
-		Owner:          owner,
-		Aliases:        aliases,
-		LeaseEpoch:     p.LeaseEpoch,
-		DeadlineAt:     NowString(now.Add(timeout)),
-		CreatedAt:      NowString(now),
-		UpdatedAt:      NowString(now),
-		Version:        1,
+		ID:               RunID(p.ID, runtimeName, attempt),
+		ToolSchemaDigest: toolDigest,
+		PathID:           p.ID,
+		AuditID:          runAuditID,
+		SnapshotID:       task.SnapshotID,
+		Runtime:          runtimeName,
+		RuntimeVersion:   caps.Version,
+		Status:           RunCreated,
+		Task:             task,
+		Exploration:      policy,
+		Budget:           Budget{TimeoutSeconds: policy.TimeoutSeconds, TokenBudget: policy.TokenBudget},
+		Owner:            owner,
+		Aliases:          aliases,
+		LeaseEpoch:       p.LeaseEpoch,
+		DeadlineAt:       NowString(now.Add(timeout)),
+		CreatedAt:        NowString(now),
+		UpdatedAt:        NowString(now),
+		Version:          1,
 	}
 
 	created := Event{
@@ -1016,24 +1018,6 @@ func (s *runnerSession) applyTool(ctx context.Context, ev RuntimeEvent) bool {
 		Summary: "tool requested: " + runnerCapText(req.Tool, MaxNotesChars),
 		Detail:  map[string]string{"arguments": fmt.Sprint(len(req.Args))},
 	}
-	// The model speaks in aliases. Only the id-bearing arguments are resolved, and
-	// an unknown alias is a denial, not a pass-through: an id from another run or
-	// outside this task's scope must never reach a tool.
-	if s.aliases != nil {
-		resolved, err := s.aliases.ResolveArgs(req.Args)
-		if err != nil {
-			s.invalidCalls++
-			denied := Event{
-				Type: EventToolDenied, Actor: runnerActorOrchestrator,
-				CallID: req.CallID, Tool: req.Tool,
-				Summary: "tool denied: " + err.Error(),
-				Detail:  map[string]string{"reason": err.Error()},
-			}
-			reply.Error = "tool request denied: " + err.Error()
-			return s.append(asked, denied)
-		}
-		req.Args = resolved
-	}
 	if err := ValidateToolRequest(req, s.policy, s.toolCalls); err != nil {
 		denied := Event{
 			Type: EventToolDenied, Actor: runnerActorOrchestrator,
@@ -1041,6 +1025,8 @@ func (s *runnerSession) applyTool(ctx context.Context, ev RuntimeEvent) bool {
 			Summary: "tool denied: " + err.Error(),
 			Detail:  map[string]string{"reason": err.Error(), "allowed_tools": strings.Join(s.policy.AllowedTools, ",")},
 		}
+		reply.Error = err.Error()
+		reply.Result = s.toolEnvelope(false, "", err.Error())
 		if errors.Is(err, ErrBudgetExhausted) {
 			if s.append(asked, denied) {
 				return true
@@ -1060,11 +1046,69 @@ func (s *runnerSession) applyTool(ctx context.Context, ev RuntimeEvent) bool {
 			Summary: "tool denied: " + req.Tool + " is allowed by the policy but not registered with the orchestrator",
 			Detail:  map[string]string{"reason": "not registered"},
 		}
+		reply.Error = "tool is not registered with the orchestrator"
+		reply.Result = s.toolEnvelope(false, "", reply.Error)
 		return s.append(asked, denied)
 	}
+	descriptor := executor.Descriptor()
+	// Protocol-v1 adapters still send string-valued arguments. Convert only the
+	// fields the schema declares, then validate like any other request.
+	if len(req.LegacyArgs) > 0 && len(req.Args) == 0 {
+		converted, err := LegacyToolArgs(descriptor.InputSchema, req.LegacyArgs)
+		if err != nil {
+			s.invalidCalls++
+			denied := Event{
+				Type: EventToolDenied, Actor: runnerActorOrchestrator,
+				CallID: req.CallID, Tool: req.Tool,
+				Summary: "tool denied: " + err.Error(),
+				Detail:  map[string]string{"reason": err.Error()},
+			}
+			reply.Error = "tool request denied: " + err.Error()
+			reply.Result = s.toolEnvelope(false, "", reply.Error)
+			return s.append(asked, denied)
+		}
+		req.Args = converted
+	}
+	// The model speaks in aliases. Only id-bearing fields are resolved, and an
+	// unknown alias is a denial: an id from another run or outside this task's
+	// scope must never reach a tool.
+	if s.aliases != nil {
+		resolved, err := s.aliases.ResolveToolArgs(req.Args)
+		if err != nil {
+			s.invalidCalls++
+			denied := Event{
+				Type: EventToolDenied, Actor: runnerActorOrchestrator,
+				CallID: req.CallID, Tool: req.Tool,
+				Summary: "tool denied: " + err.Error(),
+				Detail:  map[string]string{"reason": err.Error()},
+			}
+			reply.Error = "tool request denied: " + err.Error()
+			reply.Result = s.toolEnvelope(false, "", reply.Error)
+			return s.append(asked, denied)
+		}
+		req.Args = resolved
+	}
+	if err := ValidateToolArgs(descriptor.InputSchema, req.Args); err != nil {
+		s.invalidCalls++
+		denied := Event{
+			Type: EventToolDenied, Actor: runnerActorOrchestrator,
+			CallID: req.CallID, Tool: req.Tool,
+			Summary: "tool denied: " + err.Error(),
+			Detail:  map[string]string{"reason": err.Error(), "schema_version": descriptor.Version},
+		}
+		reply.Error = err.Error()
+		reply.Result = s.toolEnvelope(false, "", reply.Error)
+		return s.append(asked, denied)
+	}
+	// Scope comes from the task, not the request: a client cannot substitute a
+	// snapshot, path or audit, and the tools read these from the context.
+	toolCtx := WithToolScope(ctx, ToolScope{
+		SnapshotID: s.task.SnapshotID, PathID: s.task.PathID,
+		AuditID: s.task.AuditID, RunID: s.run.ID,
+	})
 
 	started := s.runner.now()
-	result, callErr := executor.Call(ctx, req.Args)
+	result, callErr := executor.Call(toolCtx, req.Args)
 	elapsed := s.runner.now().Sub(started).Milliseconds()
 	s.toolCalls++
 	s.exchanges++
@@ -1077,7 +1121,7 @@ func (s *runnerSession) applyTool(ctx context.Context, ev RuntimeEvent) bool {
 		if s.aliases != nil {
 			payload = s.aliases.ProjectJSON(payload)
 		}
-		reply.Result = payload
+		reply.Result = s.toolEnvelope(result.OK, payload, result.Error)
 		if truncated {
 			s.truncations++
 		}
@@ -1098,10 +1142,16 @@ func (s *runnerSession) applyTool(ctx context.Context, ev RuntimeEvent) bool {
 		CallID: req.CallID, Tool: req.Tool,
 		Summary: "tool allowed: " + req.Tool + " is in the allowlist",
 	}
+	receipt := s.budgetReceipt()
 	resultEvent := Event{
 		Type: EventToolResult, Actor: runnerActorOrchestrator,
 		CallID: req.CallID, Tool: req.Tool,
-		Detail: map[string]string{"elapsed_ms": fmt.Sprint(elapsed)},
+		Detail: map[string]string{
+			"elapsed_ms": fmt.Sprint(elapsed),
+			"calls_left": fmt.Sprint(receipt.CallsLeft), "repairs_left": fmt.Sprint(receipt.RepairsLeft),
+			"obligations_total": fmt.Sprint(receipt.ObligationsTotal),
+			"budget_enforced":   fmt.Sprint(receipt.BudgetEnforced), "usage_source": receipt.UsageSource,
+		},
 	}
 	switch {
 	case callErr != nil:
@@ -1109,6 +1159,7 @@ func (s *runnerSession) applyTool(ctx context.Context, ev RuntimeEvent) bool {
 		resultEvent.Detail["ok"] = "false"
 		resultEvent.Detail["error"] = callErr.Error()
 	case !result.OK:
+		reply.Result = s.toolEnvelope(false, "", result.Error)
 		resultEvent.Summary = "tool returned no result for " + req.Tool
 		resultEvent.Detail["ok"] = "false"
 		if result.Error != "" {
@@ -1123,6 +1174,62 @@ func (s *runnerSession) applyTool(ctx context.Context, ev RuntimeEvent) bool {
 		}
 	}
 	return s.update(asked, allowed, resultEvent)
+}
+
+// toolEnvelope is the one model-facing shape of a tool result. The receipt is the
+// host's count, not an estimate the model can drift from: calls, tokens and
+// repairs left, how many obligations are closed, and where the usage numbers come
+// from.
+func (s *runnerSession) toolEnvelope(ok bool, result, failure string) string {
+	envelope := ToolResultEnvelope{OK: ok, Result: result, Error: failure, Budget: s.budgetReceipt()}
+	encoded, err := json.Marshal(envelope)
+	if err != nil {
+		return `{"ok":false,"error":"the tool result could not be encoded"}`
+	}
+	return string(encoded)
+}
+
+func (s *runnerSession) budgetReceipt() *BudgetReceipt {
+	receipt := &BudgetReceipt{
+		CallsLeft:        0,
+		RepairsLeft:      0,
+		ObligationsTotal: len(s.task.Obligations),
+		BudgetEnforced:   s.policy.TokenBudget > 0,
+		UsageSource:      MetricsSourceLegacyEstimate,
+	}
+	if s.policy.MaxToolCalls > 0 {
+		if left := s.policy.MaxToolCalls - s.toolCalls; left > 0 {
+			receipt.CallsLeft = left
+		}
+	}
+	if left := s.runner.repairPolicy().Max - s.repairs; left > 0 {
+		receipt.RepairsLeft = left
+	}
+	if s.turnControl {
+		receipt.UsageSource = MetricsSourceReported
+	}
+	if s.policy.TokenBudget > 0 {
+		// Outstanding reservations count against the receipt as well: the model must
+		// see what it can still spend, not what is merely unreserved.
+		left := s.policy.TokenBudget - s.run.InputTokens - s.run.OutputTokens - s.reserved
+		if left < 0 {
+			left = 0
+		}
+		receipt.TokensLeft = &left
+	}
+	if s.answer != nil {
+		closed := 0
+		for _, verdict := range s.answer.Obligations {
+			if verdict.Verdict == VerdictMet || verdict.Verdict == VerdictNotMet {
+				closed++
+			}
+		}
+		receipt.ObligationsClosed = closed
+	}
+	if s.toolCalls >= s.policy.MaxToolCalls && s.policy.MaxToolCalls > 0 {
+		receipt.CallsLeft = 0
+	}
+	return receipt
 }
 
 // applyExpansion decides an expansion request with DecideExpansion, folds the

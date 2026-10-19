@@ -77,6 +77,7 @@ func newAgentRunFixture(runID, pathID, auditID, snapshotID string) agent.Run {
 			Rounds: 5, ModelRequests: 5, Repairs: 1, Exchanges: 4, Novelty: []int{2, 1, 0, 1},
 			InvalidCalls: 1, Truncations: 2, Source: agent.MetricsSourceReported,
 		},
+		ToolSchemaDigest: "tools-digest-1",
 		Aliases: &agent.AliasTable{
 			Version: agent.AliasTableVersion,
 			Entries: []agent.AliasEntry{
