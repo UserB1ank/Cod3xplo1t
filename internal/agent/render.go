@@ -106,6 +106,20 @@ func RenderTask(task Task, aliases *AliasTable) string {
 		}
 	}
 
+	if task.Resume != nil {
+		out.WriteString("\nRESUMED FROM ")
+		out.WriteString(ref(task.Resume.PreviousRunID))
+		out.WriteString("\nThis attempt continues a paused run. The evidence below is already recorded; do not repeat closed work.\n")
+		if len(task.Resume.Frontier) > 0 {
+			out.WriteString("OPEN FRONTIER\n")
+			for _, item := range task.Resume.Frontier {
+				out.WriteString("- ")
+				out.WriteString(singleLine(item))
+				out.WriteString("\n")
+			}
+		}
+	}
+
 	if len(task.Obligations) > 0 {
 		out.WriteString("\nOBLIGATIONS (answer every kind exactly once)\n")
 		for _, obligation := range task.Obligations {

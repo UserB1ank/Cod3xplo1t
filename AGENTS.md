@@ -95,6 +95,8 @@
 
 - 2026-10-20 — #46 三层预算：soft 提示、hard 暂停与审计总额账本：默认 hard 60k（`token_budget=0` 仅显式保留），达到 80% 记一次 `budget_soft_limit` 事件且不停止；hard 触顶沿用 #45 的 PAUSED 检查点。审计总额账本以原子预留控制跨 run / 跨实例支出（`agent_audit_budgets`，SQLite `0032` / PG `0014`），每次 provider 请求预留下输入上界与输出上限，真实 usage 幂等结算，重复上报不重复计费，正常结束释放未对账预留，崩溃保留在途预留；模型请求前的预留不依赖先读余额。追加额度仅 writer 可做，必须带理由与账本版本 CAS（`POST .../tasks/{taskID}/budget/grants`，批准 / 拒绝均落库），reader 只能读；同一路径第 4 次自动续跑返回 `needs_human`。任务页“执行过程”新增审计预算面板（已用 / 预留 / 剩余、决定记录、writer 追加表单），配置 API 返回账本与决定。已通过三仓储账本往返与批准 / 拒绝 / 版本冲突、并发预留单赢家（Memory / SQLite / 真实 PG）、soft 提示只记一次、续跑次数上限、API reader 403 / 缺理由 400 / 版本 412 / 跨项目 404、既有全量与竞态、真实 PG、前端构建、staticcheck 与契约检查；三轮乱序竞态前两轮通过，第三轮 `internal/processplugin` 的 oversize 用例在并载下偶发（单包 10 次连续通过，属既有 flake，与本单无关）。按交付流程提交并关闭；未 push。
 
+- 2026-10-20 — #61 Pi 从真实检查点销毁 worker 后继续：Pi 的每次 attempt 拥有一个 worker 进程，暂停即结束该进程；续跑创建新 run / generation / 租约与**全新 worker**，worker 收到带 `RESUMED FROM` 与 open frontier 的渲染任务，检查点证据与用量随行；旧进程与管道已关闭，迟到帧无法写入新 run，检查点由首次 resume 消费。新增 render 的 RESUME 段、真实 Node worker 端到端测试（一轮 2 调用仅 1 额度 → PAUSED；关闭 PiRuntime、构建新 runtime、Resume → SUCCEEDED、`resume_of`、用量延续、fresh worker 收到 resume 任务），以及 SQLite 重启后的检查点 + resume lineage 断言；PG 侧的检查点持久化与单次消费由三仓储测试覆盖。已通过 agent/storage 全量、排除他人 WIP `internal/app` 的全量、受影响包竞态、真实 PG、staticcheck、契约检查。说明：PG 与 Pi 合并的双应用杀进程测试未单独运行，PG 持久化与 Pi 进程重建分别验证。按交付流程提交并关闭；未 push。
+
 ## Agent skills
 
 ### Issue tracker

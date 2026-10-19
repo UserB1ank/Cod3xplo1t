@@ -971,6 +971,17 @@ func TestCheckpointSurvivesSQLiteRestart(t *testing.T) {
 	if err := reopened.ClaimCheckpointResume(checkpoint.ID); !errors.Is(err, agent.ErrConflict) {
 		t.Fatalf("second claim = %v, want agent.ErrConflict", err)
 	}
+	// The continuation is a new run that names the paused attempt, and the chain
+	// survives the same restart the checkpoint did.
+	resumed := pausedRun
+	resumed.ID, resumed.ResumeOf, resumed.CheckpointID, resumed.Status = "run-resumed", pausedRun.ID, "", agent.RunSucceeded
+	if err := reopened.CreateRun(resumed); err != nil {
+		t.Fatalf("CreateRun(resumed): %v", err)
+	}
+	lineage := mustGetAgentRun(t, reopened, resumed.ID)
+	if lineage.ResumeOf != pausedRun.ID {
+		t.Fatalf("resume_of after restart = %q, want %q", lineage.ResumeOf, pausedRun.ID)
+	}
 }
 
 // TestAuditBudgetLedgerRoundTrips covers the shared ledger: reservation, real

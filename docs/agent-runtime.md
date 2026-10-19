@@ -434,6 +434,14 @@ across application instances, so paused work cannot be forked. The checkpoint is
 resume. The task page shows the PAUSED status and offers the resume action to a
 writer.
 
+A Pi attempt owns one worker process, and pausing ends that process. A resume
+creates a new attempt and a fresh worker; the worker receives the checkpoint's
+task with a `RESUMED FROM` section listing the open frontier, and the checkpoint's
+evidence and usage travel with it. The old process and its pipe are gone, so a
+late frame cannot reach the new run, and the old checkpoint was consumed. The
+stored checkpoint and the resume lineage survive a SQLite or PostgreSQL restart;
+the resume chain stops with `needs_human` after three automatic attempts.
+
 ## Tool batches
 
 A model turn may contain several tool calls. The adapter submits the whole batch
