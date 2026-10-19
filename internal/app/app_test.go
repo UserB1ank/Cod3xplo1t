@@ -500,7 +500,7 @@ func TestBuildWiresSchedulerOnlyWhenEnabled(t *testing.T) {
 func TestBuildInstallsADeploymentProcessPackage(t *testing.T) {
 	t.Parallel()
 	packages := t.TempDir()
-	directory := filepath.Join(packages, "codexploit.static-patterns@1.0.0")
+	directory := filepath.Join(packages, scanner.ID+"@"+scanner.Version)
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		t.Fatal(err)
 	}

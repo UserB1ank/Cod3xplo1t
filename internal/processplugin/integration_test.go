@@ -53,7 +53,7 @@ func buildScanner(t *testing.T) string {
 func scannerPackage(t *testing.T, binary string) string {
 	t.Helper()
 	root := t.TempDir()
-	directory := filepath.Join(root, "codexploit.static-patterns@1.0.0")
+	directory := filepath.Join(root, scanner.ID+"@"+scanner.Version)
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		t.Fatal(err)
 	}
