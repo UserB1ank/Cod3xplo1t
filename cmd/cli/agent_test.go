@@ -24,6 +24,12 @@ func cliAgentAnswer(securityGoal string) string {
     "status": "candidate",
     "confidence": "medium"
   },
+  "obligations": [
+    {"kind": "source_is_attacker_controlled", "verdict": "met"},
+    {"kind": "flow_reaches_sink", "verdict": "met"},
+    {"kind": "control_ineffective_or_absent", "verdict": "met"},
+    {"kind": "sink_is_sensitive", "verdict": "met"}
+  ],
   "supporting_evidence": [
     {"kind": "source", "ref": "ev-1", "file": "main.go", "line": 46, "summary": "the query concatenates the request value"}
   ],
@@ -31,7 +37,7 @@ func cliAgentAnswer(securityGoal string) string {
   "next_action": "request a deeper dataflow slice",
   "finding_candidate": true,
   "severity_hint": "high"
-}`, agent.SchemaVersion, securityGoal)
+}`, agent.SchemaVersionObligations, securityGoal)
 }
 
 // cliAuditAndGoal creates an audit over a CLI-built snapshot and returns its id

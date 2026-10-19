@@ -322,6 +322,67 @@ func boundLimitations(values []string) []string {
 	return out
 }
 
+// obligationEvidenceLimit bounds the ids one obligation cites. The checklist is a
+// question, not a second copy of the evidence: the task already carries the facts.
+const obligationEvidenceLimit = 10
+
+// capObligationEvidence bounds the ids one obligation cites.
+func capObligationEvidence(values []string) []string {
+	if len(values) > obligationEvidenceLimit {
+		return values[:obligationEvidenceLimit]
+	}
+	return values
+}
+
+// buildObligations derives the checklist from the path's shape. It is deliberately
+// mechanical: the same path always yields the same four questions in the same
+// order, so a stored task can be compared with a rebuilt one and no model decides
+// what it should be asked.
+func buildObligations(p path.Path) []agent.Obligation {
+	chain := p.EntryNodeID
+	if strings.TrimSpace(p.TargetNodeID) != "" {
+		chain += "->" + p.TargetNodeID
+	}
+	source := strings.TrimSpace(strings.Join(p.Inputs, ","))
+	if source == "" {
+		source = p.EntryNodeID
+	}
+	control := strings.TrimSpace(strings.Join(p.Controls, ","))
+	if control == "" {
+		control = "none_observed"
+	}
+	return []agent.Obligation{
+		{
+			ID:       agent.ObligationID(p.ID, agent.ObligationSource),
+			Kind:     agent.ObligationSource,
+			Subject:  source,
+			Question: "Is the input attacker-controlled at its source?",
+			Evidence: capObligationEvidence(copyStrings(p.Inputs)),
+		},
+		{
+			ID:       agent.ObligationID(p.ID, agent.ObligationFlow),
+			Kind:     agent.ObligationFlow,
+			Subject:  chain,
+			Question: "Does the input reach the sensitive operation, with every hop observed or explicitly unresolved?",
+			Evidence: capObligationEvidence(copyStrings(p.SCGRefs)),
+		},
+		{
+			ID:       agent.ObligationID(p.ID, agent.ObligationControl),
+			Kind:     agent.ObligationControl,
+			Subject:  control,
+			Question: "Is a control absent or ineffective on this path? Presence is not effectiveness.",
+			Evidence: capObligationEvidence(copyStrings(p.Controls)),
+		},
+		{
+			ID:       agent.ObligationID(p.ID, agent.ObligationSink),
+			Kind:     agent.ObligationSink,
+			Subject:  p.TargetNodeID,
+			Question: "Is the target operation sensitive?",
+			Evidence: capObligationEvidence([]string{p.TargetNodeID}),
+		},
+	}
+}
+
 // BuildTask assembles the whole task from a claimed path.
 //
 // Every field the orchestrator hands an adapter is filled here, and the task is
@@ -371,7 +432,7 @@ func (f *AgentFacts) BuildTask(ctx context.Context, p path.Path, policy agent.Ex
 	}
 
 	task := agent.Task{
-		SchemaVersion:       agent.SchemaVersion,
+		SchemaVersion:       agent.SchemaVersionObligations,
 		SnapshotID:          p.SnapshotID,
 		PathID:              p.ID,
 		AuditID:             p.AuditID,
@@ -384,6 +445,7 @@ func (f *AgentFacts) BuildTask(ctx context.Context, p path.Path, policy agent.Ex
 		Exploration:         policy,
 		Budget:              agent.Budget{TimeoutSeconds: policy.TimeoutSeconds, TokenBudget: policy.TokenBudget},
 		Limitations:         limitations,
+		Obligations:         buildObligations(p),
 		CreatedAt:           agent.NowString(f.now()),
 	}
 	if store, ok := f.Graph.Store.(storage.FullStore); ok {

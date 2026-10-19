@@ -41,13 +41,22 @@ const (
 	MaxToolArgs        = 12
 	MaxToolArgChars    = 2000
 	MaxToolResultChars = 20000
+	// MaxObligationReason bounds the justification attached to one verdict. The
+	// checklist is a decision record, not a reasoning transcript.
+	MaxObligationReason = 400
 )
 
 // ValidateTask rejects a task the orchestrator should never have built.
 func ValidateTask(task Task) error {
 	var problems []string
-	if task.SchemaVersion != SchemaVersion {
-		problems = append(problems, fmt.Sprintf("schema_version is %d, want %d", task.SchemaVersion, SchemaVersion))
+	switch task.SchemaVersion {
+	case SchemaVersion:
+		// Version 1 predates the checklist and stays valid.
+	case SchemaVersionObligations:
+		problems = append(problems, validateObligationChecklist(task.Obligations)...)
+	default:
+		problems = append(problems, fmt.Sprintf("schema_version is %d, want %d or %d",
+			task.SchemaVersion, SchemaVersion, SchemaVersionObligations))
 	}
 	if strings.TrimSpace(task.PathID) == "" {
 		problems = append(problems, "path_id is required")
@@ -98,8 +107,13 @@ func ValidateAnswer(answer *Answer, task Task) error {
 	if answer == nil {
 		return fmt.Errorf("%w: no answer", ErrInvalidAnswer)
 	}
-	if answer.SchemaVersion != SchemaVersion {
-		problems = append(problems, fmt.Sprintf("schema_version is %d, want %d", answer.SchemaVersion, SchemaVersion))
+	wantedVersion := SchemaVersion
+	if task.SchemaVersion == SchemaVersionObligations {
+		wantedVersion = SchemaVersionObligations
+	}
+	if answer.SchemaVersion != wantedVersion {
+		problems = append(problems, fmt.Sprintf("schema_version is %d, want %d for a version %d task",
+			answer.SchemaVersion, wantedVersion, task.SchemaVersion))
 	}
 	if strings.TrimSpace(answer.SecurityGoal) == "" {
 		problems = append(problems, "security_goal is required")
@@ -132,6 +146,9 @@ func ValidateAnswer(answer *Answer, task Task) error {
 	}
 	problems = append(problems, validateEvidence("supporting", answer.SupportingEvidence)...)
 	problems = append(problems, validateEvidence("contradicting", answer.ContradictingEvidence)...)
+	if len(task.Obligations) > 0 {
+		problems = append(problems, validateObligationVerdicts(answer.Obligations, task.Obligations, answer.Hypothesis.Status)...)
+	}
 	if answer.RequestedExpansion != nil {
 		ask := answer.RequestedExpansion
 		if strings.TrimSpace(ask.TargetNodeID) == "" {
@@ -153,6 +170,109 @@ func ValidateAnswer(answer *Answer, task Task) error {
 		return fmt.Errorf("%w: %s", ErrInvalidAnswer, strings.Join(problems, "; "))
 	}
 	return nil
+}
+
+// validateObligationChecklist checks the host-derived checklist: one obligation
+// per kind, unique ids, and a subject and question that name what is being asked.
+func validateObligationChecklist(obligations []Obligation) []string {
+	var problems []string
+	kinds := AllObligationKinds()
+	if len(obligations) != len(kinds) {
+		problems = append(problems, fmt.Sprintf("obligations holds %d entries, want one per kind (%d)",
+			len(obligations), len(kinds)))
+	}
+	seenKind := make(map[string]bool, len(obligations))
+	seenID := make(map[string]bool, len(obligations))
+	for i, obligation := range obligations {
+		where := fmt.Sprintf("obligations[%d]", i)
+		switch {
+		case !ValidObligationKind(obligation.Kind):
+			problems = append(problems, fmt.Sprintf("%s.kind %q is not a known obligation kind", where, obligation.Kind))
+		case seenKind[obligation.Kind]:
+			problems = append(problems, fmt.Sprintf("%s.kind %q appears more than once", where, obligation.Kind))
+		}
+		seenKind[obligation.Kind] = true
+		switch {
+		case strings.TrimSpace(obligation.ID) == "":
+			problems = append(problems, where+".id is required")
+		case seenID[obligation.ID]:
+			problems = append(problems, fmt.Sprintf("%s.id %q appears more than once", where, obligation.ID))
+		}
+		seenID[obligation.ID] = true
+		if strings.TrimSpace(obligation.Subject) == "" {
+			problems = append(problems, where+".subject is required")
+		}
+		if strings.TrimSpace(obligation.Question) == "" {
+			problems = append(problems, where+".question is required")
+		}
+	}
+	for _, kind := range kinds {
+		if !seenKind[kind] {
+			problems = append(problems, "obligations is missing the "+kind+" question")
+		}
+	}
+	return problems
+}
+
+// validateObligationVerdicts checks that an answer closes the checklist it was
+// given. An unknown verdict is allowed only with a blocker, and only when the
+// hypothesis is inconclusive: a conclusive claim over an open question is exactly
+// the premature answer the checklist exists to prevent.
+func validateObligationVerdicts(verdicts []ObligationVerdict, obligations []Obligation, status string) []string {
+	var problems []string
+	expected := make(map[string]bool, len(obligations))
+	for _, obligation := range obligations {
+		expected[obligation.Kind] = true
+	}
+	seen := make(map[string]bool, len(verdicts))
+	for i, verdict := range verdicts {
+		where := fmt.Sprintf("obligations[%d]", i)
+		if !ValidObligationKind(verdict.Kind) {
+			problems = append(problems, fmt.Sprintf("%s.kind %q is not a known obligation kind", where, verdict.Kind))
+			continue
+		}
+		if !expected[verdict.Kind] {
+			problems = append(problems, fmt.Sprintf("%s answers %q, which this task does not ask", where, verdict.Kind))
+			continue
+		}
+		if seen[verdict.Kind] {
+			problems = append(problems, fmt.Sprintf("%s.kind %q appears more than once", where, verdict.Kind))
+			continue
+		}
+		seen[verdict.Kind] = true
+		switch verdict.Verdict {
+		case VerdictMet, VerdictNotMet:
+			if verdict.Blocker != "" {
+				problems = append(problems, fmt.Sprintf("%s is closed and must not name a blocker", where))
+			}
+		case VerdictUnknown:
+			if !ValidBlocker(verdict.Blocker) {
+				problems = append(problems, fmt.Sprintf("%s is unknown and must name a blocker (%s)",
+					where, strings.Join(AllBlockers(), ", ")))
+			}
+		default:
+			problems = append(problems, fmt.Sprintf("%s.verdict %q is not one of %s, %s, %s",
+				where, verdict.Verdict, VerdictMet, VerdictNotMet, VerdictUnknown))
+		}
+		if len(verdict.Reason) > MaxObligationReason {
+			problems = append(problems, fmt.Sprintf("%s.reason exceeds %d characters", where, MaxObligationReason))
+		}
+	}
+	for _, obligation := range obligations {
+		if !seen[obligation.Kind] {
+			problems = append(problems, "the answer closes no verdict for "+obligation.Kind)
+		}
+	}
+	if status != HypothesisInconclusive {
+		for _, verdict := range verdicts {
+			if verdict.Verdict == VerdictUnknown {
+				problems = append(problems, fmt.Sprintf(
+					"obligation %s is still open (%s); only an inconclusive hypothesis may leave it open",
+					verdict.Kind, verdict.Blocker))
+			}
+		}
+	}
+	return problems
 }
 
 // validateEvidence rejects a citation that cannot be checked: it must carry either

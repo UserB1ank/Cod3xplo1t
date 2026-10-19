@@ -38,12 +38,20 @@ const agentTestStatement = "the request name reaches the query without parameter
 // visible through the hypothesis listings.
 func agentTestAnswer(securityGoal string) agent.Answer {
 	return agent.Answer{
-		SchemaVersion: agent.SchemaVersion,
+		SchemaVersion: agent.SchemaVersionObligations,
 		SecurityGoal:  securityGoal,
 		Hypothesis: agent.HypothesisDraft{
 			Statement:  agentTestStatement,
 			Status:     agent.HypothesisCandidate,
 			Confidence: "medium",
+		},
+		// A candidate conclusion requires every obligation closed. This is a
+		// deterministic fixture, not a claim about the code under test.
+		Obligations: []agent.ObligationVerdict{
+			{Kind: agent.ObligationSource, Verdict: agent.VerdictMet},
+			{Kind: agent.ObligationFlow, Verdict: agent.VerdictMet},
+			{Kind: agent.ObligationControl, Verdict: agent.VerdictMet},
+			{Kind: agent.ObligationSink, Verdict: agent.VerdictMet},
 		},
 		SupportingEvidence: []agent.AnswerEvidence{
 			{Kind: agent.EvidenceSource, Ref: "ev-1", File: "main.go", Line: 12, Summary: "the slice concatenates the name"},

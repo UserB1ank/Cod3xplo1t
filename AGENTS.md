@@ -63,6 +63,8 @@
 
 - 2026-10-19 — #39 结构化截断工具结果并去除重复引用：移除按字节切 `result[:20000]` 的路径，超限结果改为返回完整可解析的 `result_too_large` 错误而不是半截文档；工具层新增结构上限（符号页 ≤ 50、邻居 ≤ 20、调用路径 ≤ 3、refs ≤ 40、结构化 JSON ≤ 8000 字节，文本 ≤ 8k rune），裁剪原因写入结果自身；refs 只作为编排器元数据保留，模型侧工具消息改为 `{ok,result,error}` 精简封装，不再重复 payload 内的 id；system prompt 删除重复的工具清单，签名并入每个工具的唯一定义。已通过 `toolJSON` 超限与 refs 上限的包内测试、模型侧精简结果的 provider 测试、`internal/agent` / `internal/graph` 全量 `-race`、gofmt / vet / staticcheck；发现 `internal/api` 的 `TestWorkflowPublishesSharedKnowledgeAndRunsConfiguredCandidateRuntime` 在整包运行时存在既有偶发失败（HEAD 上同样复现，与本单无关）。按交付流程提交并关闭；未 push。
 
+- 2026-10-19 — #40 把审计任务改为可判定的义务清单：`Task` schema 2 由宿主侧从 path 形状机械生成四条义务（源可控 / 可达 sink / 控制失效 / sink 敏感），id 由 `(path_id, kind)` 派生，同一 path 重建逐字节一致，不依赖模型调用；`Answer` 按 kind 逐条给出 `met` / `not_met` / `unknown + blocker`（unresolved_call / dynamic_dispatch / external_dependency / control_unassessed / budget），缺失、重复、非法 verdict、未知 blocker 或开放义务下的 conclusive 结论均被拒绝，拒绝原因随 run 记录；schema 1 任务仍按 v1 校验，旧 run 与报告可读。接入 `internal/graph` 任务构建器、模型提示词与 CLI / API 测试夹具，新增义务清单与裁决的表驱动测试。已通过 `internal/agent` / `internal/graph` 全量 `-race`、排除 `internal/app` 的全量测试、gofmt / vet / staticcheck；`internal/app` 仍因工作区未跟踪的 #27 进行中测试文件无法编译。按交付流程提交并关闭；未 push。
+
 ## Agent skills
 
 ### Issue tracker

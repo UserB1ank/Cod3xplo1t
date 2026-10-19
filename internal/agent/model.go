@@ -27,7 +27,102 @@ import (
 )
 
 // SchemaVersion identifies the serialised shape of a task and of an agent answer.
+// Version 1 predates the obligation checklist; a stored run that used it stays
+// readable, and a task is only held to the checklist it actually carries.
 const SchemaVersion = 1
+
+// SchemaVersionObligations is the protocol version that carries a checklist of
+// obligations. A task at this version must carry exactly one obligation of each
+// kind, and an answer must answer every one of them.
+const SchemaVersionObligations = 2
+
+// Obligation kinds: the four questions one path must answer before its run may
+// claim a conclusion. The host derives them from the path's shape, never the
+// model: a model that invents its own questions can always declare them answered.
+const (
+	ObligationSource  = "source_is_attacker_controlled"
+	ObligationFlow    = "flow_reaches_sink"
+	ObligationControl = "control_ineffective_or_absent"
+	ObligationSink    = "sink_is_sensitive"
+)
+
+// AllObligationKinds returns the vocabulary in the order a checklist carries it.
+func AllObligationKinds() []string {
+	return []string{ObligationSource, ObligationFlow, ObligationControl, ObligationSink}
+}
+
+// ValidObligationKind reports whether a kind is part of the vocabulary.
+func ValidObligationKind(kind string) bool {
+	for _, known := range AllObligationKinds() {
+		if kind == known {
+			return true
+		}
+	}
+	return false
+}
+
+// Verdicts an obligation may carry. `unknown` is a first-class answer: it must
+// name the blocker that makes the question undecidable, and it makes the run's
+// conclusion inconclusive.
+const (
+	VerdictMet     = "met"
+	VerdictNotMet  = "not_met"
+	VerdictUnknown = "unknown"
+)
+
+// Blocker codes name why an obligation could not be decided. They are the
+// vocabulary a scheduler groups by when it asks which capability is missing.
+const (
+	BlockerUnresolvedCall     = "unresolved_call"
+	BlockerDynamicDispatch    = "dynamic_dispatch"
+	BlockerExternalDependency = "external_dependency"
+	BlockerControlUnassessed  = "control_unassessed"
+	BlockerBudget             = "budget"
+)
+
+// AllBlockers returns the blocker vocabulary.
+func AllBlockers() []string {
+	return []string{
+		BlockerUnresolvedCall, BlockerDynamicDispatch, BlockerExternalDependency,
+		BlockerControlUnassessed, BlockerBudget,
+	}
+}
+
+// ValidBlocker reports whether a blocker code is known.
+func ValidBlocker(blocker string) bool {
+	for _, known := range AllBlockers() {
+		if blocker == known {
+			return true
+		}
+	}
+	return false
+}
+
+// Obligation is one question a path must answer. ID is derived from the path and
+// the kind, so the same path always yields the same checklist; Kind is what an
+// answer references, because a scripted or external adapter cannot know an id it
+// was never shown.
+type Obligation struct {
+	ID       string   `json:"id"`
+	Kind     string   `json:"kind"`
+	Subject  string   `json:"subject"`
+	Question string   `json:"question"`
+	Evidence []string `json:"evidence_refs,omitempty"`
+}
+
+// ObligationID derives the stable id of one obligation of one path.
+func ObligationID(pathID, kind string) string {
+	return "ob-" + digest16("codexploit/obligation/v1", pathID, kind)[:12]
+}
+
+// ObligationVerdict is the answer to one obligation. An unknown verdict must name
+// a blocker; a closed verdict must not.
+type ObligationVerdict struct {
+	Kind    string `json:"kind"`
+	Verdict string `json:"verdict"`
+	Blocker string `json:"blocker,omitempty"`
+	Reason  string `json:"reason,omitempty"`
+}
 
 // RunStatus is the lifecycle of one agent run. It is deliberately separate from
 // the path status: a run can fail while its path stays queued for another attempt.
@@ -226,7 +321,10 @@ type Task struct {
 	// Limitations restates what the upstream layers could not establish, so the
 	// agent does not treat them as settled.
 	Limitations []string `json:"limitations"`
-	CreatedAt   string   `json:"created_at"`
+	// Obligations is the checklist this task must answer. It is empty for a task
+	// built before the checklist existed; such a task is validated as version 1.
+	Obligations []Obligation `json:"obligations,omitempty"`
+	CreatedAt   string       `json:"created_at"`
 }
 
 type PriorFinding struct {
@@ -289,6 +387,9 @@ type Answer struct {
 	// Notes is a short explicit justification. It is not a reasoning transcript and
 	// must stay within the length cap.
 	Notes string `json:"notes,omitempty"`
+	// Obligations answers the task's checklist by kind. Required when the task
+	// carries one; a conclusive hypothesis requires every verdict to be closed.
+	Obligations []ObligationVerdict `json:"obligations,omitempty"`
 }
 
 // HypothesisDraft is the claim the agent is making.

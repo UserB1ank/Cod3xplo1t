@@ -50,12 +50,46 @@ truncated on a rune boundary with an explicit reason), and the task is validated
 before it is stored: a builder that can produce an invalid task fails loudly rather
 than handing an agent a question that cannot be answered.
 
+## Obligations (task schema 2)
+
+A path is not answered by prose: it is answered by closing a checklist. The task
+builder derives four obligations from the path's shape — no model call is involved,
+so the same path always yields the same questions in the same order:
+
+| Kind | Question | Subject |
+|---|---|---|
+| `source_is_attacker_controlled` | Is the input attacker-controlled at its source? | the path's inputs, or the entry point when none is named |
+| `flow_reaches_sink` | Does the input reach the sensitive operation, with every hop observed or explicitly unresolved? | the `entry→target` chain |
+| `control_ineffective_or_absent` | Is a control absent or ineffective on this path? Presence is not effectiveness. | the controls, or `none_observed` |
+| `sink_is_sensitive` | Is the target operation sensitive? | the target node id |
+
+Each obligation carries an id derived from `(path_id, kind)`, so rebuilding the task
+reproduces the ids and a stored task can be compared with a rebuilt one. The answer
+closes them **by kind**, not by id: a scripted or external adapter never saw the ids.
+
+Rules the protocol enforces:
+
+- a version 2 task must carry exactly one obligation per kind, with unique ids, a
+  subject and a question — the builder cannot emit half a checklist;
+- an answer to a task with a checklist must carry exactly one verdict per kind;
+- a verdict is `met`, `not_met` or `unknown`; `unknown` **must** name a blocker
+  (`unresolved_call`, `dynamic_dispatch`, `external_dependency`,
+  `control_unassessed`, `budget`), and a closed verdict must not;
+- a `candidate` or `refuted` hypothesis requires every obligation closed. Leaving
+  one open is allowed only for an `inconclusive` hypothesis, which is the honest
+  form of "I could not decide this".
+
+A version 1 task predates the checklist and is still validated as version 1, so
+stored runs stay readable. The blocker vocabulary is also the vocabulary the
+scheduler will group by when it asks which capability is missing; no tool is added
+because a model asked for one, only because a blocker keeps recurring.
+
 ## The answer (structured, validated, no prose channel)
 
-An answer carries `hypothesis{statement,status,confidence}`, separate
-`supporting_evidence` and `contradicting_evidence` lists, `next_action`, an optional
-`requested_expansion`, `finding_candidate`, `severity_hint` and a short `notes`
-justification.
+An answer carries `hypothesis{statement,status,confidence}`, the `obligations`
+verdicts described above, separate `supporting_evidence` and `contradicting_evidence`
+lists, `next_action`, an optional `requested_expansion`, `finding_candidate`,
+`severity_hint` and a short `notes` justification.
 
 - Unknown JSON fields are **rejected**, not ignored: an adapter that invents a field
   is producing something the orchestrator would silently drop.

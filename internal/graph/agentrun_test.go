@@ -43,12 +43,18 @@ func TestGraphAssemblyRunsAnAgentOverARealPath(t *testing.T) {
 			Args: map[string]string{"snapshot_id": agentSnapID, "symbol_id": sym.ID},
 		}),
 		agent.ScriptAnswer(agent.Answer{
-			SchemaVersion: agent.SchemaVersion,
+			SchemaVersion: agent.SchemaVersionObligations,
 			SecurityGoal:  strings.Join(p.Objectives, "; "),
 			Hypothesis: agent.HypothesisDraft{
 				Statement:  "the handler reaches the sensitive operation without an observed control",
 				Status:     agent.HypothesisCandidate,
 				Confidence: "medium",
+			},
+			Obligations: []agent.ObligationVerdict{
+				{Kind: agent.ObligationSource, Verdict: agent.VerdictMet},
+				{Kind: agent.ObligationFlow, Verdict: agent.VerdictMet},
+				{Kind: agent.ObligationControl, Verdict: agent.VerdictMet},
+				{Kind: agent.ObligationSink, Verdict: agent.VerdictMet},
 			},
 			SupportingEvidence: []agent.AnswerEvidence{{
 				Kind: agent.EvidenceSource, Ref: sym.ID, Summary: "the handler symbol",

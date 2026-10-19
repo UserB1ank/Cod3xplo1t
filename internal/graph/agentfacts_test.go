@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -297,8 +298,19 @@ func TestBuildTaskCarriesThePathAndItsSlice(t *testing.T) {
 	if err := agent.ValidateTask(task); err != nil {
 		t.Fatalf("the built task does not validate: %v", err)
 	}
-	if task.SchemaVersion != agent.SchemaVersion {
-		t.Errorf("schema version = %d, want %d", task.SchemaVersion, agent.SchemaVersion)
+	if task.SchemaVersion != agent.SchemaVersionObligations {
+		t.Errorf("schema version = %d, want %d", task.SchemaVersion, agent.SchemaVersionObligations)
+	}
+	if len(task.Obligations) != len(agent.AllObligationKinds()) {
+		t.Fatalf("obligations = %d, want one per kind (%d)", len(task.Obligations), len(agent.AllObligationKinds()))
+	}
+	for i, kind := range agent.AllObligationKinds() {
+		if task.Obligations[i].Kind != kind {
+			t.Errorf("obligation %d kind = %q, want %q", i, task.Obligations[i].Kind, kind)
+		}
+		if task.Obligations[i].ID != agent.ObligationID(p.ID, kind) {
+			t.Errorf("obligation %d id = %q, want the derived id", i, task.Obligations[i].ID)
+		}
 	}
 	if task.PathID != p.ID || task.SnapshotID != p.SnapshotID || task.AuditID != p.AuditID {
 		t.Errorf("ids = %q/%q/%q, want %q/%q/%q", task.PathID, task.SnapshotID, task.AuditID, p.ID, p.SnapshotID, p.AuditID)
@@ -653,3 +665,60 @@ func TestTaskLimitationsDegradeWithoutASummary(t *testing.T) {
 }
 
 func itoa(value int) string { return strconv.Itoa(value) }
+
+// TestBuildTaskDerivesTheChecklistFromThePath pins the generator: four shapes, the
+// same four questions in the same order, ids derived from the path, and a rebuild
+// that is byte-identical to the build before it.
+func TestBuildTaskDerivesTheChecklistFromThePath(t *testing.T) {
+	t.Parallel()
+	fixture := newAgentFixture(t)
+	base, _ := fixture.pathWithSymbol(t)
+	facts := testFacts(fixture.scg, fixture.asg)
+	policy := agent.DefaultExplorationPolicy()
+
+	cases := []struct {
+		name        string
+		inputs      []string
+		controls    []string
+		wantSource  string
+		wantControl string
+	}{
+		{"no-input-no-control", nil, nil, base.EntryNodeID, "none_observed"},
+		{"one-input", []string{"asgn-input-1"}, nil, "asgn-input-1", "none_observed"},
+		{"one-control", nil, []string{"asgn-control-1"}, base.EntryNodeID, "asgn-control-1"},
+		{"input-and-control", []string{"asgn-input-1", "asgn-input-2"}, []string{"asgn-control-1"},
+			"asgn-input-1,asgn-input-2", "asgn-control-1"},
+	}
+	for i, tc := range cases {
+		p := base
+		p.ID = base.ID + "-shape-" + strconv.Itoa(i)
+		p.Inputs, p.Controls = tc.inputs, tc.controls
+
+		first, err := facts.BuildTask(context.Background(), p, policy)
+		if err != nil {
+			t.Fatalf("%s: BuildTask: %v", tc.name, err)
+		}
+		second, err := facts.BuildTask(context.Background(), p, policy)
+		if err != nil {
+			t.Fatalf("%s: rebuild: %v", tc.name, err)
+		}
+		if !reflect.DeepEqual(first.Obligations, second.Obligations) {
+			t.Fatalf("%s: rebuilding the same path changed the checklist", tc.name)
+		}
+		if first.Obligations[0].Subject != tc.wantSource {
+			t.Errorf("%s: source subject = %q, want %q", tc.name, first.Obligations[0].Subject, tc.wantSource)
+		}
+		if first.Obligations[2].Subject != tc.wantControl {
+			t.Errorf("%s: control subject = %q, want %q", tc.name, first.Obligations[2].Subject, tc.wantControl)
+		}
+		// The sink question is always about the path's target, and the flow
+		// question always names the chain it is asking about.
+		if first.Obligations[3].Subject != p.TargetNodeID {
+			t.Errorf("%s: sink subject = %q, want %q", tc.name, first.Obligations[3].Subject, p.TargetNodeID)
+		}
+		if !strings.Contains(first.Obligations[1].Subject, p.EntryNodeID) ||
+			!strings.Contains(first.Obligations[1].Subject, p.TargetNodeID) {
+			t.Errorf("%s: flow subject %q does not name both ends", tc.name, first.Obligations[1].Subject)
+		}
+	}
+}
