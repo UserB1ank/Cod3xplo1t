@@ -27,6 +27,8 @@ var (
 	ErrCheckpointStale = errors.New("agent: the checkpoint's fixed inputs are no longer available")
 	// ErrCheckpointUnsupported refuses resume for an adapter that cannot carry one.
 	ErrCheckpointUnsupported = errors.New("agent: this runtime cannot resume a checkpoint")
+	// ErrCheckpointConsumed refuses a second resume of the same checkpoint.
+	ErrCheckpointConsumed = errors.New("agent: the checkpoint was already consumed")
 	// ErrRuntimeUnavailable is a task's selected runtime missing from the
 	// deployment catalog. It must not fall back to another adapter.
 	ErrRuntimeUnavailable = errors.New("agent: the requested runtime is not available")

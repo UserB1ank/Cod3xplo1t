@@ -701,6 +701,14 @@ func (r *Runner) Resume(ctx context.Context, runID string) (*Run, error) {
 			}
 		}
 	}
+	// The checkpoint is single-use: across instances only the CAS winner starts a
+	// new attempt, so two resumes cannot fork the same paused work.
+	if err := r.Store.ClaimCheckpointResume(checkpoint.ID); err != nil {
+		if errors.Is(err, ErrConflict) {
+			return nil, fmt.Errorf("%w: %s", ErrCheckpointConsumed, checkpoint.ID)
+		}
+		return nil, fmt.Errorf("%w: claim the checkpoint: %v", ErrCheckpointUnavailable, err)
+	}
 	owner := r.owner()
 	p, err := r.Paths.ClaimSpecificPath(ctx, checkpoint.PathID, owner, r.leaseTTL())
 	if err != nil || p == nil {

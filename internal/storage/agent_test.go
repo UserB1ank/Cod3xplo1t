@@ -3,11 +3,13 @@ package storage
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
 
 	"github.com/open-mcp-ai/Codexploit/internal/agent"
+	"github.com/open-mcp-ai/Codexploit/migrations"
 )
 
 const (
@@ -909,5 +911,63 @@ func TestAgentCheckpointPauseRoundTrips(t *testing.T) {
 				t.Fatalf("stale checkpoint save = %v, want agent.ErrConflict", err)
 			}
 		})
+	}
+}
+
+// TestCheckpointSurvivesSQLiteRestart reopens the catalog and reads the paused
+// run and its checkpoint back: a pause is only useful if it outlives the process.
+func TestCheckpointSurvivesSQLiteRestart(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "state.db")
+	open := func() *SQL {
+		store, err := OpenSQL(ctx, "sqlite", path)
+		if err != nil {
+			t.Fatalf("OpenSQL: %v", err)
+		}
+		if err := store.EnsureSchema(ctx, migrations.FS); err != nil {
+			t.Fatalf("EnsureSchema: %v", err)
+		}
+		return store
+	}
+	store := open()
+	run := newAgentRunFixture(agentStoreRunID, agentStorePathID, agentStoreAuditID, agentStoreSnapID)
+	if err := store.CreateRun(run); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	checkpoint, err := agent.BuildCheckpoint(agent.CheckpointInput{
+		Run: run, Task: run.Task, Reason: "the tool budget is exhausted", Now: time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("BuildCheckpoint: %v", err)
+	}
+	paused := run
+	paused.Status = agent.RunPaused
+	paused.StopReason = agent.StopBudgetPaused
+	paused.CheckpointID = checkpoint.ID
+	if err := store.SaveCheckpointAndPause(paused, run.Version, checkpoint, nil); err != nil {
+		t.Fatalf("SaveCheckpointAndPause: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	reopened := open()
+	defer reopened.Close()
+	stored, err := reopened.GetCheckpoint(run.ID)
+	if err != nil {
+		t.Fatalf("GetCheckpoint after restart: %v", err)
+	}
+	if stored.ID != checkpoint.ID || stored.Digest != checkpoint.Digest {
+		t.Fatalf("checkpoint after restart = %+v", stored)
+	}
+	pausedRun := mustGetAgentRun(t, reopened, run.ID)
+	if pausedRun.Status != agent.RunPaused || pausedRun.CheckpointID != checkpoint.ID {
+		t.Fatalf("run after restart = %s/%q", pausedRun.Status, pausedRun.CheckpointID)
+	}
+	if err := reopened.ClaimCheckpointResume(checkpoint.ID); err != nil {
+		t.Fatalf("claim after restart: %v", err)
+	}
+	if err := reopened.ClaimCheckpointResume(checkpoint.ID); !errors.Is(err, agent.ErrConflict) {
+		t.Fatalf("second claim = %v, want agent.ErrConflict", err)
 	}
 }

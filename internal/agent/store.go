@@ -31,6 +31,9 @@ type Store interface {
 	SaveCheckpointAndPause(run Run, expectedVersion int64, checkpoint Checkpoint, events []Event) error
 	// GetCheckpoint returns the latest checkpoint of a run.
 	GetCheckpoint(runID string) (*Checkpoint, error)
+	// ClaimCheckpointResume makes a checkpoint single-use: the first caller wins and
+	// every other resume of the same checkpoint gets ErrConflict.
+	ClaimCheckpointResume(checkpointID string) error
 
 	// AppendRunEvents adds run events. Sequences are per run and must increase.
 	//

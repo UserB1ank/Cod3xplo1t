@@ -91,6 +91,8 @@
 
 - 2026-10-20 — #60 让 Pi 与 llm 共用同一轮批次、预算与收敛规则：worker 不再一调用一请求。Pi agent core 的 parallel 只负责让同一 assistant turn 的所有工具 execute 启动，worker 短暂收集后提交一个 `tool_batch`（calls: call_id/tool/args）；Go 桥把它转成与 llm 相同的宿主 `ToolBatch`，复用 #43 的源序预算预留、配对拒绝、并发执行与 provider 源序配对；回执 `tool_batch_result` 按源顺序每个 call 一条结果。协议、公共 worker Schema 与能力位 `BatchTools` 同步。`falsifier` 与 novelty 仍由宿主统一校验，Pi 无独立 validator。已通过 worker 测试（批量回执）、Go 桥 `TestPiRuntimeSubmitsOneTurnAsABatch`（2 调用 1 次许可、2 次交换、源序配对）与 `TestPiBatchReservesBudgetInSourceOrder`（3 调用仅 2 额度，第 3 个仅拒绝、run 停 BUDGET_EXCEEDED）、既有 Pi 全量测试与竞态、staticcheck、契约检查。按交付流程提交并关闭；未 push。
 
+- 2026-10-20 — #45 预算边界保存可续跑检查点并从正式页面继续：token / 工具预算触顶时 attempt 以 `PAUSED` / `budget_paused` 停止，Go 由 run 自身任务、canonical 证据、frontier（义务 + 未决问题）、别名表、runtime/model/config/prompt/tool pin 与累计用量生成带版本与摘要的检查点；检查点、PAUSED run 与最终事件同一事务写入，失败明确 `checkpoint_unavailable`，不伪造可续跑状态。续跑以检查点的任务、证据与用量创建新 run / generation / 租约并记录 `resume_of`；配置版本变化、路径不可领取、跨 run 检查点拒绝，cli 明确 unsupported，检查点由首次 resume 原子消费（三仓储 CAS，`checkpoint_consumed`），并发续跑只有一个赢家。认证 API 提供 checkpoint 读取（reader）与 resume（writer，含能力表规则），任务页对 PAUSED run 显示“继续”；Memory / SQLite / PostgreSQL 持久化（SQLite `0030`/`0031`、PG `0012`/`0013`），SQLite 重启后检查点与 PAUSED 状态可读。已通过暂停/续跑状态机测试、并发续跑单赢家、三仓储检查点往返与 SQLite 重启、API reader/跨项目/unsupported/读取测试、既有预算测试与 golden 更新、agent/storage/api 全量及竞态、真实 PG、排除被他人 WIP 阻塞的 `internal/app` 后的三轮乱序竞态、staticcheck 与契约检查。按交付流程提交并关闭；未 push。
+
 ## Agent skills
 
 ### Issue tracker

@@ -74,3 +74,21 @@ func (m *Memory) GetCheckpoint(runID string) (*agent.Checkpoint, error) {
 	}
 	return latest, nil
 }
+
+// ClaimCheckpointResume implements agent.Store: the first caller consumes the
+// checkpoint and every other resume gets a conflict.
+func (m *Memory) ClaimCheckpointResume(checkpointID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if checkpointID == "" {
+		return fmt.Errorf("%w: a checkpoint id is required", agent.ErrInvalidArgument)
+	}
+	if _, exists := m.agentCheckpoints[checkpointID]; !exists {
+		return fmt.Errorf("%w: checkpoint %s", agent.ErrNotFound, checkpointID)
+	}
+	if _, claimed := m.agentCheckpointResumes[checkpointID]; claimed {
+		return fmt.Errorf("%w: checkpoint %s was already consumed", agent.ErrConflict, checkpointID)
+	}
+	m.agentCheckpointResumes[checkpointID] = struct{}{}
+	return nil
+}

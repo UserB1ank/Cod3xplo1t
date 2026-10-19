@@ -63,6 +63,8 @@ type Memory struct {
 	agentRuns map[string]*agentRunDocument
 	// agentCheckpoints holds the pause documents, keyed by checkpoint id.
 	agentCheckpoints map[string]agent.Checkpoint
+	// agentCheckpointResumes makes a checkpoint single-use.
+	agentCheckpointResumes map[string]struct{}
 	// agentHypotheses holds the claims produced by runs, keyed by hypothesis id.
 	// The upsert identity (path_id, digest) is checked when a claim is saved.
 	agentHypotheses map[string]agent.Hypothesis
@@ -90,23 +92,24 @@ type memorySnapshot struct {
 // NewMemory returns an empty in-memory store.
 func NewMemory() *Memory {
 	return &Memory{
-		deleting:            map[string]bool{},
-		projects:            map[string]Project{},
-		snapshots:           map[string]memorySnapshot{},
-		manifests:           map[string][]byte{},
-		analyses:            map[string]string{},
-		graphs:              map[string]*memoryGraph{},
-		asgDocuments:        map[string]*asg.Document{},
-		idempotency:         map[idempotencyKey]IdempotencyRecord{},
-		audits:              map[string]*auditDocument{},
-		agentRuns:           map[string]*agentRunDocument{},
-		agentCheckpoints:    map[string]agent.Checkpoint{},
-		agentHypotheses:     map[string]agent.Hypothesis{},
-		verificationRuns:    map[string]verify.Run{},
-		evidence:            map[string]verify.Evidence{},
-		findings:            map[string]verify.Finding{},
-		findingObservations: map[string]findings.Observation{},
-		findingAudits:       map[string][]findings.SeverityAudit{},
+		deleting:               map[string]bool{},
+		projects:               map[string]Project{},
+		snapshots:              map[string]memorySnapshot{},
+		manifests:              map[string][]byte{},
+		analyses:               map[string]string{},
+		graphs:                 map[string]*memoryGraph{},
+		asgDocuments:           map[string]*asg.Document{},
+		idempotency:            map[idempotencyKey]IdempotencyRecord{},
+		audits:                 map[string]*auditDocument{},
+		agentRuns:              map[string]*agentRunDocument{},
+		agentCheckpoints:       map[string]agent.Checkpoint{},
+		agentCheckpointResumes: map[string]struct{}{},
+		agentHypotheses:        map[string]agent.Hypothesis{},
+		verificationRuns:       map[string]verify.Run{},
+		evidence:               map[string]verify.Evidence{},
+		findings:               map[string]verify.Finding{},
+		findingObservations:    map[string]findings.Observation{},
+		findingAudits:          map[string][]findings.SeverityAudit{},
 	}
 }
 

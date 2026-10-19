@@ -60,6 +60,7 @@ func TestGraphAssemblyRunsAnAgentOverARealPath(t *testing.T) {
 				Kind: agent.EvidenceSource, Ref: sym.ID, Summary: "the handler symbol",
 			}},
 			NextAction: "verify the dataflow from the input to the sink",
+			Falsifier:  &agent.Falsifier{Claim: "a parameterised query or an effective control would refute the claim", Checked: false},
 		}),
 	})
 	runner := &agent.Runner{

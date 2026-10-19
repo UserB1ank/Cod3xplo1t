@@ -75,25 +75,27 @@ func runnerTestPath(auditID, pathID string) path.Path {
 // orchestrator relies on: a run event sequence strictly increases, and
 // SaveHypotheses appends its hypothesis event in the same step as the upsert.
 type runnerTestStore struct {
-	mu          sync.Mutex
-	runs        map[string]Run
-	runOrder    []string
-	events      map[string][]Event
-	seq         map[string]int64
-	hyps        map[string]Hypothesis
-	hypOrder    []string
-	checkpoints map[string]Checkpoint
+	mu              sync.Mutex
+	runs            map[string]Run
+	runOrder        []string
+	events          map[string][]Event
+	seq             map[string]int64
+	hyps            map[string]Hypothesis
+	hypOrder        []string
+	checkpoints     map[string]Checkpoint
+	checkpointClaim map[string]bool
 }
 
 var _ Store = (*runnerTestStore)(nil)
 
 func newRunnerTestStore() *runnerTestStore {
 	return &runnerTestStore{
-		runs:        map[string]Run{},
-		events:      map[string][]Event{},
-		seq:         map[string]int64{},
-		hyps:        map[string]Hypothesis{},
-		checkpoints: map[string]Checkpoint{},
+		runs:            map[string]Run{},
+		events:          map[string][]Event{},
+		seq:             map[string]int64{},
+		hyps:            map[string]Hypothesis{},
+		checkpoints:     map[string]Checkpoint{},
+		checkpointClaim: map[string]bool{},
 	}
 }
 
@@ -140,6 +142,19 @@ func (s *runnerTestStore) GetCheckpoint(runID string) (*Checkpoint, error) {
 		return nil, fmt.Errorf("%w: checkpoint of run %s", ErrRunNotFound, runID)
 	}
 	return latest, nil
+}
+
+func (s *runnerTestStore) ClaimCheckpointResume(checkpointID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.checkpoints[checkpointID]; !ok {
+		return fmt.Errorf("%w: checkpoint %s", ErrRunNotFound, checkpointID)
+	}
+	if s.checkpointClaim[checkpointID] {
+		return fmt.Errorf("%w: checkpoint %s was already consumed", ErrConflict, checkpointID)
+	}
+	s.checkpointClaim[checkpointID] = true
+	return nil
 }
 
 func (s *runnerTestStore) CreateRun(run Run) error {

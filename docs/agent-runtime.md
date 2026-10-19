@@ -408,7 +408,9 @@ attempt from the checkpoint: a new run id, lease and generation, with the paused
 run's task, evidence and usage carried forward and `resume_of` naming the previous
 attempt. A changed model configuration version, a path that can no longer be
 claimed or a checkpoint from another run is refused (`checkpoint_stale`), and the
-legacy CLI adapter reports `unsupported`. The checkpoint is readable through
+legacy CLI adapter reports `unsupported`. A checkpoint is consumed by its first
+resume; a second resume of the same checkpoint reports `checkpoint_consumed` even
+across application instances, so paused work cannot be forked. The checkpoint is readable through
 `GET .../runs/{runID}/checkpoint`; readers can inspect the frontier but not
 resume. The task page shows the PAUSED status and offers the resume action to a
 writer.
