@@ -1321,8 +1321,16 @@ func TestRunnerToolResultTruncation(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("tool_result events = %d, want 1", len(events))
 	}
-	if got := len(events[0].Detail["result"]); got != MaxToolResultChars {
-		t.Errorf("result length = %d, want %d", got, MaxToolResultChars)
+	// An oversized result is replaced by a complete JSON error, never by a
+	// byte-sliced document the model cannot parse.
+	var payload struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(events[0].Detail["result"]), &payload); err != nil {
+		t.Fatalf("truncated result is not valid JSON: %v (%q)", err, events[0].Detail["result"])
+	}
+	if payload.Error != "result_too_large" {
+		t.Errorf("error = %q, want result_too_large", payload.Error)
 	}
 	if events[0].Detail["truncated"] != "true" {
 		t.Errorf("truncated = %q, want true", events[0].Detail["truncated"])

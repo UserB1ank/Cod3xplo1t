@@ -61,6 +61,8 @@
 
 - 2026-10-19 — #38 工具参数与答案校验失败改为可回灌修复：模型适配器把结构性错误改成有界修复回合——工具参数类型错误、单轮多调用、结构化答案被拒分别收到不超过 300 字符的纠错；多调用时为每个被拒调用回一条配对的 `tool` 消息，保证 provider 的 call / result 配对合法；修复上限 2 次、独立计数且不占工具预算，token 仍计入预算，耗尽后按 `INVALID_OUTPUT` 终止并保留协议原因。越权工具、未注册工具与预算耗尽的语义和停止原因不变，每次修复记录为 `run_note` 事件。已通过四条公开边界的 TDD red/green（数字型参数、双调用、未知字段、修复耗尽）、`internal/agent` 全量测试与 `-race`、gofmt / vet / staticcheck；`internal/app` 因工作区存在未跟踪的进行中测试文件未纳入本轮运行，前端无改动。按交付流程提交并关闭；未 push。
 
+- 2026-10-19 — #39 结构化截断工具结果并去除重复引用：移除按字节切 `result[:20000]` 的路径，超限结果改为返回完整可解析的 `result_too_large` 错误而不是半截文档；工具层新增结构上限（符号页 ≤ 50、邻居 ≤ 20、调用路径 ≤ 3、refs ≤ 40、结构化 JSON ≤ 8000 字节，文本 ≤ 8k rune），裁剪原因写入结果自身；refs 只作为编排器元数据保留，模型侧工具消息改为 `{ok,result,error}` 精简封装，不再重复 payload 内的 id；system prompt 删除重复的工具清单，签名并入每个工具的唯一定义。已通过 `toolJSON` 超限与 refs 上限的包内测试、模型侧精简结果的 provider 测试、`internal/agent` / `internal/graph` 全量 `-race`、gofmt / vet / staticcheck；发现 `internal/api` 的 `TestWorkflowPublishesSharedKnowledgeAndRunsConfiguredCandidateRuntime` 在整包运行时存在既有偶发失败（HEAD 上同样复现，与本单无关）。按交付流程提交并关闭；未 push。
+
 ## Agent skills
 
 ### Issue tracker

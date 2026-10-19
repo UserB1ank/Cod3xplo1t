@@ -221,3 +221,30 @@ func lastUserMessage(messages []llm.Message) string {
 	}
 	return ""
 }
+
+// TestModelToolResultOmitsBookkeeping keeps the orchestrator's metadata out of the
+// model's context: the payload already names every fact, and refs, call ids and
+// timings are a second copy paid for on every turn.
+func TestModelToolResultOmitsBookkeeping(t *testing.T) {
+	_, provider := runRepairScenario(t,
+		chatToolCall("model-call-1", `{"tool":"graph.query","args":{}}`),
+		chatAnswer(runnerTestAnswer()),
+	)
+	var content string
+	for _, message := range provider.lastRequest() {
+		if message.Role == "tool" && message.ToolCallID == "model-call-1" {
+			content = message.Content
+		}
+	}
+	if content == "" {
+		t.Fatal("the tool result never reached the model")
+	}
+	for _, unwanted := range []string{"call_id", "refs", "elapsed_ms"} {
+		if strings.Contains(content, unwanted) {
+			t.Fatalf("tool result carries orchestrator bookkeeping %q: %s", unwanted, content)
+		}
+	}
+	if !strings.Contains(content, `"ok":true`) {
+		t.Fatalf("tool result lost its outcome: %s", content)
+	}
+}

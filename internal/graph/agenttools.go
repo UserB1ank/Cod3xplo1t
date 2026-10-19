@@ -48,14 +48,26 @@ const (
 
 // Caps on the tool arguments and on the text a tool returns.
 const (
-	agentToolDefaultLimit     = 20
-	agentToolMaxLimit         = 100
+	agentToolDefaultLimit = 20
+	agentToolMaxLimit     = 100
+	// agentToolMaxSymbols bounds one symbol page the agent may pull. A page is
+	// paid for out of the model's context, so the largest legal page is the size
+	// that still leaves room to reason about it.
+	agentToolMaxSymbols = 50
+	// agentToolMaxNeighbors bounds one neighbourhood answer for the same reason.
+	agentToolMaxNeighbors = 20
+	// agentToolMaxRefs bounds the evidence ids one result reports. They are
+	// orchestrator metadata (novelty accounting), not model content.
+	agentToolMaxRefs = 40
+	// agentToolMaxJSONBytes bounds one structured answer before it is returned.
+	// Exceeding it is answered with a legal error, never with a cut document.
+	agentToolMaxJSONBytes     = 8000
 	agentToolDefaultDepth     = 1
 	agentToolMaxDepth         = 5
 	agentToolDefaultNodes     = 200
 	agentToolMaxNodes         = 500
 	agentToolDefaultPaths     = 3
-	agentToolMaxPaths         = 10
+	agentToolMaxPaths         = 3
 	agentToolDefaultDepthPath = 6
 	agentToolMaxDepthPath     = 10
 	agentToolDefaultLines     = 60
@@ -161,52 +173,52 @@ func agentToolset() []agentReadTool {
 	return []agentReadTool{
 		{
 			name:     ToolGetSymbol,
-			describe: "Fetch one declaration of a snapshot by symbol id or qualified name.",
+			describe: "Fetch one declaration (symbol_id: id or qualified name); returns the declaration and its meta.",
 			call:     callGetSymbol,
 		},
 		{
 			name:     ToolListSymbols,
-			describe: "Search the declarations of a snapshot, filtered by name substring, kind, module or qualified name; returns a bounded page and the total number of matches.",
+			describe: "Search declarations (module_id?, kind?, name_contains?, qualified_name?, limit?, offset?); returns a bounded page and the total match count.",
 			call:     callListSymbols,
 		},
 		{
 			name:     ToolGetCallers,
-			describe: "List the symbols that reach a symbol over observed CALLS edges, bounded by depth and node budgets; the answer carries the unresolved call sites inside the visited symbols.",
+			describe: "List symbols that reach a symbol over observed CALLS edges (symbol_id, max_depth?, max_nodes?, limit?); carries the unresolved call sites inside them.",
 			call:     callGetCallers,
 		},
 		{
 			name:     ToolGetCallees,
-			describe: "List the symbols a symbol reaches over observed CALLS edges, bounded by depth and node budgets; the answer carries the unresolved call sites inside the visited symbols.",
+			describe: "List symbols a symbol reaches over observed CALLS edges (symbol_id, max_depth?, max_nodes?, limit?); carries the unresolved call sites inside them.",
 			call:     callGetCallees,
 		},
 		{
 			name:     ToolFindCallPaths,
-			describe: "Enumerate bounded call paths between two symbols of a snapshot; a path is call-graph reachability, never proof that data flows.",
+			describe: "Enumerate bounded call paths (source_symbol_id, sink_symbol_id, max_depth?, max_paths?); reachability, never proof that data flows.",
 			call:     callFindCallPaths,
 		},
 		{
 			name:     ToolGetCodeSlice,
-			describe: "Read a bounded source excerpt of a snapshot, either for one symbol or for a window of one snapshot-relative file.",
+			describe: "Read a bounded source excerpt (symbol_id, or file+start_line+end_line; include?, max_lines?).",
 			call:     callGetCodeSlice,
 		},
 		{
 			name:     ToolGraphSummary,
-			describe: "Return the stored summary of a snapshot's call graph: counts, call-site resolution and the build's coverage statement.",
+			describe: "Snapshot call-graph summary (snapshot_id): counts, call-site resolution, coverage and limitations.",
 			call:     callGraphSummary,
 		},
 		{
 			name:     ToolGetPath,
-			describe: "Fetch one AuditPath document (its ends, steps, refs, objectives and open questions) by path id.",
+			describe: "Fetch one AuditPath (path_id): ends, steps, refs, objectives and open questions.",
 			call:     callGetPath,
 		},
 		{
 			name:     ToolListAuditPaths,
-			describe: "List the paths of one audit, optionally filtered by status, as a bounded page.",
+			describe: "List an audit's paths (audit_id, status?, limit?, offset?) as a bounded page.",
 			call:     callListAuditPaths,
 		},
 		{
 			name:     ToolListHypotheses,
-			describe: "List stored hypotheses scoped to a path, audit, run or snapshot, as a bounded page.",
+			describe: "List stored hypotheses (path_id | audit_id | run_id | snapshot_id, status?, limit?, offset?).",
 			call:     callListHypotheses,
 		},
 	}
@@ -284,7 +296,26 @@ func toolJSON(name string, result any, notes, refs []string) (agent.ToolResult, 
 	if err != nil {
 		return agent.ToolResult{Tool: name}, err
 	}
-	return agent.ToolResult{Tool: name, OK: true, Result: string(payload), Refs: dedupeStrings(refs)}, nil
+	if len(payload) > agentToolMaxJSONBytes {
+		// A complete error is more useful than a cut document: the model can see
+		// what happened and narrow the query instead of parsing half an object.
+		return agent.ToolResult{
+			Tool:  name,
+			Error: "result_too_large: narrow the query (lower limit, max_nodes or max_paths)",
+		}, nil
+	}
+	return agent.ToolResult{Tool: name, OK: true, Result: string(payload), Refs: capRefs(refs)}, nil
+}
+
+// capRefs de-duplicates and bounds the evidence ids one result reports. They are
+// orchestrator metadata, so dropping the tail costs bookkeeping, not a fact: every
+// id the model needs is already in the payload.
+func capRefs(refs []string) []string {
+	deduped := dedupeStrings(refs)
+	if len(deduped) > agentToolMaxRefs {
+		return deduped[:agentToolMaxRefs]
+	}
+	return deduped
 }
 
 // toolText answers with text (code or prose) and appends its notes, because a
@@ -296,7 +327,7 @@ func toolText(name, text string, notes, refs []string) agent.ToolResult {
 	if cut, truncated := cutRunes(text, agentToolMaxTextChars); truncated {
 		text = cut + fmt.Sprintf("\n[note] the answer exceeded %d runes and was truncated", agentToolMaxTextChars)
 	}
-	return agent.ToolResult{Tool: name, OK: true, Result: text, Refs: dedupeStrings(refs)}
+	return agent.ToolResult{Tool: name, OK: true, Result: text, Refs: capRefs(refs)}
 }
 
 func invalidArg(name string, err error) agent.ToolResult {
@@ -437,7 +468,7 @@ func callListSymbols(ctx context.Context, env toolEnv, args map[string]string) (
 				agent.ErrInvalidArgument, raw, strings.Join(names, ", "))), nil
 		}
 	}
-	limit, clampedLimit, err := boundedArg(args, "limit", agentToolDefaultLimit, 1, agentToolMaxLimit)
+	limit, clampedLimit, err := boundedArg(args, "limit", agentToolDefaultLimit, 1, agentToolMaxSymbols)
 	if err != nil {
 		return invalidArg(name, err), nil
 	}
@@ -447,7 +478,7 @@ func callListSymbols(ctx context.Context, env toolEnv, args map[string]string) (
 	}
 	var notes []string
 	if clampedLimit {
-		notes = append(notes, clampNote("limit", limit, agentToolMaxLimit))
+		notes = append(notes, clampNote("limit", limit, agentToolMaxSymbols))
 	}
 	if clampedOffset {
 		notes = append(notes, clampNote("offset", offset, agentToolMaxOffset))
@@ -511,7 +542,7 @@ func callNeighborhood(ctx context.Context, env toolEnv, args map[string]string, 
 	if err != nil {
 		return invalidArg(name, err), nil
 	}
-	limit, clampedLimit, err := boundedArg(args, "limit", agentToolDefaultLimit, 1, agentToolMaxLimit)
+	limit, clampedLimit, err := boundedArg(args, "limit", agentToolDefaultLimit, 1, agentToolMaxNeighbors)
 	if err != nil {
 		return invalidArg(name, err), nil
 	}
@@ -523,7 +554,7 @@ func callNeighborhood(ctx context.Context, env toolEnv, args map[string]string, 
 		notes = append(notes, clampNote("max_nodes", nodes, agentToolMaxNodes))
 	}
 	if clampedLimit {
-		notes = append(notes, clampNote("limit", limit, agentToolMaxLimit))
+		notes = append(notes, clampNote("limit", limit, agentToolMaxNeighbors))
 	}
 	opt := Options{MaxDepth: depth, MaxNodes: nodes, Limit: limit}
 	var hood *Neighborhood

@@ -200,12 +200,20 @@ func ValidateToolRequest(req ToolRequest, policy ExplorationPolicy, used int) er
 	return nil
 }
 
+// toolResultTooLarge is what an oversized result becomes. Cutting a result at a
+// byte offset can slice a JSON document in half, and a half document is worse than
+// no document: the model cannot tell truncated data from malformed data. The
+// replacement is a complete, parseable error that names the fix.
+const toolResultTooLarge = `{"error":"result_too_large","hint":"narrow the query: lower limit, max_nodes or max_paths"}`
+
 // TruncateToolResult caps what an agent can pull into its context in one call.
+// The second return value reports that the cap was hit, so the run's metrics and
+// the event log can state it; the replacement is always valid JSON.
 func TruncateToolResult(result string) (string, bool) {
 	if len(result) <= MaxToolResultChars {
 		return result, false
 	}
-	return result[:MaxToolResultChars], true
+	return toolResultTooLarge, true
 }
 
 // ExpandPolicy decides an expansion request (implementation guide §9.3). The

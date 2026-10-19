@@ -72,8 +72,10 @@ Defaults: 2 hops, 4 active branches, 30 tool calls, 3 expansion requests, 600
 seconds.
 
 An agent asks for a whitelisted read-only tool call by name; the orchestrator
-validates it against the run's current policy (fail-closed), executes it, truncates
-the result to 20 000 characters and records the exchange as `tool_requested` →
+validates it against the run's current policy (fail-closed), executes it, bounds
+the result structurally (an answer over the limit becomes a complete
+`result_too_large` error, never a document cut at a byte offset) and records the
+exchange as `tool_requested` →
 `tool_allowed` → `tool_result` under one `call_id`, or as `tool_denied` naming the
 allowlist. Nothing else is callable: there is no shell, no network, no filesystem
 access from the agent.
@@ -185,7 +187,7 @@ claimed it (`agent.RunMetrics`, stored in `agent_runs.metrics_json`):
 | `exchanges` | tool calls actually executed; a denied request is not an exchange |
 | `novelty` | per exchange, how many evidence ids were reported that no earlier exchange had reported |
 | `invalid_calls` | executions where the tool answered with an error (`OK=false`) |
-| `truncations` | results the protocol limit cut before they reached the adapter |
+| `truncations` | results the protocol limit replaced with a `result_too_large` error before they reached the adapter |
 
 `metrics` is `null` for a run whose adapter never started and for rows stored
 before the column existed; it is never a zero-valued record pretending to be a
