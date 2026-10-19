@@ -629,21 +629,28 @@ func (r *Runner) finishPaused(ctx context.Context, p *path.Path, owner string, s
 	run.Exploration = session.policy
 	run.ToolCalls, run.ElapsedMS, run.Metrics = session.toolCalls, r.now().Sub(session.startedAt).Milliseconds(), session.metrics()
 	run.FinishedAt = NowString(r.now())
-	if err := r.Paths.ReleasePath(context.WithoutCancel(ctx), p.ID, owner, "run "+run.ID+" paused: "+session.pauseReason); err != nil {
-		run.Error = strings.TrimSpace(run.Error + "; the path could not be released: " + err.Error())
-	}
 	events := []Event{
 		{Type: EventCheckpointSaved, Actor: runnerActorOrchestrator, Summary: "checkpoint saved: " + checkpoint.ID,
 			Detail: map[string]string{"frontier": fmt.Sprint(len(checkpoint.Frontier)), "evidence": fmt.Sprint(len(checkpoint.Evidence)), "checkpoint_digest": checkpoint.Digest}},
 		{Type: EventRunFinished, Actor: runnerActorOrchestrator, Summary: "run paused: " + session.pauseReason,
 			Detail: map[string]string{"status": string(RunPaused), "stop_reason": StopBudgetPaused, "checkpoint_id": checkpoint.ID}},
 	}
-	if err := r.Store.SaveCheckpointAndPause(*run, run.Version, checkpoint, events); err != nil {
+	// The pause is written by the session that owns the run; a concurrent heartbeat
+	// may have advanced the row, so the checkpoint save does not re-check the
+	// session's copy of the version (expectedVersion 0). The run is terminal here.
+	// The checkpoint is saved while the run still owns the path: on PostgreSQL the
+	// final write is fenced by that lease, so releasing it first would leave the
+	// pause unpersistable. The path is released only after the checkpoint exists.
+	if err := r.Store.SaveCheckpointAndPause(*run, 0, checkpoint, events); err != nil {
 		run.Status, run.StopReason, run.Error = RunFailed, StopCheckpointUnavailable, "the checkpoint could not be saved: "+err.Error()
 		run.CheckpointID = ""
+		_ = r.Paths.ReleasePath(context.WithoutCancel(ctx), p.ID, owner, "checkpoint unavailable")
 		return run, r.record(run, events...)
 	}
 	run.Version++
+	if err := r.Paths.ReleasePath(context.WithoutCancel(ctx), p.ID, owner, "run "+run.ID+" paused: "+session.pauseReason); err != nil {
+		run.Error = strings.TrimSpace(run.Error + "; the path could not be released: " + err.Error())
+	}
 	return run, nil
 }
 

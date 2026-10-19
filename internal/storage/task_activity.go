@@ -63,7 +63,9 @@ func (m *Memory) TaskActivities(_ context.Context, ids []string) (map[string]Tas
 	return result, nil
 }
 
-const terminalAgentStates = "'SUCCEEDED','FAILED','CANCELLED','TIMED_OUT','BUDGET_EXCEEDED','INVALID_OUTPUT'"
+// PAUSED is terminal for lease recovery: the attempt released its path and
+// saved a checkpoint, so it must not be reaped or marked host_restarted.
+const terminalAgentStates = "'SUCCEEDED','FAILED','CANCELLED','TIMED_OUT','BUDGET_EXCEEDED','INVALID_OUTPUT','PAUSED'"
 const terminalVerificationStates = "'SUCCEEDED','FAILED','BLOCKED','CANCELLED','TIMED_OUT'"
 
 func (s *SQL) TaskActivities(ctx context.Context, ids []string) (map[string]TaskActivity, error) {
