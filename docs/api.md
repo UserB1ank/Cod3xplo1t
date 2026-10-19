@@ -119,12 +119,12 @@ the declared database profile is ready and the same document with 503 when the
 connection or required catalog structure is unavailable. No DSN, address,
 credential, local path or driver error is returned.
 
-The experimental PostgreSQL knowledge profile supports projects, source definitions,
-snapshots, base inventories, artifact indexes, SCG/ASG queries, direct plugin
-invocations and atomic knowledge publication. Tasks, workflows, findings and reports
-return `501 storage_capability_unavailable`. `/api/me.features` advertises the actual
-profile to every authenticated role. Deployment and limitations are documented in
-[postgres-catalog.md](postgres-catalog.md).
+The experimental PostgreSQL execution profile supports projects, sources, snapshots,
+artifacts, direct analysis/publication, durable tasks and paths, workflow execution,
+Agent/verification records, findings, evidence and fixed reports. Database time and
+monotonic lease epochs fence stale workers; PostgreSQL path heartbeat/release bodies
+must include the claimed `lease_epoch`. Shared accounts, sessions and encrypted model
+settings remain workspace-backed until #18. See [deployment and recovery](postgres-catalog.md).
 
 ## Projects and snapshots
 

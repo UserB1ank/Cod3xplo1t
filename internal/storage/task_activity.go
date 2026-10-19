@@ -139,7 +139,7 @@ func (s *SQL) TaskActivities(ctx context.Context, ids []string) (map[string]Task
 func (s *SQL) taskHasRunsTx(ctx context.Context, tx *sql.Tx, id string) (bool, error) {
 	var count int
 	query := "SELECT (SELECT COUNT(*) FROM agent_runs WHERE audit_id = ? AND status NOT IN (" + terminalAgentStates + ")) + (SELECT COUNT(*) FROM verification_runs WHERE audit_id = ? AND status NOT IN (" + terminalVerificationStates + "))"
-	query += " + (SELECT COUNT(*) FROM workflow_runs WHERE task_id=? AND status IN ('CREATED','RUNNING'))"
+	query += " + (SELECT COUNT(*) FROM workflow_runs WHERE task_id=? AND status IN ('CREATED','RUNNING','PAUSING','PAUSED','CANCELLING'))"
 	err := tx.QueryRowContext(ctx, s.rebind(query), id, id, id).Scan(&count)
 	return count > 0, err
 }
@@ -164,8 +164,10 @@ func (s *SQL) taskRunAllowedTx(ctx context.Context, tx *sql.Tx, id string) error
 
 func workflowTaskState(status string) string {
 	switch status {
-	case "CREATED", "RUNNING":
+	case "CREATED", "RUNNING", "PAUSING", "CANCELLING":
 		return "RUNNING"
+	case "PAUSED":
+		return "PAUSED"
 	case "SUCCEEDED":
 		return "CONCLUDED"
 	case "PARTIAL":

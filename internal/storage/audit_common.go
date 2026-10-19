@@ -75,6 +75,7 @@ func planPathTransition(current path.Path, req path.TransitionRequest, now strin
 		updated.LeaseUntil = ""
 		updated.HeartbeatAt = ""
 	case req.SetLeaseOwner != "":
+		updated.LeaseEpoch++
 		updated.LeaseOwner = req.SetLeaseOwner
 		updated.LeaseUntil = req.SetLeaseUntil
 		updated.HeartbeatAt = now

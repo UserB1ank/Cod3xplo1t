@@ -17,7 +17,7 @@ var agentRunColumnNames = []string{
 	"run_id", "path_id", "audit_id", "snapshot_id", "runtime", "runtime_version", "status",
 	"task_json", "exploration_json", "budget_json", "tool_calls", "expansions", "input_tokens",
 	"output_tokens", "elapsed_ms", "owner", "started_at", "deadline_at", "heartbeat_at",
-	"finished_at", "exit_code", "stop_reason", "error", "output_json", "created_at", "updated_at", "version",
+	"finished_at", "exit_code", "stop_reason", "error", "output_json", "created_at", "updated_at", "version", "lease_epoch",
 }
 
 var agentEventColumnNames = []string{
@@ -70,7 +70,7 @@ func agentRunWriteValues(run agent.Run) ([]any, error) {
 		run.ID, run.PathID, run.AuditID, run.SnapshotID, run.Runtime, run.RuntimeVersion, string(run.Status),
 		task, exploration, budget, run.ToolCalls, run.Expansions, run.InputTokens, run.OutputTokens,
 		run.ElapsedMS, run.Owner, run.StartedAt, run.DeadlineAt, run.HeartbeatAt, run.FinishedAt, exit,
-		run.StopReason, run.Error, output, run.CreatedAt, run.UpdatedAt, run.Version,
+		run.StopReason, run.Error, output, run.CreatedAt, run.UpdatedAt, run.Version, run.LeaseEpoch,
 	}, nil
 }
 
@@ -85,7 +85,7 @@ func scanAgentRunRow(scan func(...any) error) (agent.Run, error) {
 		&status, &task, &exploration, &budget, &run.ToolCalls, &run.Expansions, &run.InputTokens,
 		&run.OutputTokens, &run.ElapsedMS, &run.Owner, &run.StartedAt, &run.DeadlineAt, &run.HeartbeatAt,
 		&run.FinishedAt, &exit, &run.StopReason, &run.Error, &output, &run.CreatedAt, &run.UpdatedAt,
-		&run.Version); err != nil {
+		&run.Version, &run.LeaseEpoch); err != nil {
 		return agent.Run{}, err
 	}
 	run.Status = agent.RunStatus(status)
@@ -274,6 +274,17 @@ func hypothesisQueryFilter(q agent.HypothesisQuery) (string, []any) {
 
 // CreateRun implements agent.Store.
 func (s *SQL) CreateRun(run agent.Run) error {
+	if s.postgres {
+		if err := s.ensureHostLease(context.Background()); err != nil {
+			return err
+		}
+	}
+	return s.snapshotWrite(context.Background(), run.SnapshotID, func(tx *sql.Tx) error {
+		return s.createAgentRunTx(context.Background(), tx, run)
+	})
+}
+
+func (s *SQL) createAgentRunTx(ctx context.Context, tx *sql.Tx, run agent.Run) error {
 	if run.ID == "" {
 		// A caller that forgot the id made a programming error, not a conflict with
 		// stored state, and the API maps the two to different answers.
@@ -285,13 +296,20 @@ func (s *SQL) CreateRun(run agent.Run) error {
 	}
 	query := "INSERT INTO agent_runs (" + strings.Join(agentRunColumnNames, ", ") +
 		") VALUES (" + placeholders(len(values)) + ")"
-	return s.snapshotWrite(context.Background(), run.SnapshotID, func(tx *sql.Tx) error {
-		if err := s.taskRunAllowedTx(context.Background(), tx, run.AuditID); err != nil {
+
+	if err := s.taskRunAllowedTx(ctx, tx, run.AuditID); err != nil {
+		return err
+	}
+	if s.postgres && run.LeaseEpoch > 0 {
+		if err := s.checkAgentPathTx(ctx, tx, run, false); err != nil {
 			return err
 		}
-		_, err := tx.ExecContext(context.Background(), s.rebind(query), values...)
-		return mapAgentSQLError(err)
-	})
+	}
+	_, err = tx.ExecContext(ctx, s.rebind(query), values...)
+	if err == nil && s.postgres {
+		_, err = tx.ExecContext(ctx, `UPDATE agent_runs SET host_id=$1,host_epoch=$2 WHERE run_id=$3`, s.instanceID, s.hostEpoch.Load(), run.ID)
+	}
+	return mapAgentSQLError(err)
 }
 
 // GetRun implements agent.Store.
@@ -338,13 +356,17 @@ func (s *SQL) ListRuns(q agent.RunQuery) ([]agent.Run, int, error) {
 // UpdateRun implements agent.Store. The version guard is what makes two workers
 // unable to win the same run: the row is read and rewritten in one transaction.
 func (s *SQL) UpdateRun(run agent.Run, expectedVersion int64) error {
-	ctx := context.Background()
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return mapAgentSQLError(err)
-	}
-	defer tx.Rollback()
+	return s.snapshotWrite(context.Background(), run.SnapshotID, func(tx *sql.Tx) error {
+		return s.updateAgentRunTx(context.Background(), tx, run, expectedVersion)
+	})
+}
 
+func (s *SQL) updateAgentRunTx(ctx context.Context, tx *sql.Tx, run agent.Run, expectedVersion int64) error {
+	if s.postgres {
+		if err := s.checkAgentAuthorityTx(ctx, tx, run.ID, run.Status.Terminal()); err != nil {
+			return err
+		}
+	}
 	var current int64
 	row := tx.QueryRowContext(ctx, s.rebind("SELECT version FROM agent_runs WHERE run_id = ?"+s.forUpdate()), run.ID)
 	if err := row.Scan(&current); err != nil {
@@ -374,7 +396,7 @@ func (s *SQL) UpdateRun(run agent.Run, expectedVersion int64) error {
 	if affected == 0 {
 		return fmt.Errorf("%w: run %s was changed by another writer", agent.ErrConflict, run.ID)
 	}
-	return tx.Commit()
+	return nil
 }
 
 // AppendRunEvents implements agent.Store. One transaction per call: a batch that
@@ -511,6 +533,11 @@ func (s *SQL) saveHypothesisTx(ctx context.Context, tx *sql.Tx, incoming agent.H
 	h := prepareHypothesis(incoming, now)
 	if err := s.snapshotWritableTx(ctx, tx, h.SnapshotID); err != nil {
 		return err
+	}
+	if s.postgres && h.RunID != "" {
+		if err := s.checkAgentAuthorityTx(ctx, tx, h.RunID, false); err != nil {
+			return err
+		}
 	}
 
 	var storedID, storedCreatedAt string

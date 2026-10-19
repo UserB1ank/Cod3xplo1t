@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"github.com/open-mcp-ai/Codexploit/internal/artifact"
 )
@@ -20,6 +21,9 @@ type execution struct {
 	signal  chan struct{}
 	cancel  context.CancelFunc
 	looping bool
+	lease   *Lease
+	err     error
+	halted  atomic.Bool
 }
 
 func (e *execution) status() string {
@@ -37,11 +41,27 @@ func (e *execution) wake() {
 
 // saveLocked appends exactly one event and persists the run with its CAS.
 func (e *execution) saveLocked(r *Runner, kind, node, status string) error {
+	if e.err != nil {
+		return e.err
+	}
 	prior := e.run.Version
 	e.run.Version++
 	e.run.UpdatedAt = runNow()
 	e.run.Events = append(e.run.Events, RunEvent{Seq: int64(len(e.run.Events) + 1), Type: kind, NodeID: node, Status: status, CreatedAt: e.run.UpdatedAt})
-	return r.Repository.SaveWorkflowRun(context.Background(), *e.run, prior)
+	ctx := context.Background()
+	if e.lease != nil {
+		ctx = WithLease(ctx, *e.lease)
+	}
+	err := r.Repository.SaveWorkflowRun(ctx, *e.run, prior)
+	if err != nil {
+		e.err = err
+		e.halted.Store(true)
+		if e.cancel != nil {
+			e.cancel()
+		}
+		e.wake()
+	}
+	return err
 }
 
 func (r *Runner) register(exec *execution) {
@@ -82,18 +102,30 @@ func (r *Runner) executionFor(ctx context.Context, project, runID string) (*exec
 		return nil, err
 	}
 	exec := &execution{run: &run, plan: plan, signal: make(chan struct{}, 1)}
-	r.register(exec)
+	r.mu.Lock()
+	if prior := r.executions[runID]; prior != nil {
+		exec = prior
+	} else {
+		r.executions[runID] = exec
+	}
+	r.mu.Unlock()
 	return exec, nil
 }
 
 // Pause asks the run to stop claiming new nodes. Active nodes are allowed to
 // reach their natural boundary; the run becomes PAUSED once none is active.
 func (r *Runner) Pause(ctx context.Context, project, runID string) (Run, error) {
+	if r.coordinator() != nil {
+		return r.controlLeased(ctx, project, runID, "pause")
+	}
 	return r.transition(ctx, project, runID, "PAUSING")
 }
 
 // Resume continues a paused run from its persisted state.
 func (r *Runner) Resume(ctx context.Context, project, runID string) (Run, error) {
+	if r.coordinator() != nil {
+		return r.controlLeased(ctx, project, runID, "resume")
+	}
 	exec, err := r.executionFor(ctx, project, runID)
 	if err != nil {
 		return Run{}, err
@@ -124,6 +156,9 @@ func (r *Runner) Resume(ctx context.Context, project, runID string) (Run, error)
 // Cancel requests cancellation. A running executor is cancelled and its result
 // is recorded as CANCELLED; pending nodes never start.
 func (r *Runner) Cancel(ctx context.Context, project, runID string) (Run, error) {
+	if r.coordinator() != nil {
+		return r.controlLeased(ctx, project, runID, "cancel")
+	}
 	exec, err := r.executionFor(ctx, project, runID)
 	if err != nil {
 		return Run{}, err
@@ -290,7 +325,7 @@ func (r *Runner) startLoop(exec *execution) {
 			exec.looping = false
 			// A resume can race the loop's exit; if the run is RUNNING again the
 			// next attempt must not be lost.
-			restart := exec.run.Status == "RUNNING"
+			restart := exec.run.Status == "RUNNING" && exec.err == nil
 			exec.mu.Unlock()
 			if restart {
 				r.startLoop(exec)
@@ -303,6 +338,10 @@ func (r *Runner) startLoop(exec *execution) {
 // Recover resumes every non-terminal run this store knows about. It is what a
 // new host calls on startup so a restart continues instead of leaking a run.
 func (r *Runner) Recover(ctx context.Context) ([]Run, error) {
+	if coordinator := r.coordinator(); coordinator != nil {
+		r.ensureRecoveryLoop()
+		return r.recoverLeased(ctx)
+	}
 	runs, err := r.Repository.ListRecoverableWorkflowRuns(ctx)
 	if err != nil {
 		return nil, err

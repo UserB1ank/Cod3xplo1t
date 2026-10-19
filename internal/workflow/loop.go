@@ -252,6 +252,16 @@ func (r *Runner) runExecution(exec *execution) {
 	defer r.unregister(exec.run.ID)
 	exec.mu.Lock()
 	exec.cancel = cancel
+	exec.mu.Unlock()
+	if r.coordinator() != nil {
+		var release func()
+		ctx, release = r.coordinateExecution(ctx, cancel, exec)
+		if release == nil {
+			return
+		}
+		defer release()
+	}
+	exec.mu.Lock()
 	if exec.effects == nil && r.Effects != nil {
 		effects, _, err := r.Effects.Bind(ctx, exec.run.AnalyzeCandidates)
 		if err == nil {
@@ -278,6 +288,16 @@ func (r *Runner) runExecution(exec *execution) {
 	cancelling := false
 
 	for {
+		if r.ctx.Err() != nil || exec.halted.Load() {
+			cancel()
+			workers.Wait()
+			return
+		}
+		if r.coordinator() != nil && !exec.refreshLeased(r, context.WithoutCancel(ctx)) {
+			cancel()
+			workers.Wait()
+			return
+		}
 		status := exec.status()
 		if status == "CANCELLING" && !cancelling {
 			cancelling = true
@@ -316,9 +336,18 @@ func (r *Runner) runExecution(exec *execution) {
 			timer = time.NewTimer(delay)
 			timerC = timer.C
 		}
+		haltC := ctx.Done()
+		if ctx.Err() != nil && !exec.halted.Load() && r.ctx.Err() == nil {
+			haltC = nil
+		}
 		select {
 		case c := <-completed:
 			active--
+			if r.coordinator() != nil && !exec.refreshLeased(r, context.WithoutCancel(ctx)) {
+				cancel()
+				workers.Wait()
+				return
+			}
 			if exec.complete(r, c) {
 				failed = true
 				cancel()
@@ -330,6 +359,11 @@ func (r *Runner) runExecution(exec *execution) {
 			// pretending it finished.
 			workers.Wait()
 			return
+		case <-haltC:
+			if exec.halted.Load() || r.ctx.Err() != nil {
+				workers.Wait()
+				return
+			}
 		}
 		if timer != nil {
 			timer.Stop()
@@ -376,6 +410,9 @@ func (e *execution) finishCancelled(r *Runner) {
 }
 
 func (e *execution) finishFailedOrCancelled(r *Runner) {
+	if r.ctx.Err() != nil || e.halted.Load() {
+		return
+	}
 	e.mu.Lock()
 	if e.run.Status == "CANCELLING" {
 		e.mu.Unlock()
@@ -415,6 +452,9 @@ func (e *execution) finishEffects(r *Runner, ctx context.Context) bool {
 			return false
 		}
 		result, err := e.effects.Execute(ctx, *e.run, e.plan, *node)
+		if r.ctx.Err() != nil || e.halted.Load() {
+			return false
+		}
 		node.Status = result.Status
 		node.Outputs = result.Outputs
 		if node.Outputs == nil {

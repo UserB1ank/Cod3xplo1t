@@ -1,5 +1,18 @@
 package agent
 
+import "context"
+
+// AtomicCreator commits a new run and its initial events together.
+type AtomicCreator interface {
+	CreateRunEventsContext(context.Context, Run, []Event) error
+}
+
+// AtomicRecorder commits run state and a contiguous event tail together.
+// Older stores retain the split Store methods for compatibility.
+type AtomicRecorder interface {
+	SaveRunEvents(Run, int64, []Event) error
+}
+
 // Store is the persistence contract of the agent runtime.
 //
 // It is declared next to the model and implemented by the storage layer, so the

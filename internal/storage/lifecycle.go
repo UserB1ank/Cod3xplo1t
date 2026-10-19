@@ -133,6 +133,16 @@ func (s *SQL) snapshotWritableTx(ctx context.Context, tx *sql.Tx, id string) err
 }
 
 func (s *SQL) snapshotWrite(ctx context.Context, id string, write func(*sql.Tx) error) error {
+	if s.postgres {
+		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		return s.postgresTransaction(ctx, func(tx *sql.Tx) error {
+			if err := s.snapshotWritableTx(ctx, tx, id); err != nil {
+				return err
+			}
+			return write(tx)
+		})
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return mapSQLError(err)
@@ -210,16 +220,6 @@ func (s *SQL) BeginSnapshotDeletion(ctx context.Context, id string) error {
 	if _, err := tx.ExecContext(ctx, s.rebind(`INSERT INTO snapshot_deletions(snapshot_id,created_at)
 VALUES (?, ?) ON CONFLICT(snapshot_id) DO UPDATE SET completed = 0`), id, formatTime(time.Now().UTC())); err != nil {
 		return mapSQLError(err)
-	}
-	if s.postgres {
-		var active int
-		if err := tx.QueryRowContext(ctx, s.rebind(`SELECT COUNT(*) FROM plugin_invocations WHERE snapshot_id=? AND status IN ('CREATED','RUNNING')`), id).Scan(&active); err != nil {
-			return err
-		}
-		if active != 0 {
-			return fmt.Errorf("%w: snapshot has unfinished plugin invocations", ErrConflict)
-		}
-		return mapSQLError(tx.Commit())
 	}
 	for _, query := range []string{
 		`SELECT COUNT(*) FROM workflow_runs WHERE snapshot_id=? AND status IN ('CREATED','RUNNING','PAUSING','PAUSED','CANCELLING')`,

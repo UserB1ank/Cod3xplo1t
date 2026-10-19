@@ -1,4 +1,4 @@
-# Independent experimental knowledge deployment; the default SQLite deployment
+# Independent experimental execution deployment; the default SQLite deployment
 # and its volumes are unaffected. Secrets are supplied as runtime file references.
 services:
   postgres:
@@ -37,6 +37,9 @@ services:
       - --postgres-dsn-file=/run/secrets/postgres_dsn
       - --web-auth
       - --agent-runtime=llm
+      - --scheduler
+      - --verify-executor=unsupported
+      - --plugin-packages=/app/plugin-packages
       - --allow-network=${CODEXPLOIT_ALLOW_NETWORK:-false}
     secrets:
       - postgres_dsn

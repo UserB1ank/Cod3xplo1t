@@ -18,7 +18,7 @@ const capabilityNames: Record<string, string> = {
   reports: "固定版本报告",
 };
 const locationNames: Record<string, string> = {
-  catalog: "结构化目录",
+  catalog: "结构化业务状态",
   artifact_content: "产物内容",
   accounts: "账号与会话",
   model_settings: "模型设置",
@@ -89,9 +89,11 @@ export function Storage({
               <span>数据库</span>
               <strong>{driverNames[status.driver]}</strong>
               <small>
-                {status.profile !== "complete"
-                  ? "知识模式 · 实验部署"
-                  : "完整开发模式"}
+                {status.profile === "execution"
+                  ? "任务与工作流 · 实验部署"
+                  : status.profile !== "complete"
+                    ? "知识模式 · 实验部署"
+                    : "完整开发模式"}
               </small>
             </div>
             <div>
@@ -120,7 +122,9 @@ export function Storage({
           )}
           {status.profile !== "complete" && (
             <Hint>
-              PostgreSQL 已接通目录、直接插件分析、固定图谱与多来源发布。任务、工作流、发现分级和报告尚未接线，对应操作会被拒绝。
+              {status.profile === "execution"
+                ? "PostgreSQL 已接通任务、工作流、发现、证据与报告。执行领取使用数据库租约与栅栏；账号、会话、模型设置和产物内容仍由应用工作区管理，共享认证与设置尚未接线。"
+                : "PostgreSQL 已接通目录、直接插件分析、固定图谱与多来源发布。任务、工作流、发现分级和报告尚未接线，对应操作会被拒绝。"}
             </Hint>
           )}
           <div className="two-columns storage-columns">

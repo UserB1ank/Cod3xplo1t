@@ -27,6 +27,14 @@ test("active calls remain visible when scheduling is paused", () => {
   task.counts_by_status = { QUEUED: 2 };
   assert.equal(taskState(task), "PAUSED");
 });
+test("workflow task state follows pause and cancellation controls", () => {
+  const task = { workflow_status: "PAUSED" } as Task;
+  assert.equal(taskState(task), "PAUSED");
+  for (const status of ["PAUSING", "CANCELLING"]) {
+    task.workflow_status = status;
+    assert.equal(taskState(task), "RUNNING");
+  }
+});
 test("only confirmed findings contribute to per-task grades", () => {
   const findings = [
     {

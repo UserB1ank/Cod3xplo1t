@@ -499,6 +499,7 @@ func (s *Server) claim(w http.ResponseWriter, r *http.Request, auditID, requeste
 
 // heartbeatRequest is the body of POST /api/paths/{id}/heartbeat.
 type heartbeatRequest struct {
+	LeaseEpoch int64  `json:"lease_epoch"`
 	Owner      string `json:"owner"`
 	TTLSeconds int    `json:"ttl_seconds"`
 }
@@ -523,7 +524,17 @@ func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 			fmt.Errorf("ttl_seconds must not be negative (got %d)", req.TTLSeconds))
 		return
 	}
-	updated, err := s.Audit.Heartbeat(id, owner, time.Duration(req.TTLSeconds)*time.Second)
+	if storage.IsPostgres(s.Store) && req.LeaseEpoch <= 0 {
+		writeError(w, http.StatusBadRequest, "invalid_request", errors.New("lease_epoch from the claim response is required"))
+		return
+	}
+	var updated *path.Path
+	var err error
+	if storage.IsPostgres(s.Store) || req.LeaseEpoch > 0 {
+		updated, err = s.Audit.HeartbeatEpoch(r.Context(), id, owner, req.LeaseEpoch, time.Duration(req.TTLSeconds)*time.Second)
+	} else {
+		updated, err = s.Audit.Heartbeat(id, owner, time.Duration(req.TTLSeconds)*time.Second)
+	}
 	if err != nil {
 		writeAuditError(w, err, id)
 		return
@@ -534,8 +545,9 @@ func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 
 // releasePathRequest is the body of POST /api/paths/{id}/release.
 type releasePathRequest struct {
-	Owner  string `json:"owner"`
-	Reason string `json:"reason"`
+	LeaseEpoch int64  `json:"lease_epoch"`
+	Owner      string `json:"owner"`
+	Reason     string `json:"reason"`
 }
 
 // handleReleasePath answers POST /api/paths/{id}/release: the work goes back to
@@ -558,7 +570,17 @@ func (s *Server) handleReleasePath(w http.ResponseWriter, r *http.Request) {
 	if reason == "" {
 		reason = "released by " + owner
 	}
-	updated, err := s.Audit.Release(id, owner, reason)
+	if storage.IsPostgres(s.Store) && req.LeaseEpoch <= 0 {
+		writeError(w, http.StatusBadRequest, "invalid_request", errors.New("lease_epoch from the claim response is required"))
+		return
+	}
+	var updated *path.Path
+	var err error
+	if storage.IsPostgres(s.Store) || req.LeaseEpoch > 0 {
+		updated, err = s.Audit.ReleaseEpoch(r.Context(), id, owner, req.LeaseEpoch, reason)
+	} else {
+		updated, err = s.Audit.Release(id, owner, reason)
+	}
 	if err != nil {
 		writeAuditError(w, err, id)
 		return

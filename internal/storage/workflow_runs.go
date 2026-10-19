@@ -146,6 +146,11 @@ func (s *SQL) SaveWorkflowRun(ctx context.Context, run workflow.Run, expected in
 		return err
 	}
 	return s.snapshotWrite(ctx, run.Scope.SnapshotID, func(tx *sql.Tx) error {
+		if s.postgres {
+			if err := validateWorkflowLeaseTx(ctx, tx, run.ID); err != nil {
+				return err
+			}
+		}
 		var priorRaw string
 		if err := tx.QueryRowContext(ctx, s.rebind(`SELECT document_json FROM workflow_runs WHERE run_id=?`), run.ID).Scan(&priorRaw); err != nil {
 			return err
@@ -156,6 +161,11 @@ func (s *SQL) SaveWorkflowRun(ctx context.Context, run workflow.Run, expected in
 		}
 		if !validWorkflowUpdate(prior, run, expected) {
 			return workflow.ErrConflict
+		}
+		if s.postgres {
+			if err := recordWorkflowClaimsTx(ctx, tx, run); err != nil {
+				return err
+			}
 		}
 		result, err := tx.ExecContext(ctx, s.rebind(`UPDATE workflow_runs SET status=?,version=?,document_json=? WHERE run_id=? AND project_id=? AND snapshot_id=? AND task_id=? AND plan_id=? AND version=?`), run.Status, run.Version, string(raw), run.ID, run.Scope.ProjectID, run.Scope.SnapshotID, run.TaskID, run.PlanID, expected)
 		if err != nil {

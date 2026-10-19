@@ -326,6 +326,11 @@ func findingQueryFilter(q verify.FindingQuery) (string, []any) {
 // reports both as ErrConflict, which is the answer the verifier retries as a
 // replay.
 func (s *SQL) CreateVerificationRun(run verify.Run) error {
+	if s.postgres {
+		if err := s.ensureHostLease(context.Background()); err != nil {
+			return err
+		}
+	}
 	prepared, err := prepareVerificationRun(run, verifyNow())
 	if err != nil {
 		return err
@@ -339,6 +344,9 @@ func (s *SQL) CreateVerificationRun(run verify.Run) error {
 			return err
 		}
 		_, err := tx.ExecContext(context.Background(), s.rebind(verificationRunInsertSQL), values...)
+		if err == nil && s.postgres {
+			_, err = tx.ExecContext(context.Background(), `UPDATE verification_runs SET host_id=$1,host_epoch=$2 WHERE run_id=$3`, s.instanceID, s.hostEpoch.Load(), run.ID)
+		}
 		return mapVerifySQLError(err)
 	})
 }
@@ -417,6 +425,11 @@ func (s *SQL) UpdateVerificationRun(run verify.Run, expectedVersion int64) error
 		return mapVerifySQLError(err)
 	}
 	defer tx.Rollback()
+	if s.postgres {
+		if err := s.checkVerificationAuthorityTx(ctx, tx, run.ID, run.SnapshotID); err != nil {
+			return err
+		}
+	}
 
 	var current int64
 	row := tx.QueryRowContext(ctx, s.rebind("SELECT version FROM verification_runs WHERE run_id = ?"+s.forUpdate()), prepared.ID)
@@ -499,6 +512,11 @@ func (s *SQL) AppendEvidence(evidence []verify.Evidence) error {
 		if err != nil {
 			return err
 		}
+		if s.postgres && object.VerificationRunID != "" {
+			if err := s.checkVerificationAuthorityTx(ctx, tx, object.VerificationRunID, object.SnapshotID); err != nil {
+				return err
+			}
+		}
 		if _, err := tx.ExecContext(ctx, s.rebind(evidenceInsertSQL), values...); err != nil {
 			return mapVerifySQLError(err)
 		}
@@ -563,6 +581,14 @@ func (s *SQL) UpsertFinding(finding verify.Finding) error {
 	defer tx.Rollback()
 	if err := s.snapshotWritableTx(ctx, tx, prepared.SnapshotID); err != nil {
 		return err
+	}
+	// The final run is the verification attempt applying this verdict. Earlier
+	// references are immutable history and may belong to a different host.
+	if s.postgres && len(prepared.VerificationRunIDs) > 0 {
+		id := prepared.VerificationRunIDs[len(prepared.VerificationRunIDs)-1]
+		if err := s.checkVerificationAuthorityTx(ctx, tx, id, prepared.SnapshotID); err != nil {
+			return err
+		}
 	}
 
 	var storedID, storedCreatedAt, storedSeverity string

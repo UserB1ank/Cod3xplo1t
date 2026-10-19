@@ -2,11 +2,14 @@ package storage
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -17,8 +20,15 @@ import (
 // SQL is a database/sql backed Store. The driver is chosen by the caller, so the
 // same implementation serves SQLite (MVP default) and PostgreSQL.
 type SQL struct {
-	db       *sql.DB
-	postgres bool
+	db         *sql.DB
+	postgres   bool
+	instanceID string
+	hostOnce   sync.Once
+	hostMu     sync.Mutex
+	hostClosed bool
+	hostEpoch  atomic.Int64
+	hostCancel context.CancelFunc
+	hostDone   chan struct{}
 }
 
 // OpenSQL opens a database and verifies connectivity. Driver names are matched
@@ -53,7 +63,7 @@ func OpenSQL(ctx context.Context, driver, dsn string) (*SQL, error) {
 			return nil, fmt.Errorf("storage: configure SQLite: %w", err)
 		}
 	}
-	return &SQL{db: db, postgres: isPostgresDriver(driver)}, nil
+	return &SQL{db: db, postgres: isPostgresDriver(driver), instanceID: "host-" + rand.Text()}, nil
 }
 
 func isPostgresDriver(driver string) bool {
@@ -65,7 +75,20 @@ func isPostgresDriver(driver string) bool {
 func (s *SQL) DB() *sql.DB { return s.db }
 
 // Close implements Store.
-func (s *SQL) Close() error { return s.db.Close() }
+func (s *SQL) Close() error {
+	s.hostMu.Lock()
+	s.hostClosed = true
+	stop, finished := s.hostCancel, s.hostDone
+	s.hostMu.Unlock()
+	if stop != nil {
+		stop()
+		<-finished
+		ctx, done := context.WithTimeout(context.Background(), 2*time.Second)
+		_, _ = s.db.ExecContext(ctx, `UPDATE runtime_hosts SET lease_until=clock_timestamp() WHERE host_id=$1`, s.instanceID)
+		done()
+	}
+	return s.db.Close()
+}
 
 // rebind converts question-mark placeholders to the dialect's syntax.
 func (s *SQL) rebind(query string) string {

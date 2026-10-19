@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/open-mcp-ai/Codexploit/internal/path"
 )
@@ -30,7 +31,7 @@ var pathColumnNames = []string{
 	"risk", "support", "utility", "priority", "score_version", "weights_json", "score_seq", "lease_owner",
 	"lease_until", "heartbeat_at", "attempts", "max_attempts", "last_error", "next_attempt_at",
 	"created_at", "updated_at", "version",
-	"entry_kind", "entry_subject", "target_subject", "target_kind",
+	"entry_kind", "entry_subject", "target_subject", "target_kind", "lease_epoch",
 }
 
 var featureColumnNames = []string{
@@ -154,8 +155,8 @@ func auditWriteValues(audit path.Audit) ([]any, error) {
 		audit.ID, audit.SnapshotID, audit.SCGVersion, audit.ASGVersion, audit.Status, budget, limits,
 		audit.ScoreVersion, audit.ConfigHash, audit.PathCount, counts, countsByPath, coverage, limitations,
 		audit.CreatedAt, audit.UpdatedAt, audit.Version,
-		audit.Name, audit.Objective, scope, audit.Paused,
-		audit.Pinned, audit.Archived, audit.Category,
+		audit.Name, audit.Objective, scope, boolToInt(audit.Paused),
+		boolToInt(audit.Pinned), boolToInt(audit.Archived), audit.Category,
 	}, nil
 }
 
@@ -256,7 +257,7 @@ func pathWriteValues(p path.Path) ([]any, error) {
 		features, p.Score.Risk, p.Score.Support, p.Score.Utility, p.Score.Priority, p.Score.ScoreVersion,
 		weights, p.ScoreSeq, p.LeaseOwner, p.LeaseUntil, p.HeartbeatAt, p.Attempts, p.MaxAttempts, p.LastError,
 		p.NextAttemptAt, p.CreatedAt, p.UpdatedAt, p.Version,
-		p.EntryKind, p.EntrySubject, p.TargetSubject, p.TargetKind,
+		p.EntryKind, p.EntrySubject, p.TargetSubject, p.TargetKind, p.LeaseEpoch,
 	}, nil
 }
 
@@ -274,7 +275,7 @@ func scanPathRow(scan func(...any) error) (path.Path, error) {
 		&p.Depth, &p.BranchCount, &budget, &features, &p.Score.Risk, &p.Score.Support, &p.Score.Utility,
 		&p.Score.Priority, &p.Score.ScoreVersion, &weights, &p.ScoreSeq, &p.LeaseOwner, &p.LeaseUntil,
 		&p.HeartbeatAt, &p.Attempts, &p.MaxAttempts, &p.LastError, &p.NextAttemptAt, &p.CreatedAt, &p.UpdatedAt,
-		&p.Version, &p.EntryKind, &p.EntrySubject, &p.TargetSubject, &p.TargetKind); err != nil {
+		&p.Version, &p.EntryKind, &p.EntrySubject, &p.TargetSubject, &p.TargetKind, &p.LeaseEpoch); err != nil {
 		return path.Path{}, err
 	}
 	p.PathStatus = path.PathStatus(pathStatus)
@@ -418,7 +419,7 @@ func (s *SQL) ListAudits(q path.AuditQuery) ([]path.Audit, int, error) {
 	args := []any{}
 	if q.Archived != nil {
 		clauses = append(clauses, "task_archived = ?")
-		args = append(args, *q.Archived)
+		args = append(args, boolToInt(*q.Archived))
 	}
 	if q.CategorySet {
 		clauses = append(clauses, "task_category = ?")
@@ -477,7 +478,7 @@ func (s *SQL) taskStateSQL() string {
 	count := func(status string) string {
 		return "(SELECT COUNT(*) FROM audit_paths activity WHERE activity.audit_id=audits.audit_id AND activity.status='" + status + "')"
 	}
-	return "CASE WHEN task_archived = 1 THEN 'ARCHIVED' WHEN EXISTS(SELECT 1 FROM workflow_runs w WHERE w.task_id=audits.audit_id AND w.status IN ('CREATED','RUNNING')) THEN 'RUNNING' WHEN EXISTS(SELECT 1 FROM workflow_runs w WHERE w.task_id=audits.audit_id AND w.status='SUCCEEDED') THEN 'CONCLUDED' WHEN EXISTS(SELECT 1 FROM workflow_runs w WHERE w.task_id=audits.audit_id AND w.status='PARTIAL') THEN 'BLOCKED' WHEN status = 'FAILED' THEN 'FAILED' WHEN " + count("ANALYZING") + " + " + count("LOCAL_EXPLORING") + " + " + count("VERIFYING") + " > 0 THEN 'RUNNING' WHEN paused = 1 THEN 'PAUSED' WHEN path_count = 0 THEN 'EMPTY' WHEN " + count("QUEUED") + " > 0 THEN 'QUEUED' WHEN " + count("BLOCKED") + " + " + count("FAILED") + " + " + count("INTERRUPTED") + " > 0 THEN 'BLOCKED' ELSE 'CONCLUDED' END"
+	return "CASE WHEN task_archived = 1 THEN 'ARCHIVED' WHEN EXISTS(SELECT 1 FROM workflow_runs w WHERE w.task_id=audits.audit_id AND w.status IN ('CREATED','RUNNING','PAUSING','CANCELLING')) THEN 'RUNNING' WHEN EXISTS(SELECT 1 FROM workflow_runs w WHERE w.task_id=audits.audit_id AND w.status='PAUSED') THEN 'PAUSED' WHEN EXISTS(SELECT 1 FROM workflow_runs w WHERE w.task_id=audits.audit_id AND w.status='SUCCEEDED') THEN 'CONCLUDED' WHEN EXISTS(SELECT 1 FROM workflow_runs w WHERE w.task_id=audits.audit_id AND w.status='PARTIAL') THEN 'BLOCKED' WHEN status = 'FAILED' THEN 'FAILED' WHEN " + count("ANALYZING") + " + " + count("LOCAL_EXPLORING") + " + " + count("VERIFYING") + " > 0 THEN 'RUNNING' WHEN paused = 1 THEN 'PAUSED' WHEN path_count = 0 THEN 'EMPTY' WHEN " + count("QUEUED") + " > 0 THEN 'QUEUED' WHEN " + count("BLOCKED") + " + " + count("FAILED") + " + " + count("INTERRUPTED") + " > 0 THEN 'BLOCKED' ELSE 'CONCLUDED' END"
 }
 
 // UpdateAudit implements path.Store.
@@ -701,6 +702,13 @@ func (s *SQL) ListPaths(q path.PathQuery) ([]path.Path, int, error) {
 // means the path was never deferred, which counts as due and sorts first.
 func (s *SQL) ListDuePaths(auditID, now string, limit int) ([]path.Path, error) {
 	ctx := context.Background()
+	if s.postgres {
+		var serverNow time.Time
+		if err := s.db.QueryRowContext(ctx, `SELECT clock_timestamp()`).Scan(&serverNow); err != nil {
+			return nil, err
+		}
+		now = serverNow.UTC().Format(leaseTimeLayout)
+	}
 	query := "SELECT " + pathSelectColumns + " FROM audit_paths WHERE audit_id = ? AND status = ?" +
 		" AND NOT EXISTS(SELECT 1 FROM workflow_runs w WHERE w.task_id=audit_paths.audit_id) AND (next_attempt_at = '' OR next_attempt_at <= ?) ORDER BY next_attempt_at, path_id LIMIT ?"
 	rows, err := s.db.QueryContext(ctx, s.rebind(query), auditID, string(path.StatusQueued), now,
@@ -1049,6 +1057,9 @@ func (s *SQL) persistPathChangeTx(ctx context.Context, tx *sql.Tx, updated path.
 // Transition implements path.Store: the status change and its event are written
 // in one transaction, so the state and the log can never disagree.
 func (s *SQL) Transition(req path.TransitionRequest) (*path.Path, error) {
+	if s.postgres {
+		return s.postgresTransition(req)
+	}
 	ctx := context.Background()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -1075,6 +1086,9 @@ func (s *SQL) Transition(req path.TransitionRequest) (*path.Path, error) {
 
 // ClaimPath implements path.Store.
 func (s *SQL) ClaimPath(pathID, owner, until string, from []path.Status, actor string) (*path.Path, error) {
+	if s.postgres {
+		return nil, fmt.Errorf("%w: PostgreSQL leases require duration and epoch", path.ErrInvalidArgument)
+	}
 	ctx := context.Background()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -1130,6 +1144,9 @@ WHERE audit_id = (SELECT audit_id FROM audit_paths WHERE path_id = ?)`), pathID)
 
 // RenewLease implements path.Store.
 func (s *SQL) RenewLease(pathID, owner, until, actor string) (*path.Path, error) {
+	if s.postgres {
+		return nil, fmt.Errorf("%w: PostgreSQL leases require duration and epoch", path.ErrInvalidArgument)
+	}
 	ctx := context.Background()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -1156,6 +1173,9 @@ func (s *SQL) RenewLease(pathID, owner, until, actor string) (*path.Path, error)
 
 // ReleaseLease implements path.Store.
 func (s *SQL) ReleaseLease(pathID, owner, actor, reason string) (*path.Path, error) {
+	if s.postgres {
+		return nil, fmt.Errorf("%w: PostgreSQL leases require duration and epoch", path.ErrInvalidArgument)
+	}
 	ctx := context.Background()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -1184,6 +1204,9 @@ func (s *SQL) ReleaseLease(pathID, owner, actor, reason string) (*path.Path, err
 // of them is written, so a cursor is never open while the same transaction
 // writes, and the whole recovery is one transaction.
 func (s *SQL) ReclaimExpired(now string, limit int, actor string) ([]path.Path, error) {
+	if s.postgres {
+		return s.reclaimPostgresPaths(limit, actor)
+	}
 	ctx := context.Background()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {

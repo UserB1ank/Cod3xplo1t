@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/open-mcp-ai/Codexploit/internal/publication"
+	"github.com/open-mcp-ai/Codexploit/internal/workflow"
 )
 
 // knowledgeScopeQuery resolves one project snapshot that is not being retired.
@@ -127,6 +128,11 @@ func (s *SQL) PublishKnowledge(ctx context.Context, expectedHead string, documen
 		return err
 	}
 	return s.snapshotWrite(ctx, scope.SnapshotID, func(tx *sql.Tx) error {
+		if lease, ok := workflow.ContextLease(ctx); s.postgres && ok {
+			if err := validateWorkflowLeaseTx(ctx, tx, lease.RunID); err != nil {
+				return err
+			}
+		}
 		if !knowledgeScopeExists(ctx, tx, s.rebind, scope) {
 			return publication.ErrNotFound
 		}

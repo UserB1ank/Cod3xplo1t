@@ -1,10 +1,10 @@
 {
   "api_version": "codexploit/v1",
   "driver": "postgres",
-  "profile": "knowledge",
+  "profile": "execution",
   "readiness": "ready",
   "durable": true,
-  "schema_version": "0003",
+  "schema_version": "0004",
   "capabilities": {
     "projects": true,
     "sources": true,
@@ -13,10 +13,10 @@
     "inventory": true,
     "knowledge": true,
     "plugins": true,
-    "tasks": false,
-    "findings": false,
-    "workflows": false,
-    "reports": false
+    "tasks": true,
+    "findings": true,
+    "workflows": true,
+    "reports": true
   },
   "locations": {
     "catalog": "postgres",

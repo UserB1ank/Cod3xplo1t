@@ -77,6 +77,8 @@ type TransitionRequest struct {
 	// Owner is the lease owner making the change; it must match the stored lease
 	// when the path is leased.
 	Owner string
+	// LeaseEpoch fences earlier allocations even when an owner name is reused.
+	LeaseEpoch int64
 	// ClearLease releases the path; SetLeaseOwner and SetLeaseUntil acquire one.
 	ClearLease    bool
 	SetLeaseOwner string

@@ -317,8 +317,7 @@ func (s *Scheduler) tick(ctx context.Context, audits []string, concurrency int) 
 				result.Skipped++
 				continue
 			}
-			until := path.NowString(now.Add(s.leaseTTLFor(s.LeaseTTL, auditID)))
-			claimed, err := s.Paths.Store.ClaimPath(candidate.ID, owner, until, []path.Status{path.StatusQueued}, owner)
+			claimed, err := s.Paths.LeasePath(ctx, candidate.ID, owner, s.leaseTTLFor(s.LeaseTTL, auditID), []path.Status{path.StatusQueued}, owner)
 			if err != nil {
 				// Another scheduler won the race, or the path moved on. Both are
 				// normal: the pass simply did not take it.
@@ -483,7 +482,7 @@ func (s *Scheduler) ownedTransition(pathID string, to path.Status, req path.Tran
 		return nil, path.ErrNotFound
 	}
 	if current.Status == path.StatusQueued {
-		claimed, cerr := s.Paths.Store.ClaimPath(pathID, s.owner(), path.NowString(s.now().Add(s.leaseTTLFor(s.LeaseTTL, current.AuditID))),
+		claimed, cerr := s.Paths.LeasePath(context.Background(), pathID, s.owner(), s.leaseTTLFor(s.LeaseTTL, current.AuditID),
 			[]path.Status{path.StatusQueued}, s.owner())
 		if cerr != nil {
 			return nil, cerr
@@ -493,6 +492,7 @@ func (s *Scheduler) ownedTransition(pathID string, to path.Status, req path.Tran
 	req.PathID = pathID
 	req.To = to
 	req.Owner = s.owner()
+	req.LeaseEpoch = current.LeaseEpoch
 	req.ExpectedVersion = current.Version
 	return s.Paths.Store.Transition(req)
 }

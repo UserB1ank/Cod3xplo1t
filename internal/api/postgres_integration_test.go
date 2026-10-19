@@ -23,7 +23,7 @@ func postgresConfig(t *testing.T) app.Config {
 	return app.Config{Workspace: t.TempDir(), StorageDriver: "postgres", PostgresDSNFile: file}
 }
 
-func TestPostgresStatusIsRedactedAndUnwiredOperationsAreRefused(t *testing.T) {
+func TestPostgresExecutionStatusIsRedactedAndRequiresAdmin(t *testing.T) {
 	cfg := postgresConfig(t)
 	rt, err := app.Build(context.Background(), cfg)
 	if err != nil {
@@ -48,13 +48,8 @@ func TestPostgresStatusIsRedactedAndUnwiredOperationsAreRefused(t *testing.T) {
 		Capabilities               map[string]bool
 	}
 	status.decode(t, &result)
-	if result.Driver != "postgres" || result.Profile != "knowledge" || result.Readiness != "ready" || !result.Capabilities["sources"] || result.Capabilities["tasks"] {
+	if result.Driver != "postgres" || result.Profile != "execution" || result.Readiness != "ready" || !result.Capabilities["sources"] || !result.Capabilities["tasks"] || !result.Capabilities["workflows"] || !result.Capabilities["findings"] {
 		t.Fatalf("false capabilities: %s", status.body)
-	}
-	for _, endpoint := range []string{"/api/projects/any/tasks", "/api/v1/projects/any/findings", "/api/v1/projects/any/workflows", "/api/v1/projects/any/reports", "/api/audits", "/api/runs", "/api/scheduler"} {
-		if r := do(t, ts, "GET", endpoint, nil, nil); r.status != 501 || !strings.Contains(string(r.body), "storage_capability_unavailable") {
-			t.Fatalf("unwired %s: %d %s", endpoint, r.status, r.body)
-		}
 	}
 	if err := rt.Store.Close(); err != nil {
 		t.Fatal(err)

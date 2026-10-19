@@ -3,7 +3,7 @@ import type { ApiClient } from "./api.ts";
 export interface StorageStatus {
   api_version: "codexploit/v1";
   driver: "memory" | "sqlite" | "postgres";
-  profile: "complete" | "catalog" | "knowledge";
+  profile: "complete" | "catalog" | "knowledge" | "execution";
   readiness: "ready" | "unavailable";
   durable: boolean;
   schema_version: string;

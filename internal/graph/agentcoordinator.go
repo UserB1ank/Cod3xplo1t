@@ -94,8 +94,7 @@ func (c *AgentCoordinator) ClaimSpecificPath(ctx context.Context, pathID, owner 
 	if ttl <= 0 {
 		ttl = time.Duration(limits.LeaseTTLSeconds) * time.Second
 	}
-	until := path.NowString(c.now().Add(ttl))
-	return c.Paths.Store.ClaimPath(pathID, owner, until, []path.Status{path.StatusQueued}, owner)
+	return c.Paths.LeasePath(ctx, pathID, owner, ttl, []path.Status{path.StatusQueued}, owner)
 }
 
 // activeLeases counts the paths of an audit currently held by a worker. It mirrors
@@ -121,15 +120,6 @@ func (c *AgentCoordinator) activeLeases(auditID string) (int, error) {
 	}
 }
 
-// now is the coordinator's clock. It follows the path service's injected clock so
-// a test that fixes the service's clock fixes the coordinator's too.
-func (c *AgentCoordinator) now() time.Time {
-	if c.Paths != nil && c.Paths.Now != nil {
-		return c.Paths.Now()
-	}
-	return time.Now().UTC()
-}
-
 // ClaimPathForRun leases the next claimable path of an audit. path.ErrNotFound —
 // the queue is empty — is returned unchanged.
 func (c *AgentCoordinator) ClaimPathForRun(ctx context.Context, auditID, owner string, ttl time.Duration) (*path.Path, error) {
@@ -150,7 +140,12 @@ func (c *AgentCoordinator) HeartbeatPath(ctx context.Context, pathID, owner stri
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	_, err := c.Paths.Heartbeat(pathID, c.owner(owner), ttl)
+	var err error
+	if epoch, ok := path.ContextLease(ctx, pathID); ok {
+		_, err = c.Paths.HeartbeatEpoch(ctx, pathID, c.owner(owner), epoch, ttl)
+	} else {
+		_, err = c.Paths.Heartbeat(pathID, c.owner(owner), ttl)
+	}
 	return err
 }
 
@@ -162,7 +157,12 @@ func (c *AgentCoordinator) ReleasePath(ctx context.Context, pathID, owner, reaso
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	_, err := c.Paths.Release(pathID, c.owner(owner), reason)
+	var err error
+	if epoch, ok := path.ContextLease(ctx, pathID); ok {
+		_, err = c.Paths.ReleaseEpoch(ctx, pathID, c.owner(owner), epoch, reason)
+	} else {
+		_, err = c.Paths.Release(pathID, c.owner(owner), reason)
+	}
 	return err
 }
 
@@ -183,7 +183,12 @@ func (c *AgentCoordinator) CompletePath(ctx context.Context, pathID, owner, reas
 	}
 	// TransitionOwned, not Transition: a run may only settle the path it holds, and
 	// the store enforces that atomically.
-	_, err := c.Paths.TransitionOwned(pathID, c.owner(owner), path.StatusHypothesisFormed, c.owner(owner), reason)
+	var err error
+	if epoch, ok := path.ContextLease(ctx, pathID); ok {
+		_, err = c.Paths.TransitionEpoch(pathID, c.owner(owner), epoch, path.StatusHypothesisFormed, reason)
+	} else {
+		_, err = c.Paths.TransitionOwned(pathID, c.owner(owner), path.StatusHypothesisFormed, c.owner(owner), reason)
+	}
 	return err
 }
 
@@ -199,7 +204,12 @@ func (c *AgentCoordinator) AdvancePath(ctx context.Context, pathID, owner string
 	}
 	// The owned form as well: taking a path out of the queue after a spent attempt is
 	// still settling work the run was holding.
-	_, err := c.Paths.TransitionOwned(pathID, c.owner(owner), to, c.owner(owner), reason)
+	var err error
+	if epoch, ok := path.ContextLease(ctx, pathID); ok {
+		_, err = c.Paths.TransitionEpoch(pathID, c.owner(owner), epoch, to, reason)
+	} else {
+		_, err = c.Paths.TransitionOwned(pathID, c.owner(owner), to, c.owner(owner), reason)
+	}
 	return err
 }
 

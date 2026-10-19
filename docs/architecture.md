@@ -6,11 +6,12 @@ covers explicit source types, plugin workflows and an independent PostgreSQL
 data service. It distinguishes target interfaces from the implemented system
 described below. The design prototype is available at `/prototype/` after building.
 
-The implemented PostgreSQL knowledge profile and its limits are documented in
-[postgres-catalog.md](postgres-catalog.md). It persists projects, source definitions,
-snapshots, base inventories, artifact indexes, direct plugin calls, SCG/ASG,
-candidate paths and atomic knowledge revisions with outbox events. Task execution,
-workflows, findings and reports remain unavailable. SQLite retains the complete runtime.
+The implemented PostgreSQL execution profile is documented in
+[postgres-catalog.md](postgres-catalog.md). It persists catalog/graph/publication state,
+tasks and paths, workflows, Agent/verification runs and events, findings, evidence and
+report indexes. Database-clock leases and monotonic epochs fence independent workers.
+Content files, accounts, sessions and model settings remain in the workspace; shared
+authentication and settings are tracked by #18.
 
 How the implemented system is put together: the pipeline, what each package is
 responsible for, what is stored where, which way dependencies point, and where
@@ -120,10 +121,11 @@ lexicographic order by `internal/storage`. One line per table:
 | `0006_audit_paths.sql` | `audits`, `audit_paths`, `path_features`, `path_events` | P4 audits, their paths (steps, signature, cluster, evidence, score, lease), append-only score snapshots and the audit-scoped event log |
 | created by the runner | `schema_migrations` | applied migration versions, so a rerun is a no-op |
 
-These are the complete SQLite migrations. PostgreSQL uses its own partial-profile
+These are the complete SQLite migrations. PostgreSQL uses its own execution-profile
 set under `migrations/postgres/`, with transaction-level migration and snapshot
-locks. Both sets use `TEXT`/`INTEGER`/`BIGINT` and UTC timestamp strings; shared
-column types alone do not imply that every domain port supports PostgreSQL.
+locks. Business documents retain UTC timestamp strings; PostgreSQL worker lease
+rows use `TIMESTAMPTZ` and database time. Shared column types alone do not prove
+that a domain port is wired.
 The graph is stored relationally because queries filter and traverse it by id and
 kind; the full documents (snapshot metadata, manifest, SCG artifact) stay as JSON
 text and on disk next to the frozen tree. Later phases add their own tables in
@@ -183,7 +185,7 @@ The rules behind that order:
 |---|---|
 | `Workspace` | snapshot root; required, made absolute |
 | `DBPath` | `""` or `memory` selects the in-process store, any other value a SQLite file (its directory is created, the schema is migrated) |
-| `StorageDriver` | empty / `sqlite` retains the complete runtime; `postgres` selects the wired knowledge profile and rejects a simultaneous `DBPath` |
+| `StorageDriver` | empty / `sqlite` retains the complete runtime; `postgres` selects the wired execution profile and rejects a simultaneous `DBPath` |
 | `PostgresDSNFile` | runtime credential file required for `postgres`; connection and migration failures stop startup without a SQLite fallback |
 | `AllowNetwork` | forwarded to the repository manager: remote git URLs are refused without it |
 | `GitBin` | overrides the git executable |

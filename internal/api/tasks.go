@@ -26,7 +26,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	}
 	features := storage.StorageCapabilities(s.Store)
 	features["agent"], features["llm_settings"], features["verification"], features["scheduler"], features["network"] = ready, s.LLMSettings != nil, s.Verifier != nil && s.VerifyPlanner != nil, s.Scheduler != nil, s.AllowNetwork
-	features["storage_postgres"] = storage.LimitedPostgres(s.Store)
+	features["storage_postgres"] = storage.IsPostgres(s.Store)
 	_, features["storage_memory"] = s.Store.(*storage.Memory)
 	writeJSON(w, http.StatusOK, map[string]any{"name": p.Name, "role": p.Capabilities.String(), "can_write": p.Capabilities.Allows(CapWrite), "features": features})
 }
@@ -287,7 +287,7 @@ func (s *Server) handlePauseTask(paused bool) http.HandlerFunc {
 				return
 			}
 			activity := activities[task.ID]
-			if activity.WorkflowRunID != "" && (activity.WorkflowStatus == "CREATED" || activity.WorkflowStatus == "RUNNING") {
+			if activity.WorkflowRunID != "" && !workflow.RunTerminal(activity.WorkflowStatus) {
 				writeError(w, 409, "workflow_managed", errors.New("active workflow tasks require workflow controls; legacy scheduling pause does not pause a workflow"))
 				return
 			}

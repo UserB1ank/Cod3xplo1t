@@ -122,13 +122,14 @@ type Runner struct {
 	// tell a stale worker's output from its own.
 	InstanceID string
 	// Backoff is the retry delay of one attempt; it is injectable for tests.
-	Backoff    func(attempt int) time.Duration
-	mu         sync.Mutex
-	ctx        context.Context
-	cancel     context.CancelFunc
-	wg         sync.WaitGroup
-	closed     bool
-	executions map[string]*execution
+	Backoff      func(attempt int) time.Duration
+	mu           sync.Mutex
+	ctx          context.Context
+	cancel       context.CancelFunc
+	wg           sync.WaitGroup
+	closed       bool
+	recoveryOnce sync.Once
+	executions   map[string]*execution
 }
 
 func NewRunner(compiler *Compiler, repo RunRepository, executor NodeExecutor, objects artifact.Store) *Runner {

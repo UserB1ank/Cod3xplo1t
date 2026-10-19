@@ -24,21 +24,14 @@ import (
 // layer wired, and replaces the scripted executor with answer's own.
 func newVerificationEnv(t *testing.T, script []verify.StepOutcome, answer func(goal string) agent.Answer) *testEnv {
 	t.Helper()
-	rt, err := app.Build(context.Background(), app.Config{
-		Workspace: filepath.Join(t.TempDir(), "work"),
-		DBPath:    "memory",
-		Agent: app.AgentConfig{
-			Enabled:            true,
-			Runtime:            app.AgentRuntimeScripted,
-			ScriptedAnswerJSON: agentTestPlaceholderAnswer(t),
-			MaxToolCalls:       30,
-		},
-		Verification: app.VerificationConfig{
-			Enabled:       true,
-			Executor:      app.VerifyExecutorScripted,
-			ScriptedSteps: script,
-		},
-	})
+	return verificationEnvWithConfig(t, app.Config{Workspace: filepath.Join(t.TempDir(), "work"), DBPath: "memory"}, script, answer)
+}
+
+func verificationEnvWithConfig(t *testing.T, cfg app.Config, script []verify.StepOutcome, answer func(string) agent.Answer) *testEnv {
+	t.Helper()
+	cfg.Agent = app.AgentConfig{Enabled: true, Runtime: app.AgentRuntimeScripted, ScriptedAnswerJSON: agentTestPlaceholderAnswer(t), MaxToolCalls: 30}
+	cfg.Verification = app.VerificationConfig{Enabled: true, Executor: app.VerifyExecutorScripted, ScriptedSteps: script}
+	rt, err := app.Build(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("app.Build with verification: %v", err)
 	}
@@ -225,9 +218,15 @@ func TestVerificationFindingIsIdempotentAndListed(t *testing.T) {
 	}
 }
 
+func TestPostgresVerificationConfirmsWithEvidence(t *testing.T) {
+	verificationConfirmsWithEvidence(t, verificationEnvWithConfig(t, postgresConfig(t), confirmingScript(), agentTestAnswer))
+}
 func TestVerificationConfirmsOnlyWithReproductionEvidence(t *testing.T) {
 	t.Parallel()
-	env := newVerificationEnv(t, confirmingScript(), agentTestAnswer)
+	verificationConfirmsWithEvidence(t, newVerificationEnv(t, confirmingScript(), agentTestAnswer))
+}
+func verificationConfirmsWithEvidence(t *testing.T, env *testEnv) {
+	t.Helper()
 	ts := env.ts
 	hypothesis := createVerifiableHypothesis(t, ts)
 

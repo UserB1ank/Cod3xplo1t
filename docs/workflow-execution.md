@@ -1,6 +1,6 @@
 # 固定工作流执行
 
-正式任务创建页可以选择当前快照的固定计划，执行真实的解析、语义和路径插件，发布项目共享知识，并按需调用程序中配置的模型分析候选。工作流定义与编译见[工作流 API](workflows.md)。执行记录保存在 Memory / SQLite；暂停、取消、重试与重启恢复见下节；PostgreSQL 适配由后续存储切片接入。
+正式任务创建页可以选择当前快照的固定计划，执行真实的解析、语义和路径插件，发布项目共享知识，并按需调用程序中配置的模型分析候选。工作流定义与编译见[工作流 API](workflows.md)。执行记录保存在 Memory / SQLite / PostgreSQL；暂停、取消、重试与重启恢复见下节。PostgreSQL 使用服务端时钟、数据库 coordinator 租约和单调 epoch 协调 worker，详见 [PostgreSQL 执行模式](postgres-catalog.md#worker-租约与恢复)。
 
 ## 操作流程
 

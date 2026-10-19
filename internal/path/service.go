@@ -440,7 +440,6 @@ func (s *Service) Claim(ctx context.Context, auditID, owner string, ttl time.Dur
 	if ttl <= 0 {
 		ttl = time.Duration(audit.Limits.LeaseTTLSeconds) * time.Second
 	}
-	until := NowString(s.now().Add(ttl))
 	// Bounded retries: a conflicting claim means another worker moved the same
 	// path, which is normal, not exceptional.
 	var lastErr error
@@ -452,7 +451,7 @@ func (s *Service) Claim(ctx context.Context, auditID, owner string, ttl time.Dur
 			}
 			return nil, err
 		}
-		claimed, err := s.Store.ClaimPath(next.ID, owner, until, []Status{StatusQueued}, owner)
+		claimed, err := s.LeasePath(ctx, next.ID, owner, ttl, []Status{StatusQueued}, owner)
 		if err == nil {
 			return claimed, nil
 		}
@@ -499,11 +498,21 @@ func (s *Service) Heartbeat(pathID, owner string, ttl time.Duration) (*Path, err
 		}
 		ttl = time.Duration(audit.Limits.LeaseTTLSeconds) * time.Second
 	}
+	if store, ok := s.Store.(ServerLeases); ok && store.ServerLeaseClock() {
+		return store.RenewPathTTL(context.Background(), pathID, owner, p.LeaseEpoch, ttl, owner)
+	}
 	return s.Store.RenewLease(pathID, owner, NowString(s.now().Add(ttl)), owner)
 }
 
 // Release returns a path to the queue without a verdict.
 func (s *Service) Release(pathID, owner, reason string) (*Path, error) {
+	if store, ok := s.Store.(ServerLeases); ok && store.ServerLeaseClock() {
+		p, err := s.Store.GetPath(pathID)
+		if err != nil {
+			return nil, err
+		}
+		return store.ReleasePathEpoch(context.Background(), pathID, owner, p.LeaseEpoch, owner, reason)
+	}
 	return s.Store.ReleaseLease(pathID, owner, owner, reason)
 }
 
@@ -544,7 +553,7 @@ func (s *Service) transition(pathID, owner string, to Status, actor, reason stri
 	// must find out at its next heartbeat instead of continuing to spend budget on
 	// a path that is no longer its own.
 	return s.Store.Transition(TransitionRequest{
-		PathID: pathID, To: to, Owner: owner, Actor: actor, Reason: reason,
+		PathID: pathID, To: to, Owner: owner, LeaseEpoch: current.LeaseEpoch, Actor: actor, Reason: reason,
 		ClearLease: !to.Active(), EventType: EventPathStatusChange,
 		ExpectedVersion: current.Version,
 	})

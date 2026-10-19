@@ -5,6 +5,7 @@ package app
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -52,8 +53,8 @@ type Config struct {
 	Workspace string
 	// DBPath is a SQLite file, or "" / "memory" for an in-process store.
 	DBPath string
-	// StorageDriver selects the complete sqlite mode (default) or the limited
-	// postgres knowledge profile. PostgreSQL credentials are read from a file.
+	// StorageDriver selects the complete sqlite mode (default) or the durable
+	// postgres execution profile. PostgreSQL credentials are read from a file.
 	StorageDriver   string
 	PostgresDSNFile string
 	// AllowNetwork permits cloning remote git URLs.
@@ -277,6 +278,15 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 		SchedulerConfig:    cfg.Scheduler,
 		Workspace:          mgr.Root,
 	}
+	executors := builtinanalysis.Executors()
+	executors = append(executors, reporting.Executor())
+	if strings.TrimSpace(cfg.PluginPackages) != "" {
+		processExecutors, err := processplugin.Executors(cfg.PluginPackages)
+		if err != nil {
+			return nil, fmt.Errorf("load process plugin packages: %w", err)
+		}
+		executors = append(executors, processExecutors...)
+	}
 	if cfg.StorageDriver != "" && cfg.StorageDriver != "sqlite" && cfg.StorageDriver != "postgres" {
 		return nil, errors.New("app: unsupported storage driver")
 	}
@@ -297,33 +307,37 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 			return nil, errors.New("app: PostgreSQL catalog migration failed")
 		}
 		rt.Store = store
+		rt.Findings = findings.NewService(store)
 		rt.Snapshots = lifecycle.Snapshots{Store: store, Manager: mgr}
-		rt.closers = append(rt.closers, store.Close)
 		rt.PluginCatalog, err = plugin.NewCatalog(ctx, store)
 		if err != nil {
 			rt.Close()
+			store.Close()
 			return nil, err
 		}
 		rt.wireGraphServices(store)
-		rt.Audit = nil // Direct analysis indexes do not enable execution tasks.
-		if err := rt.wirePlugins(builtinanalysis.Executors()); err != nil {
+		if err := rt.wirePlugins(executors); err != nil {
 			rt.Close()
+			store.Close()
 			return nil, err
 		}
+		for _, wire := range []func() error{
+			func() error { return rt.wireAgent(rt.AgentConfig) },
+			func() error { return rt.wireVerification(rt.VerificationConfig) },
+			rt.wireWorkflowRunner,
+			func() error { return rt.wireScheduler(rt.SchedulerConfig) },
+		} {
+			if err := wire(); err != nil {
+				rt.Close()
+				store.Close()
+				return nil, err
+			}
+		}
+		rt.closers = append(rt.closers, store.Close)
 		return rt, nil
 	}
 	if cfg.PostgresDSNFile != "" {
 		return nil, errors.New("app: PostgreSQL credential file requires postgres storage")
-	}
-
-	executors := builtinanalysis.Executors()
-	executors = append(executors, reporting.Executor())
-	if strings.TrimSpace(cfg.PluginPackages) != "" {
-		processExecutors, err := processplugin.Executors(cfg.PluginPackages)
-		if err != nil {
-			return nil, fmt.Errorf("load process plugin packages: %w", err)
-		}
-		executors = append(executors, processExecutors...)
 	}
 
 	path := strings.TrimSpace(cfg.DBPath)
@@ -415,9 +429,6 @@ func (r *Runtime) wirePlugins(executors []plugin.Executor) error {
 		return err
 	}
 	r.closers = append(r.closers, r.Plugins.Close)
-	if storage.LimitedPostgres(r.Store) {
-		return nil
-	}
 	workflowRepo, ok := r.Store.(workflow.Repository)
 	if !ok {
 		return workflow.ErrInvalid
@@ -761,6 +772,9 @@ func (r *Runtime) wireScheduler(cfg SchedulerConfig) error {
 	owner := strings.TrimSpace(cfg.Owner)
 	if owner == "" {
 		owner = "scheduler"
+	}
+	if storage.IsPostgres(r.Store) {
+		owner += "-" + rand.Text()
 	}
 	metrics := schedule.NewMetrics()
 	dispatcher := &agentPathDispatcher{

@@ -12,6 +12,12 @@ import (
 )
 
 func (s *SQL) RecoverInvocations(ctx context.Context) error {
+	if s.postgres {
+		if err := s.ensureHostLease(ctx); err != nil {
+			return err
+		}
+		return s.recoverPostgresInvocations(ctx)
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -61,6 +67,11 @@ func (s *SQL) RecoverInvocations(ctx context.Context) error {
 }
 
 func (s *SQL) CreateInvocation(ctx context.Context, inv plugin.Invocation) (plugin.Invocation, bool, error) {
+	if s.postgres {
+		if err := s.ensureHostLease(ctx); err != nil {
+			return plugin.Invocation{}, false, err
+		}
+	}
 	created := false
 	var result plugin.Invocation
 	err := s.snapshotWrite(ctx, inv.Request.Scope.SnapshotID, func(tx *sql.Tx) error {
@@ -83,7 +94,17 @@ func (s *SQL) CreateInvocation(ctx context.Context, inv plugin.Invocation) (plug
 		if err != nil {
 			return err
 		}
-		_, err = tx.ExecContext(ctx, s.rebind(`INSERT INTO plugin_invocations (invocation_id,project_id,source_id,snapshot_id,version,status,document_json) VALUES (?,?,?,?,?,?,?)`), inv.ID, scope.ProjectID, scope.SourceID, scope.SnapshotID, inv.Version, inv.Status, string(raw))
+		if s.postgres {
+			if err := s.checkHostLeaseTx(ctx, tx, s.instanceID, s.hostEpoch.Load()); err != nil {
+				return err
+			}
+			if err := checkWorkflowInvocationTx(ctx, tx, inv.ID, false); err != nil {
+				return err
+			}
+			_, err = tx.ExecContext(ctx, `INSERT INTO plugin_invocations(invocation_id,project_id,source_id,snapshot_id,version,status,document_json,host_id,host_epoch) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, inv.ID, scope.ProjectID, scope.SourceID, scope.SnapshotID, inv.Version, inv.Status, string(raw), s.instanceID, s.hostEpoch.Load())
+		} else {
+			_, err = tx.ExecContext(ctx, s.rebind(`INSERT INTO plugin_invocations (invocation_id,project_id,source_id,snapshot_id,version,status,document_json) VALUES (?,?,?,?,?,?,?)`), inv.ID, scope.ProjectID, scope.SourceID, scope.SnapshotID, inv.Version, inv.Status, string(raw))
+		}
 		created = err == nil
 		result = inv
 		return err
@@ -92,6 +113,22 @@ func (s *SQL) CreateInvocation(ctx context.Context, inv plugin.Invocation) (plug
 }
 func (s *SQL) SaveInvocation(ctx context.Context, inv plugin.Invocation, expected int64) error {
 	return s.snapshotWrite(ctx, inv.Request.Scope.SnapshotID, func(tx *sql.Tx) error {
+		if s.postgres {
+			var owner string
+			var epoch int64
+			if err := tx.QueryRowContext(ctx, `SELECT host_id,host_epoch FROM plugin_invocations WHERE invocation_id=$1`, inv.ID).Scan(&owner, &epoch); err != nil {
+				return err
+			}
+			if owner != s.instanceID || epoch != s.hostEpoch.Load() {
+				return plugin.ErrConflict
+			}
+			if err := s.checkHostLeaseTx(ctx, tx, owner, epoch); err != nil {
+				return err
+			}
+			if err := checkWorkflowInvocationTx(ctx, tx, inv.ID, plugin.Terminal(inv.Status) && len(inv.Outputs) == 0); err != nil {
+				return err
+			}
+		}
 		var raw string
 		if err := tx.QueryRowContext(ctx, s.rebind(`SELECT document_json FROM plugin_invocations WHERE invocation_id = ?`), inv.ID).Scan(&raw); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {

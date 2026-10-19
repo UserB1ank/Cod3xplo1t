@@ -135,13 +135,17 @@ export function routeHash(route: Route): string {
 export function taskState(task: Task) {
   if (task.archived) return "ARCHIVED";
   if (task.workflow_status)
-    return ["CREATED", "RUNNING"].includes(task.workflow_status)
+    return ["CREATED", "RUNNING", "PAUSING", "CANCELLING"].includes(
+      task.workflow_status,
+    )
       ? "RUNNING"
-      : task.workflow_status === "SUCCEEDED"
-        ? "CONCLUDED"
-        : task.workflow_status === "PARTIAL"
-          ? "BLOCKED"
-          : "FAILED";
+      : task.workflow_status === "PAUSED"
+        ? "PAUSED"
+        : task.workflow_status === "SUCCEEDED"
+          ? "CONCLUDED"
+          : task.workflow_status === "PARTIAL"
+            ? "BLOCKED"
+            : "FAILED";
   const counts = task.counts_by_status || {};
   if (task.status === "FAILED") return "FAILED";
   if (["ANALYZING", "LOCAL_EXPLORING", "VERIFYING"].some((s) => counts[s] > 0))

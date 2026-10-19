@@ -7,6 +7,7 @@ import (
 	"errors"
 
 	"github.com/open-mcp-ai/Codexploit/internal/artifact"
+	"github.com/open-mcp-ai/Codexploit/internal/workflow"
 )
 
 const artifactScopeQuery = `SELECT s.project_id, COALESCE(b.source_id, 'legacy-' || s.project_id), s.snapshot_id
@@ -31,6 +32,11 @@ func (s *SQL) PublishArtifact(ctx context.Context, ref artifact.Ref) error {
 		return err
 	}
 	return s.snapshotWrite(ctx, ref.Scope.SnapshotID, func(tx *sql.Tx) error {
+		if lease, ok := workflow.ContextLease(ctx); s.postgres && ok {
+			if err := validateWorkflowLeaseTx(ctx, tx, lease.RunID); err != nil {
+				return err
+			}
+		}
 		scope, err := scanArtifactScope(tx.QueryRowContext(ctx, s.rebind(artifactScopeQuery), ref.Scope.ProjectID, ref.Scope.SnapshotID))
 		if err != nil {
 			return err

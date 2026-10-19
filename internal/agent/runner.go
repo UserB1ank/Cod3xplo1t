@@ -208,6 +208,7 @@ func (r *Runner) RunPath(ctx context.Context, pathID, owner string, ttl time.Dur
 // RunPath differ only in how the path was chosen, so everything from the task
 // build to the settlement lives here, once.
 func (r *Runner) execute(ctx context.Context, auditID string, p *path.Path, owner string, policy ExplorationPolicy) (*Run, error) {
+	ctx = path.WithLease(ctx, p.ID, p.LeaseEpoch)
 	caps := r.Runtime.Capabilities()
 	runtimeName := caps.Name
 	if strings.TrimSpace(runtimeName) == "" {
@@ -271,25 +272,23 @@ func (r *Runner) execute(ctx context.Context, auditID string, p *path.Path, owne
 		Exploration:    policy,
 		Budget:         Budget{TimeoutSeconds: policy.TimeoutSeconds, TokenBudget: policy.TokenBudget},
 		Owner:          owner,
+		LeaseEpoch:     p.LeaseEpoch,
 		DeadlineAt:     NowString(now.Add(timeout)),
 		CreatedAt:      NowString(now),
 		UpdatedAt:      NowString(now),
 		Version:        1,
 	}
 
-	if err := r.Store.CreateRun(*run); err != nil {
-		r.releaseQuietly(ctx, p.ID, owner, "the run could not be recorded: "+err.Error())
-		return nil, fmt.Errorf("agent: create run %s: %w", run.ID, err)
-	}
-	if err := r.appendRunEvents(run, Event{
-		Type: EventRunCreated, Actor: runnerActorOrchestrator,
+	created := Event{
+		Type: EventRunCreated, Actor: runnerActorOrchestrator, CreatedAt: run.CreatedAt,
 		Summary: "run created for path " + p.ID,
-		Detail: map[string]string{
-			"runtime": runtimeName, "runtime_version": caps.Version,
-			"attempt": fmt.Sprint(attempt), "owner": owner,
-		},
-	}); err != nil {
-		return run, fmt.Errorf("agent: record run %s creation: %w", run.ID, err)
+		Detail:  map[string]string{"runtime": runtimeName, "runtime_version": caps.Version, "attempt": fmt.Sprint(attempt), "owner": owner},
+	}
+	if err := r.createRun(ctx, run, created); err != nil {
+		if !errors.Is(err, ErrConflict) {
+			r.releaseQuietly(ctx, p.ID, owner, "the run could not be recorded: "+err.Error())
+		}
+		return nil, fmt.Errorf("agent: create run %s: %w", run.ID, err)
 	}
 
 	// The run is RUNNING before the adapter starts: an adapter that dies on its
@@ -1103,11 +1102,35 @@ func (r *Runner) leaseTTL() time.Duration {
 	return runnerLeaseTTLFactor * r.heartbeatEvery()
 }
 
-// record writes run state and then the events that explain it, in that order: an
-// event that describes a state the store does not hold is worse than a log that
-// is one entry short.
+func (r *Runner) createRun(ctx context.Context, run *Run, event Event) error {
+	if store, ok := r.Store.(AtomicCreator); ok {
+		return store.CreateRunEventsContext(ctx, *run, []Event{event})
+	}
+	if err := r.Store.CreateRun(*run); err != nil {
+		return err
+	}
+	return r.appendRunEvents(run, event)
+}
+
+// record commits state and its events together when the store supports it.
 func (r *Runner) record(run *Run, events ...Event) error {
 	run.UpdatedAt = NowString(r.now())
+	if store, ok := r.Store.(AtomicRecorder); ok {
+		for i := range events {
+			if events[i].Actor == "" {
+				events[i].Actor = runnerActorOrchestrator
+			}
+			if events[i].CreatedAt == "" {
+				events[i].CreatedAt = run.UpdatedAt
+			}
+			events[i].Summary = runnerCapText(events[i].Summary, MaxStatementChars)
+		}
+		if err := store.SaveRunEvents(*run, run.Version, events); err != nil {
+			return err
+		}
+		run.Version++
+		return nil
+	}
 	if err := r.Store.UpdateRun(*run, 0); err != nil {
 		return err
 	}

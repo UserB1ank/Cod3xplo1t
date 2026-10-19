@@ -252,9 +252,15 @@ func TestCancelledReportRejectsLateDocumentAndFencesSnapshotDeletion(t *testing.
 	}
 }
 
+func TestPostgresReportsAuthorizeScopeFailBudgetsAndSurviveRestart(t *testing.T) {
+	reportsAuthorizeAndSurviveRestart(t, postgresConfig(t))
+}
 func TestReportsAuthorizeScopeFailBudgetsAndSurviveRestart(t *testing.T) {
 	workspace := t.TempDir()
-	config := app.Config{Workspace: workspace, DBPath: filepath.Join(workspace, "reports.db")}
+	reportsAuthorizeAndSurviveRestart(t, app.Config{Workspace: workspace, DBPath: filepath.Join(workspace, "reports.db")})
+}
+func reportsAuthorizeAndSurviveRestart(t *testing.T, config app.Config) {
+	t.Helper()
 	rt, err := app.Build(context.Background(), config)
 	if err != nil {
 		t.Fatal(err)

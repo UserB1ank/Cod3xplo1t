@@ -357,6 +357,7 @@ type Run struct {
 	OutputTokens   int               `json:"output_tokens"`
 	ElapsedMS      int64             `json:"elapsed_ms"`
 	Owner          string            `json:"owner,omitempty"`
+	LeaseEpoch     int64             `json:"lease_epoch,omitempty"`
 	StartedAt      string            `json:"started_at,omitempty"`
 	DeadlineAt     string            `json:"deadline_at,omitempty"`
 	HeartbeatAt    string            `json:"heartbeat_at,omitempty"`

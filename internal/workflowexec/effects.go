@@ -80,11 +80,55 @@ func (e *Effects) Execute(ctx context.Context, run workflow.Run, plan workflow.P
 	if !e.enabled {
 		return workflow.NodeResult{Status: "SKIPPED", Note: "Candidate runtime analysis was not requested"}, nil
 	}
+	if e.native == nil {
+		if err := e.restorePublishedInputs(ctx, run); err != nil {
+			return workflow.NodeResult{}, err
+		}
+	}
 	if e.native == nil || e.native.Paths == nil || len(e.native.Paths.Paths) == 0 {
 		return workflow.NodeResult{Status: "SKIPPED", Note: "No candidate paths were produced"}, nil
 	}
 	return e.analyze(ctx, run, plan, node)
 }
+
+// Restore application inputs from immutable, verified outputs. Recovery must
+// not re-publish batches or replace paths that already contain completed work.
+func (e *Effects) restorePublishedInputs(ctx context.Context, run workflow.Run) error {
+	for _, node := range run.Nodes {
+		if node.Status != "SUCCEEDED" && node.Status != "PARTIAL" {
+			continue
+		}
+		if node.Kind == "knowledge_publish" {
+			e.knowledge = append(e.knowledge, node.Knowledge...)
+		}
+		if node.Kind != "plugin" {
+			continue
+		}
+		for _, ref := range node.Outputs {
+			if ref.SchemaID != "codexploit/builtin-native/v1" {
+				continue
+			}
+			reader, _, err := e.Artifacts.Open(ctx, run.Scope, ref.ID, 8<<20)
+			if err != nil {
+				return err
+			}
+			raw, err := io.ReadAll(io.LimitReader(reader, 8<<20))
+			reader.Close()
+			if err != nil {
+				return err
+			}
+			var native plugin.NativeReport
+			if json.Unmarshal(raw, &native) != nil || native.Scope != run.Scope {
+				return workflow.ErrInvalid
+			}
+			if e.native == nil || (e.native.Paths == nil && native.Paths != nil) {
+				e.native = &native
+			}
+		}
+	}
+	return nil
+}
+
 func (e *Effects) publish(ctx context.Context, run workflow.Run, plan workflow.Plan, node workflow.NodeRun) (workflow.NodeResult, error) {
 	store, ok := e.Store.(publication.Store)
 	if !ok {
@@ -336,6 +380,22 @@ func (e *Effects) analyze(ctx context.Context, run workflow.Run, plan workflow.P
 	}
 	result := workflow.NodeResult{Status: "SUCCEEDED", AgentRunIDs: []string{}, Knowledge: e.knowledge}
 	for _, candidate := range candidates {
+		// Completed candidates survive coordinator recovery and retries.
+		previous, _, err := e.Store.ListRuns(agent.RunQuery{PathID: candidate.ID, Status: []agent.RunStatus{agent.RunSucceeded}, Limit: 100})
+		if err != nil {
+			return result, err
+		}
+		reused := ""
+		for _, prior := range previous {
+			if prior.Owner == "workflow-"+run.ID {
+				reused = prior.ID
+				break
+			}
+		}
+		if reused != "" {
+			result.AgentRunIDs = append(result.AgentRunIDs, reused)
+			continue
+		}
 		outcome, err := runner.RunPath(ctx, candidate.ID, "workflow-"+run.ID, time.Minute, runner.Policy)
 		if outcome != nil {
 			result.AgentRunIDs = append(result.AgentRunIDs, outcome.ID)

@@ -200,7 +200,7 @@ func NewServer(store storage.FullStore, mgr *repository.Manager, analyzer *analy
 			Artifacts: artifacts,
 		})
 	}
-	if s.Findings == nil && store != nil && !storage.LimitedPostgres(store) {
+	if s.Findings == nil && store != nil {
 		s.Findings = findings.NewService(store)
 	}
 	s.snapshots = lifecycle.Snapshots{Store: s.Store, Manager: s.Manager}
@@ -213,7 +213,7 @@ func NewServer(store storage.FullStore, mgr *repository.Manager, analyzer *analy
 // into the same JSON error shape as every other failure, so clients only ever
 // parse one format.
 func (s *Server) Handler() http.Handler {
-	return s.recoverer(s.logRequests(s.authenticate(s.guardStorage(s.jsonErrors(s.handler)))))
+	return s.recoverer(s.logRequests(s.authenticate(s.jsonErrors(s.handler))))
 }
 
 func (s *Server) routes() http.Handler {

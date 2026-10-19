@@ -338,6 +338,7 @@ type Path struct {
 	ScoreSeq int64 `json:"score_seq"`
 
 	LeaseOwner  string `json:"lease_owner,omitempty"`
+	LeaseEpoch  int64  `json:"lease_epoch,omitempty"`
 	LeaseUntil  string `json:"lease_until,omitempty"`
 	HeartbeatAt string `json:"heartbeat_at,omitempty"`
 	Attempts    int    `json:"attempts"`

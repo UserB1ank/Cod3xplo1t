@@ -59,7 +59,7 @@ func main(){http.HandleFunc("/run",Handler)}
 			facts = ref
 		}
 	}
-	semantic, err := catalog.Get(ctx, "builtin.security-semantics", "1.1.0")
+	semantic, err := catalog.Get(ctx, "builtin.security-semantics", "1.2.0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func main(){http.HandleFunc("/run",Handler)}
 	request.PackageDigest = semantic.PackageDigest
 	request.Inputs = append(request.Inputs, facts)
 	analyzed := run(request)
-	paths, err := catalog.Get(ctx, "builtin.discovery-paths", "1.1.0")
+	paths, err := catalog.Get(ctx, "builtin.discovery-paths", "1.2.0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -259,7 +259,7 @@ func TestSemanticCoverageAndGraphBudgetRemainExplicit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	semantic, err := catalog.Get(ctx, plugin.SemanticID, "1.1.0")
+	semantic, err := catalog.Get(ctx, plugin.SemanticID, "1.2.0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -345,7 +345,7 @@ func TestPathPluginExaminesNativeSurfaceBeyondOneGraphPage(t *testing.T) {
 			request.Inputs = append(request.Inputs, ref)
 		}
 	}
-	semantic, err := catalog.Get(ctx, plugin.SemanticID, "1.1.0")
+	semantic, err := catalog.Get(ctx, plugin.SemanticID, "1.2.0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -355,7 +355,7 @@ func TestPathPluginExaminesNativeSurfaceBeyondOneGraphPage(t *testing.T) {
 	request.PackageDigest = semantic.PackageDigest
 	request.Budget.MaxOutputBytes = 64 << 20
 	analyzed := run(request)
-	adapter, err := catalog.Get(ctx, "builtin.discovery-paths", "1.1.0")
+	adapter, err := catalog.Get(ctx, "builtin.discovery-paths", "1.2.0")
 	if err != nil {
 		t.Fatal(err)
 	}

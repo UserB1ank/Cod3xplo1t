@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/open-mcp-ai/Codexploit/internal/app"
 	"github.com/open-mcp-ai/Codexploit/internal/artifact"
 	"github.com/open-mcp-ai/Codexploit/internal/workflow"
 )
@@ -20,6 +22,9 @@ type workflowControlFixture struct {
 }
 
 func newWorkflowControlFixture(t *testing.T, env *testEnv) *workflowControlFixture {
+	return workflowControlFixtureWithSpec(t, env, workflowSpecFixture())
+}
+func workflowControlFixtureWithSpec(t *testing.T, env *testEnv, spec map[string]any) *workflowControlFixture {
 	t.Helper()
 	source := t.TempDir()
 	writeFile(t, source, "main.go", `package main
@@ -44,7 +49,7 @@ func main(){http.HandleFunc("/run",Handler)}
 			input = ref
 		}
 	}
-	if saved := do(t, env.ts, http.MethodPost, prefix+"/workflows", map[string]any{"api_version": "codexploit/v1", "spec": workflowSpecFixture()}, nil); saved.status != 201 {
+	if saved := do(t, env.ts, http.MethodPost, prefix+"/workflows", map[string]any{"api_version": "codexploit/v1", "spec": spec}, nil); saved.status != 201 {
 		t.Fatalf("save workflow: %s", saved.body)
 	}
 	compiled := do(t, env.ts, http.MethodPost, prefix+"/workflows/workflow-discovery/versions/1.0.0/compile", map[string]any{"api_version": "codexploit/v1", "snapshot_id": input.Scope.SnapshotID, "inputs": []string{input.ID}, "language": "Go"}, nil)
@@ -127,7 +132,19 @@ func (e controlExecutor) Execute(ctx context.Context, node workflow.CompiledNode
 }
 
 func TestWorkflowControlsPauseResumeAndCancelOverHTTP(t *testing.T) {
-	env := newTestEnv(t, false)
+	workflowControlsPauseResumeAndCancel(t, newTestEnv(t, false))
+}
+
+func TestPostgresWorkflowControlsPauseResumeAndCancelOverHTTP(t *testing.T) {
+	rt, err := app.Build(context.Background(), postgresConfig(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflowControlsPauseResumeAndCancel(t, serveTestEnv(t, rt, false))
+}
+
+func workflowControlsPauseResumeAndCancel(t *testing.T, env *testEnv) {
+	t.Helper()
 	fixture := newWorkflowControlFixture(t, env)
 	blocked := make(chan string, 8)
 	release := make(chan struct{}, 8)
@@ -209,12 +226,26 @@ func (e *failOnceAPIExecutor) Execute(ctx context.Context, node workflow.Compile
 	return e.delegate.Execute(ctx, node, scope, inputs, id)
 }
 
+func TestPostgresWorkflowRetryOverHTTPCreatesALinkedRun(t *testing.T) {
+	rt, err := app.Build(context.Background(), postgresConfig(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflowRetryOverHTTP(t, serveTestEnv(t, rt, false))
+}
 func TestWorkflowRetryOverHTTPCreatesALinkedRun(t *testing.T) {
-	env := newTestEnv(t, false)
+	workflowRetryOverHTTP(t, newTestEnv(t, false))
+}
+func workflowRetryOverHTTP(t *testing.T, env *testEnv) {
+	t.Helper()
 	fixture := newWorkflowControlFixture(t, env)
 	env.rt.WorkflowRunner.Executor = &failOnceAPIExecutor{delegate: workflow.PluginExecutor{Host: env.rt.Plugins, Catalog: env.rt.PluginCatalog}}
 	run := fixture.startTask(t)
 	failed := fixture.wait(t, run.ID, "FAILED")
+	failedTasks := do(t, env.ts, http.MethodGet, "/api/projects/"+fixture.projectID+"/tasks?state=FAILED", nil, nil)
+	if failedTasks.status != 200 || !strings.Contains(string(failedTasks.body), failed.TaskID) {
+		t.Fatalf("failed workflow missing from task filter: %d %s", failedTasks.status, failedTasks.body)
+	}
 	response := do(t, env.ts, http.MethodPost, "/api/v1/projects/"+fixture.projectID+"/workflow-runs/"+failed.ID+"/retry", nil, nil)
 	if response.status != http.StatusCreated {
 		t.Fatalf("retry: %d %s", response.status, response.body)

@@ -19,24 +19,13 @@
       "const": "codexploit/v1"
     },
     "driver": {
-      "enum": [
-        "memory",
-        "sqlite",
-        "postgres"
-      ]
+      "enum": ["memory", "sqlite", "postgres"]
     },
     "profile": {
-      "enum": [
-        "complete",
-        "catalog",
-        "knowledge"
-      ]
+      "enum": ["complete", "catalog", "knowledge", "execution"]
     },
     "readiness": {
-      "enum": [
-        "ready",
-        "unavailable"
-      ]
+      "enum": ["ready", "unavailable"]
     },
     "durable": {
       "type": "boolean"
@@ -99,19 +88,10 @@
     },
     "locations": {
       "type": "object",
-      "required": [
-        "catalog",
-        "artifact_content",
-        "accounts",
-        "model_settings"
-      ],
+      "required": ["catalog", "artifact_content", "accounts", "model_settings"],
       "properties": {
         "catalog": {
-          "enum": [
-            "memory",
-            "sqlite",
-            "postgres"
-          ]
+          "enum": ["memory", "sqlite", "postgres"]
         },
         "artifact_content": {
           "const": "workspace"

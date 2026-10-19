@@ -2364,9 +2364,9 @@ function ProjectSettings({
           <dt>代码版本</dt>
           <dd>{snapshots.length} 个快照</dd>
           <dt>存储方式</dt>
-          <dd>{identity.features.storage_postgres ? "PostgreSQL · 知识模式" : identity.features.storage_memory ? "内存 · 进程退出后目录丢失" : "服务端工作区 · SQLite"}</dd>
+          <dd>{identity.features.storage_postgres ? "PostgreSQL · 持久化执行" : identity.features.storage_memory ? "内存 · 进程退出后目录丢失" : "服务端工作区 · SQLite"}</dd>
           <dt>知识共享</dt>
-          <dd>{identity.features.storage_postgres ? "直接分析与图谱已接通，任务尚未接线" : "项目内共享，任务固定代码版本"}</dd>
+          <dd>{identity.features.storage_postgres ? "任务、工作流、发现与图谱持久化；共享认证仍待接入" : "项目内共享，任务固定代码版本"}</dd>
         </dl>
       </Panel>
       <Panel title="服务能力">

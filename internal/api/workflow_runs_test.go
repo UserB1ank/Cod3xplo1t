@@ -20,7 +20,19 @@ import (
 )
 
 func TestTaskStartsFixedWorkflowAndExposesRealNodeArtifacts(t *testing.T) {
-	env := newTestEnv(t, false)
+	taskStartsFixedWorkflow(t, newTestEnv(t, false))
+}
+
+func TestPostgresTaskStartsFixedWorkflowAndExposesRealNodeArtifacts(t *testing.T) {
+	rt, err := app.Build(context.Background(), postgresConfig(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	taskStartsFixedWorkflow(t, serveTestEnv(t, rt, false))
+}
+
+func taskStartsFixedWorkflow(t *testing.T, env *testEnv) {
+	t.Helper()
 	source := t.TempDir()
 	writeFile(t, source, "main.go", "package main\nfunc main() {}\n")
 	project := createProject(t, env.ts, source).Project
@@ -121,7 +133,23 @@ func TestTaskStartsFixedWorkflowAndExposesRealNodeArtifacts(t *testing.T) {
 }
 
 func TestWorkflowPublishesSharedKnowledgeAndRunsConfiguredCandidateRuntime(t *testing.T) {
-	env := newSchedulerTestEnv(t)
+	workflowPublishesAndAnalyzes(t, newSchedulerTestEnv(t))
+}
+
+func TestPostgresWorkflowPublishesSharedKnowledgeAndRunsConfiguredCandidateRuntime(t *testing.T) {
+	cfg := postgresConfig(t)
+	cfg.Agent = app.AgentConfig{Enabled: true, Runtime: app.AgentRuntimeScripted, ScriptedAnswerJSON: agentTestPlaceholderAnswer(t), MaxToolCalls: 30}
+	cfg.Scheduler = app.SchedulerConfig{Enabled: true, Interval: time.Hour, MaxConcurrent: 1, LeaseTTL: time.Minute}
+	rt, err := app.Build(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt.Agent.Runtime = &echoRuntime{Answer: agentTestAnswer}
+	workflowPublishesAndAnalyzes(t, serveTestEnv(t, rt, false))
+}
+
+func workflowPublishesAndAnalyzes(t *testing.T, env *testEnv, beforeWait ...func(workflow.Run)) {
+	t.Helper()
 	p := createProject(t, env.ts, asgFixtureSource(t)).Project
 	captured := do(t, env.ts, http.MethodPost, "/api/projects/"+p.ID+"/snapshots", map[string]any{"skip_analysis": true}, nil)
 	var snapshot snapshotResponse
@@ -140,9 +168,9 @@ func TestWorkflowPublishesSharedKnowledgeAndRunsConfiguredCandidateRuntime(t *te
 	}
 	spec := workflowSpecFixture()
 	nodes := spec["nodes"].([]any)
-	nodes = append(nodes, map[string]any{"id": "semantic", "plugin_id": plugin.SemanticID, "plugin_version": "1.1.0", "needs": []string{"parse"}, "config": map[string]any{}, "timeout_seconds": 60}, map[string]any{"id": "paths", "plugin_id": "builtin.discovery-paths", "plugin_version": "1.1.0", "needs": []string{"semantic"}, "config": map[string]any{}, "timeout_seconds": 60})
-	nodes = append(nodes, map[string]any{"id": "zsemantic", "plugin_id": plugin.SemanticID, "plugin_version": "1.1.0", "needs": []string{"parse"}, "config": map[string]any{}, "timeout_seconds": 60})
-	nodes = append(nodes, map[string]any{"id": "zpaths", "plugin_id": "builtin.discovery-paths", "plugin_version": "1.1.0", "needs": []string{"semantic"}, "config": map[string]any{"max_paths": 1}, "timeout_seconds": 60})
+	nodes = append(nodes, map[string]any{"id": "semantic", "plugin_id": plugin.SemanticID, "plugin_version": "1.2.0", "needs": []string{"parse"}, "config": map[string]any{}, "timeout_seconds": 60}, map[string]any{"id": "paths", "plugin_id": "builtin.discovery-paths", "plugin_version": "1.2.0", "needs": []string{"semantic"}, "config": map[string]any{}, "timeout_seconds": 60})
+	nodes = append(nodes, map[string]any{"id": "zsemantic", "plugin_id": plugin.SemanticID, "plugin_version": "1.2.0", "needs": []string{"parse"}, "config": map[string]any{}, "timeout_seconds": 60})
+	nodes = append(nodes, map[string]any{"id": "zpaths", "plugin_id": "builtin.discovery-paths", "plugin_version": "1.2.0", "needs": []string{"semantic"}, "config": map[string]any{"max_paths": 1}, "timeout_seconds": 60})
 	spec["nodes"] = nodes
 	saved := do(t, env.ts, http.MethodPost, prefix+"/workflows", map[string]any{"api_version": "codexploit/v1", "spec": spec}, nil)
 	if saved.status != 201 {
@@ -161,6 +189,9 @@ func TestWorkflowPublishesSharedKnowledgeAndRunsConfiguredCandidateRuntime(t *te
 		Run workflow.Run `json:"workflow_run"`
 	}
 	created.decode(t, &receipt)
+	if len(beforeWait) > 0 {
+		beforeWait[0](receipt.Run)
+	}
 	deadline := time.Now().Add(20 * time.Second)
 	var run workflow.Run
 	for {
@@ -198,7 +229,10 @@ func TestWorkflowPublishesSharedKnowledgeAndRunsConfiguredCandidateRuntime(t *te
 	if task.status != 200 || view.PathCount < 2 || view.Status != "READY" {
 		t.Fatalf("task paths not materialized: %d %s", task.status, task.body)
 	}
-	findings := doAs(t, env.ts, readerSecret, http.MethodGet, "/api/findings?audit_id="+run.TaskID, nil, nil)
+	findings := doAs(t, env.ts, readerSecret, http.MethodGet, prefix+"/findings?task_id="+run.TaskID, nil, nil)
+	if findings.status != 200 {
+		t.Fatalf("findings: %d %s", findings.status, findings.body)
+	}
 	if strings.Contains(string(findings.body), `"confirmed"`) {
 		t.Fatalf("discovery manufactured confirmation: %s", findings.body)
 	}
@@ -288,6 +322,15 @@ func (g workflowGate) Execute(ctx context.Context, node workflow.CompiledNode, s
 func TestWorkflowRunPersistsAndFencesTaskAndSnapshotLifecycle(t *testing.T) {
 	dir := t.TempDir()
 	cfg := app.Config{Workspace: dir, DBPath: filepath.Join(dir, "state.db")}
+	workflowRunPersistsAndFencesLifecycle(t, cfg)
+}
+
+func TestPostgresWorkflowRunPersistsAndFencesTaskAndSnapshotLifecycle(t *testing.T) {
+	workflowRunPersistsAndFencesLifecycle(t, postgresConfig(t))
+}
+
+func workflowRunPersistsAndFencesLifecycle(t *testing.T, cfg app.Config) {
+	t.Helper()
 	rt, err := app.Build(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -462,7 +505,7 @@ func TestWorkflowKeepsCapturedModelAfterApplicationSettingsChange(t *testing.T) 
 		}
 	}
 	spec := workflowSpecFixture()
-	spec["nodes"] = append(spec["nodes"].([]any), map[string]any{"id": "semantic", "plugin_id": plugin.SemanticID, "plugin_version": "1.1.0", "needs": []string{"parse"}, "config": map[string]any{}, "timeout_seconds": 60}, map[string]any{"id": "paths", "plugin_id": "builtin.discovery-paths", "plugin_version": "1.1.0", "needs": []string{"semantic"}, "config": map[string]any{}, "timeout_seconds": 60})
+	spec["nodes"] = append(spec["nodes"].([]any), map[string]any{"id": "semantic", "plugin_id": plugin.SemanticID, "plugin_version": "1.2.0", "needs": []string{"parse"}, "config": map[string]any{}, "timeout_seconds": 60}, map[string]any{"id": "paths", "plugin_id": "builtin.discovery-paths", "plugin_version": "1.2.0", "needs": []string{"semantic"}, "config": map[string]any{}, "timeout_seconds": 60})
 	do(t, env.ts, http.MethodPost, prefix+"/workflows", map[string]any{"api_version": "codexploit/v1", "spec": spec}, nil)
 	compiled := do(t, env.ts, http.MethodPost, prefix+"/workflows/workflow-discovery/versions/1.0.0/compile", map[string]any{"api_version": "codexploit/v1", "snapshot_id": snap.Snapshot.SnapshotID, "inputs": []string{input}, "language": "Go"}, nil)
 	var plan struct {

@@ -13,6 +13,14 @@ type PluginExecutor struct {
 	Catalog *plugin.Catalog
 }
 
+func (e PluginExecutor) RecoverNode(ctx context.Context, scope artifact.Scope, node NodeRun) (NodeResult, error) {
+	inv, err := e.Host.GetStatus(ctx, scope, node.InvocationID)
+	if err != nil {
+		return NodeResult{}, err
+	}
+	return invocationResult(inv), nil
+}
+
 func (e PluginExecutor) Execute(ctx context.Context, node CompiledNode, scope artifact.Scope, inputs []artifact.Ref, id string) (NodeResult, error) {
 	record, err := e.Catalog.Get(ctx, node.PluginID, node.PluginVersion)
 	if err != nil {
