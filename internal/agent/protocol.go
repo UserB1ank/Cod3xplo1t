@@ -17,6 +17,8 @@ var (
 	ErrInvalidAnswer   = errors.New("agent: invalid answer")
 	ErrUnsupportedTool = errors.New("agent: tool is not allowed for this run")
 	ErrBudgetExhausted = errors.New("agent: budget exhausted")
+	// ErrInvalidCheckpoint is a pause document a reader cannot trust.
+	ErrInvalidCheckpoint = errors.New("agent: invalid checkpoint")
 	// ErrRuntimeUnavailable is a task's selected runtime missing from the
 	// deployment catalog. It must not fall back to another adapter.
 	ErrRuntimeUnavailable = errors.New("agent: the requested runtime is not available")
