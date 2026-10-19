@@ -80,7 +80,19 @@ func (r *ModelRuntime) runModel(ctx context.Context, cfg llm.Config, task Task, 
 		"type": "object", "properties": map[string]any{"tool": map[string]any{"type": "string", "enum": task.Exploration.AllowedTools}, "args": map[string]any{"type": "object", "additionalProperties": map[string]string{"type": "string"}}}, "required": []string{"tool", "args"}, "additionalProperties": false,
 	}}
 	used := 0
-	for round := 0; round <= task.Exploration.MaxToolCalls; round++ {
+	repairs := 0
+	canRepair := func() bool { return repairs < modelRepairLimit }
+	noteRepair := func(reason string) {
+		repairs++
+		_ = sendEvent(ctx, events, RuntimeEvent{
+			Type: runtimeEventNote, Summary: "model output repaired",
+			Detail: map[string]string{"reason": modelClip(reason, 200)},
+		})
+	}
+	// A repair is one more turn but not one more tool call: it costs tokens and
+	// counts against the token budget, and it is bounded separately so a model
+	// that cannot follow the protocol ends the run instead of looping.
+	for round := 0; round <= task.Exploration.MaxToolCalls+modelRepairLimit; round++ {
 		completion, err := llm.Complete(ctx, cfg, messages, []llm.Tool{tool}, "")
 		if err != nil {
 			return nil, err
@@ -96,29 +108,77 @@ func (r *ModelRuntime) runModel(ctx context.Context, cfg llm.Config, task Task, 
 			return nil, ErrBudgetExhausted
 		}
 		messages = append(messages, completion.Message)
+
 		if len(completion.Message.Calls) == 0 {
 			answer, err := DecodeAnswer([]byte(completion.Message.Content), task)
 			if err != nil {
 				// Validation messages can contain model-provided strings. Keep the
 				// public error bounded rather than storing arbitrary provider output.
-				sendEvent(ctx, events, RuntimeEvent{Type: EventOutputRejected, Summary: "模型输出未通过结构与证据校验"})
-				return nil, errors.New("模型输出未通过结构与证据校验")
+				reason := modelClip(err.Error(), 200)
+				if !canRepair() {
+					_ = sendEvent(ctx, events, RuntimeEvent{Type: EventOutputRejected, Summary: "模型输出未通过结构与证据校验",
+						Detail: map[string]string{"error": reason}})
+					return nil, errors.New("模型输出未通过结构与证据校验")
+				}
+				messages = append(messages, llm.Message{Role: "user", Content: answerRepair(reason)})
+				noteRepair(reason)
+				continue
 			}
 			if !sendEvent(ctx, events, RuntimeEvent{Type: EventOutputReceived, Answer: answer}) {
 				return nil, ctx.Err()
 			}
 			return answer, nil
 		}
+
 		if len(completion.Message.Calls) != 1 {
-			return nil, errors.New("模型必须每次请求一个工具")
+			reason := "one_tool_call_per_turn"
+			if !canRepair() {
+				_ = sendEvent(ctx, events, RuntimeEvent{Type: EventOutputRejected, Summary: "模型一次请求了多个工具调用",
+					Detail: map[string]string{"error": reason}})
+				return nil, errors.New("模型一次只能请求一个工具")
+			}
+			// Every call needs a paired result even when it is refused, or the
+			// provider rejects the next request as a malformed conversation.
+			for _, rejected := range completion.Message.Calls {
+				if rejected.ID == "" {
+					continue
+				}
+				messages = append(messages, llm.Message{Role: "tool", ToolCallID: rejected.ID,
+					Content: toolRepair(reason, "request exactly one tool per turn")})
+			}
+			noteRepair(reason)
+			continue
 		}
+
 		call := completion.Message.Calls[0]
 		if call.Function.Name != tool.Name || call.ID == "" || len(call.ID) > 200 || len(call.Function.Arguments) > 32000 {
-			return nil, errors.New("模型工具调用格式无效")
+			reason := "invalid_tool_call"
+			if !canRepair() {
+				_ = sendEvent(ctx, events, RuntimeEvent{Type: EventOutputRejected, Summary: "模型工具调用格式无效",
+					Detail: map[string]string{"error": reason}})
+				return nil, errors.New("模型工具调用格式无效")
+			}
+			if call.ID != "" {
+				messages = append(messages, llm.Message{Role: "tool", ToolCallID: call.ID,
+					Content: toolRepair(reason, "call graph_query with a JSON object of string arguments")})
+			} else {
+				messages = append(messages, llm.Message{Role: "user", Content: answerRepair("the tool call carries no id")})
+			}
+			noteRepair(reason)
+			continue
 		}
 		var req ToolRequest
-		if json.Unmarshal([]byte(call.Function.Arguments), &req) != nil {
-			return nil, errors.New("模型工具参数格式无效")
+		if err := json.Unmarshal([]byte(call.Function.Arguments), &req); err != nil {
+			reason := "invalid_tool_arguments"
+			if !canRepair() {
+				_ = sendEvent(ctx, events, RuntimeEvent{Type: EventOutputRejected, Summary: "模型工具参数格式无效",
+					Detail: map[string]string{"error": reason}})
+				return nil, errors.New("模型工具参数格式无效")
+			}
+			messages = append(messages, llm.Message{Role: "tool", ToolCallID: call.ID,
+				Content: toolRepair(reason, "arguments must be a JSON object whose values are strings, numbers included")})
+			noteRepair(reason)
+			continue
 		}
 		req.CallID = fmt.Sprintf("model-%d", round)
 		if req.Args == nil {
@@ -153,6 +213,38 @@ func (r *ModelRuntime) runModel(ctx context.Context, cfg llm.Config, task Task, 
 		}
 	}
 	return nil, ErrBudgetExhausted
+}
+
+// modelRepairLimit bounds how often a run is told what was wrong with its output.
+// A repair is a protocol correction, not another attempt at the same question: it
+// costs tokens, so it is counted and capped separately from the tool budget, and a
+// model that cannot follow the protocol ends the run instead of looping.
+const modelRepairLimit = 2
+
+// modelRepairText bounds one correction message. The protocol schema is already in
+// the system prompt, so a correction names the problem and the smallest fix.
+const modelRepairText = 300
+
+// modelClip cuts a reason on a rune boundary so provider-supplied text cannot grow
+// the context or the event log without limit.
+func modelClip(text string, max int) string {
+	runes := []rune(text)
+	if len(runes) <= max {
+		return text
+	}
+	return string(runes[:max])
+}
+
+// toolRepair is the correction a rejected tool call receives. It travels as a tool
+// message so the provider's call/result pairing stays valid.
+func toolRepair(code, hint string) string {
+	payload, _ := json.Marshal(map[string]string{"error": code, "hint": modelClip(hint, 200)})
+	return string(payload)
+}
+
+// answerRepair is the correction a rejected structured answer receives.
+func answerRepair(reason string) string {
+	return modelClip("Your previous output was rejected: "+reason+". Return only the JSON object required by the system prompt.", modelRepairText)
 }
 
 // Freeze captures credentials and model in memory; only public metadata leaves it.

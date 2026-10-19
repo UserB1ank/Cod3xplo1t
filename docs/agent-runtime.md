@@ -94,6 +94,26 @@ recorded as `expansion_decided` with the granted amounts, which is the audit tra
 `GET /api/runs/{id}/events?type=expansion_decided` exposes. Operator-gated approval
 is deliberately not implemented in this phase: the policy decides inside the run.
 
+## Protocol repairs
+
+Structural mistakes are corrected, not fatal. Once the model runtime accepts a
+turn, two shapes are repairable, up to `modelRepairLimit` (2) corrections per run:
+
+| Mistake | Correction the model receives |
+|---|---|
+| tool arguments are not a JSON object of strings (a number where a string is required, a truncated object) | a paired `tool` message naming `invalid_tool_arguments` and the expected shape |
+| more than one tool call in a turn | one paired `tool` message per rejected call, naming `one_tool_call_per_turn` |
+| a structured answer the protocol rejects (unknown field, `confirmed` status, missing evidence) | one `user` message naming the first problem, bounded to 300 characters |
+
+A repair is one more turn but **not** one more tool call: it is counted separately
+from the tool budget and its tokens still count against the token budget. Every
+correction is recorded as a `run_note` event with the reason. When the budget is
+spent, the run ends as `INVALID_OUTPUT` with the protocol's own message — the
+correction is a courtesy, not an infinite retry.
+
+Denials are not repairs: a tool outside the allowlist, an unregistered tool and an
+exhausted budget keep their existing semantics and stop reasons.
+
 ## Stop conditions
 
 | Condition | Run status | Stop reason |

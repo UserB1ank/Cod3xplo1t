@@ -59,6 +59,8 @@
 
 - 2026-10-19 — #37 记录 Agent 停止质量基线并固定脚本黄金集：`agent.Run` 新增 `RunMetrics`（rounds / exchanges / 每轮 novelty / invalid_calls / truncations），全部由编排器自身观测，结束时与 run 同事务落库（`agent_runs.metrics_json`，SQLite `0025` / PostgreSQL `0007`），旧记录与未启动适配器的 run 保持 `nil` 而非零值。`ScriptedRuntime` 回放的 20 条黄金场景覆盖播种漏洞、已知安全、真不可判定与边界四类（各 5 条），同一脚本两次运行的事件序列、计数与答案逐字节一致；`make bench-agent` 输出停止原因、轮数、调用数与 novelty 曲线，并写出机器可读汇总，`docs/agent-baseline.md` 记录首版数字。已通过 TDD red/green、Memory / SQLite 往返与 `nil` 兼容、`internal/agent` / `internal/storage` / `internal/api` 乱序竞态回归、gofmt / vet / staticcheck 与 20 条确定性校验；`internal/app` 因工作区存在未跟踪的进行中测试文件未纳入本轮运行，前端无改动故未跑前端构建。按交付流程提交并关闭；未 push。
 
+- 2026-10-19 — #38 工具参数与答案校验失败改为可回灌修复：模型适配器把结构性错误改成有界修复回合——工具参数类型错误、单轮多调用、结构化答案被拒分别收到不超过 300 字符的纠错；多调用时为每个被拒调用回一条配对的 `tool` 消息，保证 provider 的 call / result 配对合法；修复上限 2 次、独立计数且不占工具预算，token 仍计入预算，耗尽后按 `INVALID_OUTPUT` 终止并保留协议原因。越权工具、未注册工具与预算耗尽的语义和停止原因不变，每次修复记录为 `run_note` 事件。已通过四条公开边界的 TDD red/green（数字型参数、双调用、未知字段、修复耗尽）、`internal/agent` 全量测试与 `-race`、gofmt / vet / staticcheck；`internal/app` 因工作区存在未跟踪的进行中测试文件未纳入本轮运行，前端无改动。按交付流程提交并关闭；未 push。
+
 ## Agent skills
 
 ### Issue tracker
