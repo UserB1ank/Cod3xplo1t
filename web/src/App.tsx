@@ -2692,7 +2692,7 @@ function TaskForm({
               : [],
           name: form.get("name"),
           objective: form.get("objective"),
-          runtime: selectedPlan ? "" : runtime,
+          runtime,
           snapshot_id: form.get("snapshot"),
           source_id:
             snapshots.find(
@@ -2774,9 +2774,8 @@ function TaskForm({
         Agent 运行时
         <select
           aria-label="任务 Agent 运行时"
-          value={selectedPlan ? "" : runtime}
+          value={runtime}
           onChange={(e) => setRuntime(e.target.value)}
-          disabled={!!selectedPlan}
         >
           {(runtimes.data?.runtimes || []).map((entry) => (
             <option key={entry.name} value={entry.name} disabled={!entry.ready}>
@@ -2787,8 +2786,7 @@ function TaskForm({
           ))}
         </select>
       </label>
-      {!selectedPlan &&
-        (runtimes.data?.runtimes || [])
+      {(runtimes.data?.runtimes || [])
           .filter((entry) => !entry.ready)
           .map((entry) => (
             <Hint key={entry.name}>
