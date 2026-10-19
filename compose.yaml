@@ -1,0 +1,104 @@
+# Default deployment: the application plus its PostgreSQL catalog.
+#
+#   docker compose up -d        # or: make run
+#
+# No secret is stored in this file or in the repository. On first start the
+# one-shot `secrets` service generates the database password, its DSN and the
+# installation key into the private `pg-secrets` volume, and every later start
+# reuses them. `docker compose down -v` removes the data with the secrets, so the
+# next start is a fresh installation.
+#
+# For the single-container SQLite deployment use compose.standalone.yaml
+# (`make standalone`).
+name: codexploit
+
+services:
+  # Generates the deployment secrets once. It is a completed one-shot service, not
+  # a daemon: postgres and the application wait for it to finish.
+  secrets:
+    image: postgres:16-alpine
+    restart: "no"
+    entrypoint: ["/bin/sh", "/init-compose-secrets.sh"]
+    volumes:
+      - ./scripts/init-compose-secrets.sh:/init-compose-secrets.sh:ro
+      - pg-secrets:/run/codexploit-secrets
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    depends_on:
+      secrets:
+        condition: service_completed_successfully
+    environment:
+      POSTGRES_DB: codexploit
+      POSTGRES_USER: catalog
+      POSTGRES_PASSWORD_FILE: /run/codexploit-secrets/postgres_password
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      - pg-secrets:/run/codexploit-secrets:ro
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U catalog -d codexploit"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    stop_grace_period: 30s
+
+  codexploit:
+    image: codexploit:local
+    build: .
+    # A rebuilt source tree must not be shadowed by an old image: the plugin
+    # catalog refuses a stale package digest, and the container would restart in a
+    # loop instead of telling anyone why.
+    pull_policy: build
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${CODEXPLOIT_PORT:-18085}:8080"
+    command:
+      - --addr=:8080
+      - --workspace=/data
+      - --storage=postgres
+      - --postgres-dsn-file=/run/codexploit-secrets/postgres_dsn
+      - --settings-key-file=/run/codexploit-secrets/settings_key
+      - --web-auth
+      - --agent-runtime=llm
+      - --scheduler
+      - --verify-executor=unsupported
+      - --plugin-packages=/app/plugin-packages
+      - --allow-network=${CODEXPLOIT_ALLOW_NETWORK:-false}
+    volumes:
+      - pg-workspace:/data
+      - pg-secrets:/run/codexploit-secrets:ro
+    networks:
+      - internal
+      - web
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 20s
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,size=256m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 30s
+
+networks:
+  # The database is never reachable from outside this Compose project.
+  internal:
+    internal: true
+  web: {}
+
+volumes:
+  pg-data:
+  pg-workspace:
+  pg-secrets:

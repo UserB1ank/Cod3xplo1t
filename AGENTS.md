@@ -65,6 +65,8 @@
 
 - 2026-10-19 — #40 把审计任务改为可判定的义务清单：`Task` schema 2 由宿主侧从 path 形状机械生成四条义务（源可控 / 可达 sink / 控制失效 / sink 敏感），id 由 `(path_id, kind)` 派生，同一 path 重建逐字节一致，不依赖模型调用；`Answer` 按 kind 逐条给出 `met` / `not_met` / `unknown + blocker`（unresolved_call / dynamic_dispatch / external_dependency / control_unassessed / budget），缺失、重复、非法 verdict、未知 blocker 或开放义务下的 conclusive 结论均被拒绝，拒绝原因随 run 记录；schema 1 任务仍按 v1 校验，旧 run 与报告可读。接入 `internal/graph` 任务构建器、模型提示词与 CLI / API 测试夹具，新增义务清单与裁决的表驱动测试。已通过 `internal/agent` / `internal/graph` 全量 `-race`、排除 `internal/app` 的全量测试、gofmt / vet / staticcheck；`internal/app` 仍因工作区未跟踪的 #27 进行中测试文件无法编译。按交付流程提交并关闭；未 push。
 
+- 2026-10-19 — #52 默认部署改为应用 + PostgreSQL，SQLite 收为独立路径：根 `compose.yaml` 改为「应用 + PostgreSQL」，一次性 `secrets` 服务在首次启动时把数据库密码、DSN 与安装密钥写进私有卷 `pg-secrets`，仓库 / Compose / 环境变量都不出现密钥，重启复用同一组凭据；`make run` 等价于 `docker compose up -d`（含构建与健康等待），`make standalone` 用 `compose.standalone.yaml` 起单容器 SQLite，两栈独立项目与数据卷，不能同时绑定 18085。应用镜像改为每次 `up` 重建，避免旧镜像被静默复用；两栈都有 healthcheck。同时修复升级回归：编译型内置插件的包摘要随宿主变化时，既有插件目录接受新摘要并启动（manifest 仍不可变，进程插件仍严格），新增 Memory / SQLite 用例。已用真实 Docker 验证 `docker compose up -d`（裸命令）、`make run`、`make standalone` 均在 18085 返回 healthz 200，重启后仍健康，旧数据卷在新镜像下不再重启循环；`internal/storage` / `internal/plugin` / `scripts` 全量 `-race`、gofmt / vet / staticcheck 通过。已知 #27 的未跟踪 WIP 文件仍让 `internal/app` 无法编译，全树 `make test` / `make lint` 待其完成后补跑。按交付流程提交并关闭；未 push。
+
 ## Agent skills
 
 ### Issue tracker

@@ -30,7 +30,23 @@
 
 ## 启动独立部署
 
-### 一键启动（推荐）
+### 默认一键启动：`make run`（推荐）
+
+仓库根目录的 `compose.yaml` 就是「应用 + PostgreSQL」默认部署，密钥由一次性
+`secrets` 服务在首次启动时生成到 Docker 卷 `pg-secrets`，不写仓库、不写环境变量：
+
+```sh
+make run          # 等价于 docker compose up -d
+make down         # 停止；docker compose down -v 连数据与密钥一起删除
+```
+
+数据在 `codexploit_pg-data` 与 `codexploit_pg-workspace`，页面同样是
+`http://127.0.0.1:18085`。只用 SQLite 时改跑 `make standalone`，两者不要同时启动。
+
+### 密钥文件方式：`make postgres-up`
+
+下面的包装脚本保留给「凭据必须是仓库外文件」的加固部署和既有安装；它使用独立
+Compose 项目 `codexploit-catalog` 与独立数据卷，与 `make run` 互不迁移数据。
 
 ```sh
 make postgres-up

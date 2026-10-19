@@ -1,7 +1,15 @@
+# Standalone deployment: the application and its SQLite database in one container.
+# `make standalone` starts it. The default deployment (compose.yaml) adds PostgreSQL.
+name: codexploit-standalone
+
 services:
   codexploit:
     image: codexploit:local
     build: .
+    # A rebuilt source tree must not be shadowed by an old image: the plugin
+    # catalog refuses a stale package digest, and the container would restart in a
+    # loop instead of telling anyone why.
+    pull_policy: build
     restart: unless-stopped
     ports:
       - "127.0.0.1:${CODEXPLOIT_PORT:-18085}:8080"
@@ -16,6 +24,12 @@ services:
       - --plugin-packages=/app/plugin-packages
     volumes:
       - codexploit-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 20s
     init: true
     extra_hosts:
       - "host.docker.internal:host-gateway"

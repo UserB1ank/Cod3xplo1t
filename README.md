@@ -65,9 +65,27 @@ The Web UI organizes repositories as **projects containing independent hunting
 tasks**. Tasks on the same snapshot share its SCG/ASG; findings retain the source
 task, snapshot, evidence and a separate high / medium / low severity assessment.
 
+The default deployment is the application plus PostgreSQL, and it needs no
+preparation:
+
 ```bash
-docker compose up -d --build
+make run            # identical to: docker compose up -d
 ```
+
+The first start generates the database password, its DSN and the installation key
+into a private Docker volume (`pg-secrets`); nothing secret is written to the
+repository, to Compose or to the environment. Data lives in `codexploit_pg-data`
+and `codexploit_pg-workspace`. `make down` stops the stack, `docker compose down -v`
+also deletes the data and the secrets.
+
+The single-container SQLite deployment is:
+
+```bash
+make standalone     # compose.standalone.yaml
+```
+
+It keeps its own volume and address. Run one stack at a time: both bind
+`127.0.0.1:18085`.
 
 Open `http://localhost:18085`, create the administrator account on first startup,
 and sign in with its username and password. Then open
@@ -77,12 +95,13 @@ environment variables or repository files. Settings are encrypted in the data
 volume and take effect on new runs without restarting the container. The resident
 scheduler waits until a model is enabled before claiming queued work.
 
-Data persists in the `codexploit-data` volume. To clone remote repositories,
+To clone remote repositories,
 export `CODEXPLOIT_ALLOW_NETWORK=true` before starting. Local source can be uploaded as ZIP / TAR / TAR.GZ from the project form.
 Deployment-managed repositories can also be mounted read-only using
 `compose.local.yaml`. See [source imports](docs/source-imports.md) for limits.
 
-For the independent PostgreSQL deployment, use the one-command wrapper:
+For an existing installation whose secrets are files outside the repository, the
+hardened wrapper is still available (separate project and volumes, port 18085):
 
 ```bash
 make postgres-up
