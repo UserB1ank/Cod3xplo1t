@@ -210,6 +210,44 @@ Deleting a snapshot deletes its runs, events and hypotheses. The audit and run l
 use different method names (`AppendEvents` versus `AppendRunEvents`) because Go has
 no overloading and because a reader should never have to guess which log they hold.
 
+## Turn control
+
+An adapter that declares `TurnControl` may not act on its own: every provider
+request, every accepted answer and every correction is a decision the host makes.
+The protocol is in-process for the built-in model runtime and will be the same
+frames the Pi worker uses over JSONL (#58), so the rules exist once.
+
+**Permits.** Before each provider request the adapter sends a `permit` with a
+request id, round id, run generation, model, a conservative input-token estimate
+and the provider's output limit. The host answers `continue`, `repair`, `stop` or
+`pause`. `pause` is reserved until the domain checkpoint exists (#45) and is not
+claimed by the current runtime. A permit is bound to one request: a late, replayed
+or stale-generation frame is refused, and a refused permit ends the run with the
+host's stop reason.
+
+**Token reservation.** When a token budget is set, the host reserves
+`input estimate + output limit` before the request instead of discovering the cost
+after it. Both numbers are required; an adapter that cannot bound its input or the
+provider's output is refused, because pretending the budget is enforced is worse
+than admitting it is not. Usage reported by the provider reconciles the
+reservation, and a duplicate report for the same request id is ignored rather than
+billed twice. Cancellation stops new requests but cannot refund tokens the
+provider already billed in flight.
+
+**Answers.** The adapter proposes raw bytes with `answer_proposed`; the host runs
+the same `DecodeAnswer` validation as every other path and replies `accepted`,
+`repair` (with the first problem, bounded) or `rejected`. The shared repair policy
+covers answer validation, malformed tool calls and invalid arguments: two
+corrections per run by default, each at most 300 bytes. A retransmitted proposal
+with the same request id and bytes returns the earlier decision without consuming
+a second repair; the same id with different bytes is rejected.
+
+**Counters.** A turn-controlled run records `model_requests` (permitted provider
+requests, repair turns included), `repairs`, exchanges and tool calls separately.
+`rounds` is the real request count when `source` is `reported`. An adapter without
+turn control is labelled `legacy_estimate` and keeps the old `exchanges + 1`
+number; a stored record with no source is unknown, never zero.
+
 ## Run metrics
 
 Every run records what it cost as the orchestrator observed it, not as the adapter
@@ -217,7 +255,10 @@ claimed it (`agent.RunMetrics`, stored in `agent_runs.metrics_json`):
 
 | Field | Meaning |
 |---|---|
-| `rounds` | adapter turns; today one tool call per turn, so `exchanges + 1` (the turn that answered) |
+| `rounds` | model requests when `source` is `reported`; otherwise the legacy `exchanges + 1` estimate |
+| `model_requests` | permitted provider requests, repair turns included |
+| `repairs` | corrections granted by the host's single repair budget |
+| `source` | `reported`, `legacy_estimate`, or empty for a record that predates the field |
 | `exchanges` | tool calls actually executed; a denied request is not an exchange |
 | `novelty` | per exchange, how many evidence ids were reported that no earlier exchange had reported |
 | `invalid_calls` | executions where the tool answered with an error (`OK=false`) |

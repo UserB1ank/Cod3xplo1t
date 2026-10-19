@@ -193,11 +193,23 @@ const (
 	EventExpansionAsked   = "expansion_requested"
 	EventExpansionDecided = "expansion_decided"
 	EventOutputReceived   = "output_received"
-	EventOutputRejected   = "output_rejected"
-	EventHypothesis       = "hypothesis_recorded"
-	EventRunHeartbeat     = "run_heartbeat"
-	EventRunFinished      = "run_finished"
-	EventRunError         = "run_error"
+	// Turn-control events. They are explicit decisions, not reasoning: a permit
+	// granted, a proposal accepted, a correction requested or refused.
+	EventModelPermitRequested = "model_permit_requested"
+	EventModelPermitGranted   = "model_permit_granted"
+	EventModelPermitDenied    = "model_permit_denied"
+	EventAnswerProposed       = "answer_proposed"
+	EventAnswerAccepted       = "answer_accepted"
+	EventAnswerRepairAsked    = "answer_repair_requested"
+	EventAnswerRejected       = "answer_rejected"
+	EventRepairAsked          = "repair_requested"
+	EventRepairGranted        = "repair_granted"
+	EventRepairRefused        = "repair_refused"
+	EventOutputRejected       = "output_rejected"
+	EventHypothesis           = "hypothesis_recorded"
+	EventRunHeartbeat         = "run_heartbeat"
+	EventRunFinished          = "run_finished"
+	EventRunError             = "run_error"
 )
 
 // Expansion decisions.
@@ -455,11 +467,106 @@ type ToolResult struct {
 // an adapter that batches calls under one turn will report a smaller number once
 // the protocol carries turn boundaries.
 type RunMetrics struct {
-	Rounds       int   `json:"rounds"`
-	Exchanges    int   `json:"exchanges"`
-	Novelty      []int `json:"novelty,omitempty"`
-	InvalidCalls int   `json:"invalid_calls"`
-	Truncations  int   `json:"truncations"`
+	// Rounds is the real provider-request count when Source is "reported". For an
+	// adapter without turn control it is the legacy exchanges+1 estimate, and
+	// Source says so; a stored record is never silently rewritten.
+	Rounds        int    `json:"rounds"`
+	ModelRequests int    `json:"model_requests,omitempty"`
+	Repairs       int    `json:"repairs,omitempty"`
+	Exchanges     int    `json:"exchanges"`
+	Novelty       []int  `json:"novelty,omitempty"`
+	InvalidCalls  int    `json:"invalid_calls"`
+	Truncations   int    `json:"truncations"`
+	Source        string `json:"source,omitempty"`
+}
+
+// Where a run's counters came from. A missing source is an older record: it is
+// "unknown", never "zero".
+const (
+	MetricsSourceReported       = "reported"
+	MetricsSourceLegacyEstimate = "legacy_estimate"
+)
+
+// Decisions returned by the orchestrator for each control request.
+const (
+	DecisionContinue = "continue"
+	DecisionRepair   = "repair"
+	DecisionStop     = "stop"
+	DecisionPause    = "pause"
+	DecisionAccepted = "accepted"
+	DecisionRejected = "rejected"
+)
+
+// PermitRequest asks the host for permission to start one provider request. The
+// adapter supplies the evidence the host needs to reserve budget: the input token
+// estimate, its basis, and the provider's output limit.
+type PermitRequest struct {
+	RequestID           string `json:"request_id"`
+	RoundID             string `json:"round_id"`
+	Generation          int64  `json:"generation"`
+	Model               string `json:"model,omitempty"`
+	InputTokensEstimate int    `json:"input_tokens_estimate"`
+	MaxOutputTokens     int    `json:"max_output_tokens"`
+	EstimateBasis       string `json:"estimate_basis,omitempty"`
+}
+
+// PermitDecision is the host's answer to one permit request.
+type PermitDecision struct {
+	Decision       string `json:"decision"`
+	Reason         string `json:"reason,omitempty"`
+	ReservedTokens int    `json:"reserved_tokens,omitempty"`
+}
+
+// AnswerProposal offers raw structured output for validation.
+type AnswerProposal struct {
+	RequestID string `json:"request_id"`
+	Raw       []byte `json:"raw"`
+}
+
+// AnswerDecision is the host's verdict on one proposed answer.
+type AnswerDecision struct {
+	Decision    string `json:"decision"`
+	Reason      string `json:"reason,omitempty"`
+	RepairsUsed int    `json:"repairs_used,omitempty"`
+}
+
+// RepairRequest asks whether one protocol correction may be attempted.
+type RepairRequest struct {
+	RequestID string `json:"request_id"`
+	Kind      string `json:"kind"`
+	Reason    string `json:"reason,omitempty"`
+}
+
+// RepairDecision is the host's answer to one repair request.
+type RepairDecision struct {
+	Decision    string `json:"decision"`
+	Reason      string `json:"reason,omitempty"`
+	RepairsUsed int    `json:"repairs_used,omitempty"`
+}
+
+// RepairPolicy is the host's single correction budget. One policy governs answer
+// validation, malformed tool calls and invalid arguments, so an adapter cannot get
+// a second budget by failing in a different way.
+type RepairPolicy struct {
+	Max            int
+	MaxReasonChars int
+}
+
+// DefaultRepairPolicy is the #38 budget: two corrections, each at most 300 bytes.
+func DefaultRepairPolicy() RepairPolicy {
+	return RepairPolicy{Max: 2, MaxReasonChars: 300}
+}
+
+// Normalize fills an unset policy.
+func (p RepairPolicy) Normalize() RepairPolicy {
+	d := DefaultRepairPolicy()
+	if p.Max <= 0 {
+		p.Max = d.Max
+	}
+	if p.MaxReasonChars <= 0 {
+		p.MaxReasonChars = d.MaxReasonChars
+	}
+	return p
 }
 
 // Run is one execution of a runtime over one path.

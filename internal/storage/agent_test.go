@@ -74,7 +74,8 @@ func newAgentRunFixture(runID, pathID, auditID, snapshotID string) agent.Run {
 		HeartbeatAt: "2024-05-01T12:04:00Z", FinishedAt: "2024-05-01T12:04:30Z",
 		ExitCode: &exit, StopReason: agent.StopCompleted,
 		Metrics: &agent.RunMetrics{
-			Rounds: 5, Exchanges: 4, Novelty: []int{2, 1, 0, 1}, InvalidCalls: 1, Truncations: 2,
+			Rounds: 5, ModelRequests: 5, Repairs: 1, Exchanges: 4, Novelty: []int{2, 1, 0, 1},
+			InvalidCalls: 1, Truncations: 2, Source: agent.MetricsSourceReported,
 		},
 		Answer: &agent.Answer{
 			SchemaVersion: agent.SchemaVersion,

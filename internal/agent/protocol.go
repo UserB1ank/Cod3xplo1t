@@ -13,10 +13,14 @@ import (
 // returns invalid JSON is a bug in the adapter, an answer that claims confirmation
 // is a policy violation, and an answer that cites nothing is not evidence.
 var (
-	ErrInvalidTask      = errors.New("agent: invalid task")
-	ErrInvalidAnswer    = errors.New("agent: invalid answer")
-	ErrUnsupportedTool  = errors.New("agent: tool is not allowed for this run")
-	ErrBudgetExhausted  = errors.New("agent: budget exhausted")
+	ErrInvalidTask     = errors.New("agent: invalid task")
+	ErrInvalidAnswer   = errors.New("agent: invalid answer")
+	ErrUnsupportedTool = errors.New("agent: tool is not allowed for this run")
+	ErrBudgetExhausted = errors.New("agent: budget exhausted")
+	// ErrTurnDenied is what an adapter returns when the host refused a permit,
+	// a correction or an answer. The host already set the run's stop reason; the
+	// adapter must not invent one.
+	ErrTurnDenied       = errors.New("agent: the orchestrator denied the turn")
 	ErrExpansionRefused = errors.New("agent: expansion refused")
 	ErrRunNotFound      = errors.New("agent: run not found")
 	ErrRunNotRunning    = errors.New("agent: run is not running")

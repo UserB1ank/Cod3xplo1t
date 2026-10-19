@@ -26,7 +26,34 @@ type RuntimeCapabilities struct {
 	// TokenUsage reports whether the adapter reports token counts. Without them the
 	// token budget cannot be enforced, and the run says so.
 	TokenUsage bool
-	Notes      []string
+	// TurnControl reports whether the adapter asks for permission before each
+	// provider request and submits proposed answers for validation. Without it the
+	// adapter is still bounded by the tool gate, but its provider requests and
+	// repairs are only a legacy estimate.
+	TurnControl bool
+	Notes       []string
+}
+
+// runGenerationKey carries the run's fencing generation to the adapter. The
+// orchestrator assigns it; an adapter echoes it in every control frame so a
+// decision made for one attempt cannot be replayed by another.
+type runGenerationKey struct{}
+
+// WithRunGeneration binds a generation to the adapter context.
+func WithRunGeneration(ctx context.Context, generation int64) context.Context {
+	if generation <= 0 {
+		generation = 1
+	}
+	return context.WithValue(ctx, runGenerationKey{}, generation)
+}
+
+// RunGeneration returns the bound generation, or 1 when an adapter is started
+// outside the orchestrator (tests and direct use).
+func RunGeneration(ctx context.Context) int64 {
+	if value, ok := ctx.Value(runGenerationKey{}).(int64); ok && value > 0 {
+		return value
+	}
+	return 1
 }
 
 // Runtime is one agent adapter (implementation guide §9.1).
@@ -70,8 +97,22 @@ type RuntimeEvent struct {
 	ToolReply chan<- ToolResult
 	// Expansion, when set, is a request for more room.
 	Expansion *ExpansionAsk
-	// Answer, when set, is the structured final output.
+	// Answer, when set, is the structured final output of an adapter that does not
+	// use turn control.
 	Answer *Answer
+	// Permit, when set, asks for permission to start one provider request. The
+	// adapter must not call the provider until the reply says continue.
+	Permit      *PermitRequest
+	PermitReply chan<- PermitDecision
+	// Proposal, when set, offers a structured answer for validation. The
+	// orchestrator accepts it, asks for one bounded correction, or rejects it.
+	Proposal      *AnswerProposal
+	ProposalReply chan<- AnswerDecision
+	// Repair, when set, asks whether one protocol correction may be attempted.
+	Repair      *RepairRequest
+	RepairReply chan<- RepairDecision
+	// RequestID ties usage and decisions to the provider request they belong to.
+	RequestID string
 	// InputTokens and OutputTokens are reported usage, when the adapter knows it.
 	InputTokens  int
 	OutputTokens int

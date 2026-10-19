@@ -123,6 +123,9 @@ type Runner struct {
 	// Expand decides expansion requests. Only ApplyExpansion may change a run's
 	// limits, and it never widens the tool allowlist.
 	Expand ExpandPolicy
+	// Repair is the one correction budget every turn-control decision shares. It
+	// defaults to two corrections of at most 300 bytes.
+	Repair RepairPolicy
 	// Owner names the lease holder. It defaults to "orchestrator".
 	Owner string
 	// Now is injectable so a replay produces the same timestamps.
@@ -304,23 +307,27 @@ func (r *Runner) execute(ctx context.Context, auditID string, p *path.Path, owne
 		return run, fmt.Errorf("agent: mark run %s running: %w", run.ID, err)
 	}
 
-	handle, err := r.Runtime.Start(ctx, task)
+	handle, err := r.Runtime.Start(WithRunGeneration(ctx, generationOf(p)), task)
 	if err != nil {
 		return r.finishAdapterStartFailure(ctx, p, owner, run, attempt, maxAttempts, err)
 	}
 
 	session := &runnerSession{
-		runner:    r,
-		run:       run,
-		task:      task,
-		owner:     owner,
-		policy:    policy,
-		expand:    expand,
-		timeout:   timeout,
-		startedAt: now,
-		tracker:   NewRepeatTracker(policy.MaxRepeatedOutputs),
-		branches:  1, // the run itself is the first active branch
-		status:    RunRunning,
+		runner:       r,
+		run:          run,
+		task:         task,
+		owner:        owner,
+		policy:       policy,
+		expand:       expand,
+		timeout:      timeout,
+		startedAt:    now,
+		tracker:      NewRepeatTracker(policy.MaxRepeatedOutputs),
+		branches:     1, // the run itself is the first active branch
+		status:       RunRunning,
+		generation:   generationOf(p),
+		reservations: map[string]int{},
+		usageSeen:    map[string]bool{},
+		proposals:    map[string]proposalVerdict{},
 	}
 
 	closed := false
@@ -549,6 +556,19 @@ type runnerSession struct {
 	invalidCalls int
 	truncations  int
 
+	// Turn control: the host owns provider-request permission, answer
+	// acceptance and the one repair budget. modelRequests counts permitted
+	// requests, repairs counts granted corrections, reserved is the sum of the
+	// reservations still outstanding.
+	generation    int64
+	modelRequests int
+	repairs       int
+	reserved      int
+	reservations  map[string]int
+	usageSeen     map[string]bool
+	proposals     map[string]proposalVerdict
+	turnControl   bool
+
 	answer     *Answer
 	stop       string
 	status     RunStatus
@@ -583,13 +603,47 @@ func (s *runnerSession) observeExchange(refs []string) {
 // metrics renders the session's counters. It is called once, when the run is
 // finished, and the slice is copied so a later mutation cannot rewrite history.
 func (s *runnerSession) metrics() *RunMetrics {
-	return &RunMetrics{
-		Rounds:       s.exchanges + 1,
+	m := &RunMetrics{
 		Exchanges:    s.exchanges,
 		Novelty:      append([]int(nil), s.novelty...),
 		InvalidCalls: s.invalidCalls,
 		Truncations:  s.truncations,
+		Repairs:      s.repairs,
 	}
+	if s.turnControl {
+		m.Source = MetricsSourceReported
+		m.ModelRequests = s.modelRequests
+		m.Rounds = s.modelRequests
+	} else {
+		// The legacy estimate is labelled as such: a stored run must never look
+		// like it reported real provider requests when it did not.
+		m.Source = MetricsSourceLegacyEstimate
+		m.Rounds = s.exchanges + 1
+	}
+	return m
+}
+
+// generationOf is the fencing generation of one run's adapter. A path re-claimed
+// by another attempt gets a different lease epoch, so a late frame from the old
+// process can be rejected.
+func generationOf(p *path.Path) int64 {
+	if p != nil && p.LeaseEpoch > 0 {
+		return p.LeaseEpoch
+	}
+	return 1
+}
+
+// proposalVerdict remembers the host's decision for one proposal request so a
+// retransmission of the same bytes is answered identically instead of consuming a
+// second repair.
+type proposalVerdict struct {
+	digest   string
+	decision AnswerDecision
+}
+
+// repairPolicy is the run's correction budget, normalized.
+func (r *Runner) repairPolicy() RepairPolicy {
+	return r.Repair.Normalize()
 }
 
 // consume reads the adapter's stream until it ends or the orchestrator decides to
@@ -686,10 +740,29 @@ func (s *runnerSession) beat(ctx context.Context) error {
 // applyEvent counts usage, dispatches one adapter event, and enforces the token
 // budget. It returns true when the run must stop.
 func (s *runnerSession) applyEvent(ctx context.Context, ev RuntimeEvent) bool {
+	// Usage belongs to the request that produced it: release that request's
+	// reservation and ignore a duplicate report instead of billing it twice.
+	if ev.RequestID != "" {
+		if reserve, ok := s.reservations[ev.RequestID]; ok {
+			s.reserved -= reserve
+			delete(s.reservations, ev.RequestID)
+		}
+		if s.usageSeen[ev.RequestID] {
+			ev.InputTokens, ev.OutputTokens = 0, 0
+		} else if ev.InputTokens > 0 || ev.OutputTokens > 0 {
+			s.usageSeen[ev.RequestID] = true
+		}
+	}
 	s.run.InputTokens += ev.InputTokens
 	s.run.OutputTokens += ev.OutputTokens
 	var stop bool
 	switch {
+	case ev.Permit != nil:
+		stop = s.applyPermit(ctx, ev)
+	case ev.Proposal != nil:
+		stop = s.applyProposal(ctx, ev)
+	case ev.Repair != nil:
+		stop = s.applyRepair(ctx, ev)
 	case ev.Tool != nil:
 		stop = s.applyTool(ctx, ev)
 	case ev.Expansion != nil:
@@ -715,6 +788,186 @@ func (s *runnerSession) applyEvent(ctx context.Context, ev RuntimeEvent) bool {
 		return true
 	}
 	return false
+}
+
+// applyPermit decides whether one provider request may start.
+//
+// The token budget is reserved before the request, not discovered after it: the
+// reservation is the adapter's conservative input estimate plus the provider's
+// output limit. Without both numbers the host cannot promise a bounded run, so it
+// refuses instead of pretending the budget is enforced. A permit is spent once;
+// a duplicate frame is rejected through the same decision path.
+func (s *runnerSession) applyPermit(ctx context.Context, ev RuntimeEvent) bool {
+	req := *ev.Permit
+	// The adapter asked the host to decide, so this run is under turn control even
+	// if the first request is refused: its counters must not be labelled legacy.
+	s.turnControl = true
+	reply := PermitDecision{Decision: DecisionStop, Reason: "the run is not accepting provider requests"}
+	defer s.replyPermit(ctx, ev.PermitReply, &reply)
+	if ctx.Err() != nil {
+		reply.Reason = "the run was cancelled"
+		return true
+	}
+	if s.stop != "" || s.leaseLost || s.persistErr != nil {
+		reply.Reason = "the run is no longer active"
+		return true
+	}
+	if strings.TrimSpace(req.RequestID) == "" {
+		reply.Reason = "request_id is required"
+		s.stop, s.status, s.errText = StopInvalidOutput, RunInvalidOutput, reply.Reason
+		return true
+	}
+	if req.Generation != s.generation {
+		reply.Reason = "stale generation"
+		s.stop, s.status, s.errText = StopInvalidOutput, RunInvalidOutput, reply.Reason
+		return true
+	}
+	reserve := 0
+	if s.policy.TokenBudget > 0 {
+		if req.InputTokensEstimate <= 0 || req.MaxOutputTokens <= 0 {
+			reply.Reason = "bounded token mode needs a positive input estimate and output limit"
+			s.stop, s.status, s.errText = StopTokenBudget, RunBudgetExceeded, reply.Reason
+			return s.update(Event{Type: EventModelPermitDenied, Actor: runnerActorOrchestrator, CallID: req.RequestID,
+				Summary: "provider request denied: " + reply.Reason, Detail: map[string]string{"reason": reply.Reason}})
+		}
+		reserve = req.InputTokensEstimate + req.MaxOutputTokens
+		if s.run.InputTokens+s.run.OutputTokens+s.reserved+reserve > s.policy.TokenBudget {
+			reply.Reason = fmt.Sprintf("the reservation would exceed the token budget of %d", s.policy.TokenBudget)
+			s.stop, s.status, s.errText = StopTokenBudget, RunBudgetExceeded, reply.Reason
+			return s.update(Event{Type: EventModelPermitDenied, Actor: runnerActorOrchestrator, CallID: req.RequestID,
+				Summary: "provider request denied: " + reply.Reason, Detail: map[string]string{"reason": reply.Reason}})
+		}
+		s.reserved += reserve
+		s.reservations[req.RequestID] = reserve
+	}
+	s.modelRequests++
+	s.turnControl = true
+	reply = PermitDecision{Decision: DecisionContinue, ReservedTokens: reserve}
+	return s.update(Event{
+		Type: EventModelPermitGranted, Actor: runnerActorOrchestrator, CallID: req.RequestID,
+		Summary: "provider request permitted",
+		Detail: map[string]string{
+			"round_id": runnerCapText(req.RoundID, MaxNotesChars), "model": runnerCapText(req.Model, MaxNotesChars),
+			"input_estimate": fmt.Sprint(req.InputTokensEstimate), "max_output_tokens": fmt.Sprint(req.MaxOutputTokens),
+			"reserved_tokens": fmt.Sprint(reserve),
+		},
+	})
+}
+
+// applyProposal validates one proposed answer. Acceptance, one bounded correction
+// and rejection are the only outcomes; the adapter cannot declare its own output
+// valid, and a retransmitted proposal is answered without consuming a second
+// repair.
+func (s *runnerSession) applyProposal(ctx context.Context, ev RuntimeEvent) bool {
+	proposal := *ev.Proposal
+	reply := AnswerDecision{Decision: DecisionRejected, Reason: "answer rejected"}
+	defer s.replyAnswer(ctx, ev.ProposalReply, &reply)
+	if s.stop != "" {
+		reply.Reason = "the run is no longer active"
+		return true
+	}
+	if strings.TrimSpace(proposal.RequestID) == "" || len(proposal.Raw) == 0 {
+		s.stop, s.status, s.errText = StopInvalidOutput, RunInvalidOutput, "a proposed answer needs a request id and bytes"
+		return s.update(Event{Type: EventAnswerRejected, Actor: runnerActorOrchestrator,
+			Summary: "proposed answer rejected: protocol", Detail: map[string]string{"reason": s.errText}})
+	}
+	digest := digest16("codexploit/answer-proposal/v1", string(proposal.Raw))
+	if prior, ok := s.proposals[proposal.RequestID]; ok {
+		if prior.digest != digest {
+			s.stop, s.status, s.errText = StopInvalidOutput, RunInvalidOutput, "the same request id proposed different bytes"
+			return s.update(Event{Type: EventAnswerRejected, Actor: runnerActorOrchestrator, CallID: proposal.RequestID,
+				Summary: "proposed answer rejected: " + s.errText, Detail: map[string]string{"reason": s.errText}})
+		}
+		reply = prior.decision
+		return prior.decision.Decision != DecisionRepair || s.failPersistIfNeeded()
+	}
+	answer, err := DecodeAnswer(proposal.Raw, s.task)
+	if err == nil {
+		s.answer = answer
+		reply = AnswerDecision{Decision: DecisionAccepted, RepairsUsed: s.repairs}
+		s.proposals[proposal.RequestID] = proposalVerdict{digest: digest, decision: reply}
+		_ = s.update(Event{Type: EventAnswerAccepted, Actor: runnerActorOrchestrator, CallID: proposal.RequestID,
+			Summary: "proposed answer accepted", Detail: map[string]string{"repairs": fmt.Sprint(s.repairs)}})
+		return true
+	}
+	policy := s.runner.repairPolicy()
+	reason := modelClip(err.Error(), policy.MaxReasonChars)
+	if s.repairs < policy.Max {
+		s.repairs++
+		reply = AnswerDecision{Decision: DecisionRepair, Reason: reason, RepairsUsed: s.repairs}
+		s.proposals[proposal.RequestID] = proposalVerdict{digest: digest, decision: reply}
+		return s.update(Event{Type: EventAnswerRepairAsked, Actor: runnerActorOrchestrator, CallID: proposal.RequestID,
+			Summary: "proposed answer needs one correction", Detail: map[string]string{"reason": reason, "repairs": fmt.Sprint(s.repairs)}})
+	}
+	s.stop, s.status, s.errText = StopInvalidOutput, RunInvalidOutput, "the repair budget is exhausted: "+reason
+	reply = AnswerDecision{Decision: DecisionRejected, Reason: reason, RepairsUsed: s.repairs}
+	s.proposals[proposal.RequestID] = proposalVerdict{digest: digest, decision: reply}
+	return s.update(Event{Type: EventAnswerRejected, Actor: runnerActorOrchestrator, CallID: proposal.RequestID,
+		Summary: "proposed answer rejected", Detail: map[string]string{"reason": reason, "repairs": fmt.Sprint(s.repairs)}})
+}
+
+// applyRepair decides one protocol correction. The same policy covers malformed
+// tool calls and invalid arguments, so a different failure mode cannot buy a
+// second budget.
+func (s *runnerSession) applyRepair(ctx context.Context, ev RuntimeEvent) bool {
+	req := *ev.Repair
+	reply := RepairDecision{Decision: DecisionStop, Reason: "no repair budget left"}
+	defer s.replyRepair(ctx, ev.RepairReply, &reply)
+	if s.stop != "" {
+		reply.Reason = "the run is no longer active"
+		return true
+	}
+	policy := s.runner.repairPolicy()
+	reason := modelClip(req.Reason, policy.MaxReasonChars)
+	if s.repairs >= policy.Max {
+		s.stop, s.status, s.errText = StopInvalidOutput, RunInvalidOutput, "the repair budget is exhausted: "+reason
+		return s.update(Event{Type: EventRepairRefused, Actor: runnerActorOrchestrator, CallID: req.RequestID,
+			Summary: "repair refused: " + s.errText, Detail: map[string]string{"reason": reason}})
+	}
+	s.repairs++
+	reply = RepairDecision{Decision: DecisionRepair, Reason: reason, RepairsUsed: s.repairs}
+	return s.update(Event{Type: EventRepairGranted, Actor: runnerActorOrchestrator, CallID: req.RequestID,
+		Summary: "repair granted", Detail: map[string]string{"kind": runnerCapText(req.Kind, MaxNotesChars), "reason": reason, "repairs": fmt.Sprint(s.repairs)}})
+}
+
+func (s *runnerSession) replyPermit(ctx context.Context, reply chan<- PermitDecision, decision *PermitDecision) {
+	if reply == nil {
+		return
+	}
+	select {
+	case reply <- *decision:
+	case <-ctx.Done():
+	}
+}
+
+func (s *runnerSession) replyAnswer(ctx context.Context, reply chan<- AnswerDecision, decision *AnswerDecision) {
+	if reply == nil {
+		return
+	}
+	select {
+	case reply <- *decision:
+	case <-ctx.Done():
+	}
+}
+
+func (s *runnerSession) replyRepair(ctx context.Context, reply chan<- RepairDecision, decision *RepairDecision) {
+	if reply == nil {
+		return
+	}
+	select {
+	case reply <- *decision:
+	case <-ctx.Done():
+	}
+}
+
+// failPersistIfNeeded converts an earlier storage failure into a stop. It exists so
+// the idempotent re-answer path cannot report success after persistence failed.
+func (s *runnerSession) failPersistIfNeeded() bool {
+	if s.persistErr == nil {
+		return false
+	}
+	s.failPersist()
+	return true
 }
 
 // applyTool validates a tool request against the current policy and either runs it

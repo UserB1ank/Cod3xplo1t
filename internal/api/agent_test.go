@@ -453,6 +453,11 @@ func TestAgentRunEventsAreOrderedAndFilterable(t *testing.T) {
 	if run.ID != runID || run.Task.SecurityGoal == "" {
 		t.Errorf("run document = %+v", run)
 	}
+	// A scripted adapter has no turn control, so its counters must be labelled as
+	// an estimate rather than presented as real provider requests.
+	if run.Metrics == nil || run.Metrics.Source != agent.MetricsSourceLegacyEstimate {
+		t.Errorf("scripted run metrics = %+v, want the legacy estimate labelled", run.Metrics)
+	}
 
 	// The run is listable by path, audit, snapshot and status.
 	for _, query := range []string{

@@ -24,10 +24,17 @@ export interface Finding {
 }
 export interface Evidence { evidence_id: string; kind: string; tool: string; file?: string; line?: number; content: string; redacted: boolean; content_hash: string }
 export interface FindingDetail { finding: Finding; evidence: { supporting: Evidence[]; contradicting: Evidence[]; inconclusive: Evidence[] }; verifications?: Array<{ run_id: string; status: string; outcome: string }> }
+export interface RunMetrics {
+  rounds: number; model_requests?: number; repairs?: number; exchanges: number;
+  novelty?: number[]; invalid_calls: number; truncations: number;
+  // Empty means an older record: the counters are unknown, not zero.
+  source?: '' | 'reported' | 'legacy_estimate';
+}
 export interface Run {
   run_id: string; path_id: string; audit_id: string; snapshot_id: string; runtime: string; status: string;
   started_at: string; heartbeat_at: string; tool_calls: number; input_tokens: number; output_tokens: number;
   elapsed_ms: number; stop_reason?: string; task?: { security_goal: string }; error?: string;
+  metrics?: RunMetrics;
 }
 export interface AuditEvent { event_id: string; path_id?: string; run_id?: string; seq: number; type: string; actor?: string; reason?: string; summary?: string; created_at: string }
 export interface GraphSummary {

@@ -73,20 +73,27 @@ func (r *ModelRuntime) runModel(ctx context.Context, cfg llm.Config, task Task, 
 	tool := llm.Tool{Name: "graph_query", Description: "Request a whitelisted read-only graph tool. The orchestrator enforces scope and budgets.", Parameters: map[string]any{
 		"type": "object", "properties": map[string]any{"tool": map[string]any{"type": "string", "enum": task.Exploration.AllowedTools}, "args": map[string]any{"type": "object", "additionalProperties": map[string]string{"type": "string"}}}, "required": []string{"tool", "args"}, "additionalProperties": false,
 	}}
-	used := 0
-	repairs := 0
-	canRepair := func() bool { return repairs < modelRepairLimit }
-	noteRepair := func(reason string) {
-		repairs++
-		_ = sendEvent(ctx, events, RuntimeEvent{
-			Type: runtimeEventNote, Summary: "model output repaired",
-			Detail: map[string]string{"reason": modelClip(reason, 200)},
-		})
-	}
-	// A repair is one more turn but not one more tool call: it costs tokens and
-	// counts against the token budget, and it is bounded separately so a model
-	// that cannot follow the protocol ends the run instead of looping.
-	for round := 0; round <= task.Exploration.MaxToolCalls+modelRepairLimit; round++ {
+	generation := RunGeneration(ctx)
+	// This bound is a guard against a broken decision channel, not a budget: the
+	// host owns permits, repairs and tool calls, and ends the run by refusing a
+	// decision. An adapter that kept looping would be stopped by its context.
+	for round := 0; round <= task.Exploration.MaxToolCalls+turnLoopLimit; round++ {
+		requestID := fmt.Sprintf("req-%d", round)
+		permit := PermitRequest{
+			RequestID: requestID, RoundID: fmt.Sprintf("round-%d", round),
+			Generation: generation, Model: cfg.Model,
+			InputTokensEstimate: estimateInputTokens(messages, tool),
+			MaxOutputTokens:     cfg.MaxOutputTokens,
+			EstimateBasis:       "2 bytes per token plus framing",
+		}
+		decision, ok := requestPermit(ctx, events, permit)
+		if !ok {
+			return nil, ctx.Err()
+		}
+		if decision.Decision != DecisionContinue {
+			return nil, ErrTurnDenied
+		}
+
 		completion, err := llm.Complete(ctx, cfg, messages, []llm.Tool{tool}, "")
 		if err != nil {
 			return nil, err
@@ -94,42 +101,39 @@ func (r *ModelRuntime) runModel(ctx context.Context, cfg llm.Config, task Task, 
 		if task.Budget.TokenBudget > 0 && !completion.UsageReported {
 			return nil, errors.New("模型未报告 token 用量，无法执行当前 token 预算")
 		}
-		used += completion.InputTokens + completion.OutputTokens
-		if !sendEvent(ctx, events, RuntimeEvent{Type: runtimeEventNote, Summary: "model request completed", InputTokens: completion.InputTokens, OutputTokens: completion.OutputTokens}) {
+		if !sendEvent(ctx, events, RuntimeEvent{
+			Type: runtimeEventNote, Summary: "model request completed", RequestID: requestID,
+			InputTokens: completion.InputTokens, OutputTokens: completion.OutputTokens,
+		}) {
 			return nil, ctx.Err()
-		}
-		if task.Budget.TokenBudget > 0 && used > task.Budget.TokenBudget {
-			return nil, ErrBudgetExhausted
 		}
 		messages = append(messages, completion.Message)
 
 		if len(completion.Message.Calls) == 0 {
-			answer, err := DecodeAnswer([]byte(completion.Message.Content), task)
-			if err != nil {
-				// Validation messages can contain model-provided strings. Keep the
-				// public error bounded rather than storing arbitrary provider output.
-				reason := modelClip(err.Error(), 200)
-				if !canRepair() {
-					_ = sendEvent(ctx, events, RuntimeEvent{Type: EventOutputRejected, Summary: "模型输出未通过结构与证据校验",
-						Detail: map[string]string{"error": reason}})
-					return nil, errors.New("模型输出未通过结构与证据校验")
-				}
-				messages = append(messages, llm.Message{Role: "user", Content: answerRepair(reason)})
-				noteRepair(reason)
-				continue
-			}
-			if !sendEvent(ctx, events, RuntimeEvent{Type: EventOutputReceived, Answer: answer}) {
+			verdict, ok := proposeAnswer(ctx, events, requestID, []byte(completion.Message.Content))
+			if !ok {
 				return nil, ctx.Err()
 			}
-			return answer, nil
+			switch verdict.Decision {
+			case DecisionAccepted:
+				// The host stored the validated answer; the run finishes from it.
+				return nil, nil
+			case DecisionRepair:
+				messages = append(messages, llm.Message{Role: "user", Content: answerRepair(verdict.Reason)})
+				continue
+			default:
+				return nil, ErrTurnDenied
+			}
 		}
 
 		if len(completion.Message.Calls) != 1 {
 			reason := "one_tool_call_per_turn"
-			if !canRepair() {
-				_ = sendEvent(ctx, events, RuntimeEvent{Type: EventOutputRejected, Summary: "模型一次请求了多个工具调用",
-					Detail: map[string]string{"error": reason}})
-				return nil, errors.New("模型一次只能请求一个工具")
+			verdict, ok := requestRepair(ctx, events, requestID, reason, "request exactly one tool per turn")
+			if !ok {
+				return nil, ctx.Err()
+			}
+			if verdict.Decision != DecisionRepair {
+				return nil, ErrTurnDenied
 			}
 			// Every call needs a paired result even when it is refused, or the
 			// provider rejects the next request as a malformed conversation.
@@ -140,17 +144,18 @@ func (r *ModelRuntime) runModel(ctx context.Context, cfg llm.Config, task Task, 
 				messages = append(messages, llm.Message{Role: "tool", ToolCallID: rejected.ID,
 					Content: toolRepair(reason, "request exactly one tool per turn")})
 			}
-			noteRepair(reason)
 			continue
 		}
 
 		call := completion.Message.Calls[0]
 		if call.Function.Name != tool.Name || call.ID == "" || len(call.ID) > 200 || len(call.Function.Arguments) > 32000 {
 			reason := "invalid_tool_call"
-			if !canRepair() {
-				_ = sendEvent(ctx, events, RuntimeEvent{Type: EventOutputRejected, Summary: "模型工具调用格式无效",
-					Detail: map[string]string{"error": reason}})
-				return nil, errors.New("模型工具调用格式无效")
+			verdict, ok := requestRepair(ctx, events, requestID, reason, "call graph_query with a JSON object of string arguments")
+			if !ok {
+				return nil, ctx.Err()
+			}
+			if verdict.Decision != DecisionRepair {
+				return nil, ErrTurnDenied
 			}
 			if call.ID != "" {
 				messages = append(messages, llm.Message{Role: "tool", ToolCallID: call.ID,
@@ -158,20 +163,20 @@ func (r *ModelRuntime) runModel(ctx context.Context, cfg llm.Config, task Task, 
 			} else {
 				messages = append(messages, llm.Message{Role: "user", Content: answerRepair("the tool call carries no id")})
 			}
-			noteRepair(reason)
 			continue
 		}
 		var req ToolRequest
 		if err := json.Unmarshal([]byte(call.Function.Arguments), &req); err != nil {
 			reason := "invalid_tool_arguments"
-			if !canRepair() {
-				_ = sendEvent(ctx, events, RuntimeEvent{Type: EventOutputRejected, Summary: "模型工具参数格式无效",
-					Detail: map[string]string{"error": reason}})
-				return nil, errors.New("模型工具参数格式无效")
+			verdict, ok := requestRepair(ctx, events, requestID, reason, "arguments must be a JSON object whose values are strings, numbers included")
+			if !ok {
+				return nil, ctx.Err()
+			}
+			if verdict.Decision != DecisionRepair {
+				return nil, ErrTurnDenied
 			}
 			messages = append(messages, llm.Message{Role: "tool", ToolCallID: call.ID,
 				Content: toolRepair(reason, "arguments must be a JSON object whose values are strings, numbers included")})
-			noteRepair(reason)
 			continue
 		}
 		req.CallID = fmt.Sprintf("model-%d", round)
@@ -209,6 +214,79 @@ func (r *ModelRuntime) runModel(ctx context.Context, cfg llm.Config, task Task, 
 	return nil, ErrBudgetExhausted
 }
 
+// turnLoopLimit bounds a single adapter loop even when the host stops replying.
+// It is a guard, not a budget: the host owns the real limits.
+const turnLoopLimit = 64
+
+// requestPermit asks the host for permission to start one provider request.
+func requestPermit(ctx context.Context, events chan<- RuntimeEvent, request PermitRequest) (PermitDecision, bool) {
+	reply := make(chan PermitDecision, 1)
+	if !sendEvent(ctx, events, RuntimeEvent{
+		Type: EventModelPermitRequested, RequestID: request.RequestID, Permit: &request, PermitReply: reply,
+		Summary: "requesting permission for one provider request",
+	}) {
+		return PermitDecision{}, false
+	}
+	select {
+	case decision := <-reply:
+		return decision, true
+	case <-ctx.Done():
+		return PermitDecision{}, false
+	}
+}
+
+// proposeAnswer hands one structured answer to the host for validation.
+func proposeAnswer(ctx context.Context, events chan<- RuntimeEvent, requestID string, raw []byte) (AnswerDecision, bool) {
+	reply := make(chan AnswerDecision, 1)
+	if !sendEvent(ctx, events, RuntimeEvent{
+		Type: EventAnswerProposed, RequestID: requestID,
+		Proposal: &AnswerProposal{RequestID: requestID, Raw: raw}, ProposalReply: reply,
+		Summary: "proposing a structured answer",
+	}) {
+		return AnswerDecision{}, false
+	}
+	select {
+	case decision := <-reply:
+		return decision, true
+	case <-ctx.Done():
+		return AnswerDecision{}, false
+	}
+}
+
+// requestRepair asks whether one protocol correction may be attempted.
+func requestRepair(ctx context.Context, events chan<- RuntimeEvent, requestID, kind, reason string) (RepairDecision, bool) {
+	reply := make(chan RepairDecision, 1)
+	if !sendEvent(ctx, events, RuntimeEvent{
+		Type: EventRepairAsked, RequestID: requestID,
+		Repair: &RepairRequest{RequestID: requestID, Kind: kind, Reason: reason}, RepairReply: reply,
+		Summary: "requesting a protocol correction",
+	}) {
+		return RepairDecision{}, false
+	}
+	select {
+	case decision := <-reply:
+		return decision, true
+	case <-ctx.Done():
+		return RepairDecision{}, false
+	}
+}
+
+// estimateInputTokens is the conservative input upper bound a permit reserves.
+// Two bytes per token over-counts ASCII and still covers CJK; the reservation is
+// released and reconciled with provider usage after the response. A reservation
+// that is too small would let the run spend past its budget before the host sees
+// the real numbers, which is worse than over-reserving.
+func estimateInputTokens(messages []llm.Message, tool llm.Tool) int {
+	chars := 1024
+	for _, message := range messages {
+		chars += len(message.Content) + 32
+	}
+	if schema, err := json.Marshal(tool.Parameters); err == nil {
+		chars += len(schema)
+	}
+	return chars/2 + 64
+}
+
 // modelToolResult is what the model receives from one tool call. The evidence ids
 // and bookkeeping the orchestrator attaches to a result stay out of the context:
 // the payload already names every fact, and a second copy is pure cost.
@@ -217,12 +295,6 @@ type modelToolResult struct {
 	Result string `json:"result,omitempty"`
 	Error  string `json:"error,omitempty"`
 }
-
-// modelRepairLimit bounds how often a run is told what was wrong with its output.
-// A repair is a protocol correction, not another attempt at the same question: it
-// costs tokens, so it is counted and capped separately from the tool budget, and a
-// model that cannot follow the protocol ends the run instead of looping.
-const modelRepairLimit = 2
 
 // modelRepairText bounds one correction message. The protocol schema is already in
 // the system prompt, so a correction names the problem and the smallest fix.
