@@ -73,6 +73,8 @@
 
 - 2026-10-19 — #55 默认启用远程 Git 网络访问：三个 Compose 部署（`compose.yaml`、`compose.standalone.yaml`、`compose.postgres.yaml`）的 `--allow-network` 默认改为 `true`，`make run` / `make standalone` / `make postgres-up` 启动后页面 `features.network` 为真，Git 地址不再被前置拦截；保留 `CODEXPLOIT_ALLOW_NETWORK=false` 关闭出站 Git 的能力，直接运行二进制时 `--allow-network` 仍默认 `false`（部署层开启、进程层保守）。README、`docs/webui.md`、`docs/postgres-catalog.md` 改为"默认开启、可用环境变量关闭"，新增 `TestComposeEnablesRemoteGitByDefault` 锁定三个 Compose 的默认值。已通过 `scripts` 包测试、`docker compose config` 与容器实际命令核对（`--allow-network=true`），18085 已用新默认重启并健康。按交付流程提交并关闭；未 push。
 
+- 2026-10-20 — #57 统一 Agent 宿主轮次许可、答案纠错与真实轮次指标：模型适配器不再自行决定何时请求 provider 或宣布输出有效。每个 provider 请求前发送 `permit`（request / round、运行 generation、模型、输入 token 保守上界及依据、provider 输出上限），宿主在既有 run 事务中预留守恒预算并回复 continue / stop；预计输入或输出上限缺失、预留超预算、租约丢失、取消和持久化失败都不会发出下一请求，迟到或旧 generation 的许可被拒绝。答案改为 `answer_proposed` → 宿主用同一 `DecodeAnswer` 校验 → accepted / repair / rejected；答案纠错、非法调用与非法参数共用一套宿主 `RepairPolicy`（默认 2 次、每次 ≤300 字节），同一 request id 与字节的重传幂等返回且不重复消耗额度，同 id 不同字节明确拒绝。usage 按 request id 对账并释放预留，重复上报不重复计费；取消不承诺追回 provider 已发生的计费。`RunMetrics` 分开记录 `model_requests` / `repairs` / exchanges，`rounds` 在 `source=reported` 时为真实请求数，无回合控制的 scripted / cli 保持 `exchanges+1` 并标注 `legacy_estimate`，缺失来源显示未记录而不是零；任务“执行过程”表新增模型请求 / 修复列与来源说明。已通过新增 fake-provider 合同测试（缺义务修复后接受、真实轮次与修复计数、预留超预算零请求、修复预算耗尽、重复 usage、旧 generation）、`internal/agent` / `storage` / `api` 竞态回归、除 `internal/app` 外全量 `go test`（`internal/app` 仍被他人 #27 WIP 的 `example_test.go` 阻塞，未删除、未计入通过）、真实 `make test-postgres`、前端测试 / 构建与 staticcheck；独立容器以真实认证 API 对合成 provider 跑通一条真实路径（`metrics.source=reported`、1 次请求、120/60 tokens）并在正式页面核对模型请求 / 修复列与事件流。提交 `782a467` 及后续 UI 提交，Issue 已关闭；未 push。
+
 ## Agent skills
 
 ### Issue tracker

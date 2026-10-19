@@ -27,7 +27,7 @@ func (r *ModelRuntime) Ready() error {
 }
 
 func (*ModelRuntime) Capabilities() RuntimeCapabilities {
-	return RuntimeCapabilities{Name: "llm", Version: "1", ToolCalls: true, TokenUsage: true, Notes: []string{"OpenAI-compatible Chat Completions or Responses; no hidden reasoning persisted; token ceilings require provider usage reporting"}}
+	return RuntimeCapabilities{Name: "llm", Version: "1", ToolCalls: true, TokenUsage: true, TurnControl: true, Notes: []string{"OpenAI-compatible Chat Completions or Responses; no hidden reasoning persisted; a bounded token budget requires a positive input estimate and provider output limit"}}
 }
 
 func (r *ModelRuntime) Start(ctx context.Context, task Task) (*Handle, error) {

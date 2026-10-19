@@ -1469,6 +1469,8 @@ function TaskWorkbench({
                       <th>运行</th>
                       <th>状态</th>
                       <th>工具调用</th>
+                      <th>模型请求</th>
+                      <th>修复</th>
                       <th>Token 输入 / 输出</th>
                       <th>停止原因</th>
                       <th />
@@ -1482,6 +1484,11 @@ function TaskWorkbench({
                           <Badge status={run.status} />
                         </td>
                         <td>{run.tool_calls}</td>
+                        <td>
+                          {run.metrics?.model_requests ?? "—"}
+                          {run.metrics?.source === "legacy_estimate" && <span className="subtle-label"> 旧估算</span>}
+                        </td>
+                        <td>{run.metrics?.repairs ?? "—"}</td>
                         <td className="mono">
                           {run.input_tokens} / {run.output_tokens}
                         </td>
@@ -1505,6 +1512,7 @@ function TaskWorkbench({
                 启动一条路径后，可在这里查看工具调用和运行事件。
               </EmptyState>
             )}
+            <Hint>模型请求与修复来自适配器的真实上报；标注“旧估算”的记录只保留了工具交换数，不代表真实轮次。</Hint>
             <Pager
               page={runPage}
               total={runs.data?.total || 0}
