@@ -2427,11 +2427,16 @@ function ProjectForm({
 }) {
   const [kind, setKind] = useState("uploaded_archive");
   const [directory, setDirectory] = useState<DirectorySelection>();
+  // The selected archive is held here rather than read back from the form: a
+  // dismissed file dialog clears the input's value, and a form-driven upload then
+  // submits an empty file even though the page still shows a name.
+  const [archive, setArchive] = useState<File>();
   const [projectID, rememberProject] = useState<string>();
   const [sourceID, setSourceID] = useState(() => `src-${crypto.randomUUID()}`);
   const controller = useRef<AbortController>();
   useEffect(() => () => controller.current?.abort(), []);
   const [error, setError] = useState("");
+  useEffect(() => { setDirectory(undefined); setArchive(undefined); }, [kind]);
   return (
     <form
       onSubmit={(e) => {
@@ -2443,9 +2448,9 @@ function ProjectForm({
           setError(networkError);
           return;
         }
-        const file = form.get("archive");
         if (kind === "uploaded_archive") {
-          try { validateArchive(file as File); } catch (error) { setError(errorText(error)); return; }
+          if (!archive) { setError("请先选择源码压缩包。"); return; }
+          try { validateArchive(archive); } catch (error) { setError(errorText(error)); return; }
         }
         if (kind === "uploaded_directory" && !directory) { setError("请先选择目录并等待文件校验完成。"); return; }
         setError("");
@@ -2456,7 +2461,7 @@ function ProjectForm({
           ref: String(form.get("ref")),
           kind,
           credentialRef: String(form.get("credential_ref") || ""),
-          file: file instanceof File ? file : undefined, directory,
+          file: archive, directory,
           signal: controller.current.signal, sourceID, projectID, rememberProject,
         });
       }}
@@ -2488,7 +2493,7 @@ function ProjectForm({
           <option value="legacy_auto">既有自动识别入口</option>
         </select>
       </label>
-      {kind === "uploaded_archive" ? <ArchivePicker onChange={() => setSourceID(`src-${crypto.randomUUID()}`)} /> : kind === "uploaded_directory" ? <DirectoryPicker onChange={next => { setDirectory(next); setSourceID(`src-${crypto.randomUUID()}`); }} /> : <>
+      {kind === "uploaded_archive" ? <ArchivePicker onChange={file => { setArchive(file); setSourceID(`src-${crypto.randomUUID()}`); }} /> : kind === "uploaded_directory" ? <DirectoryPicker onChange={next => { setDirectory(next); setSourceID(`src-${crypto.randomUUID()}`); }} /> : <>
       <label>
         {kind === "local_folder"
           ? "容器内代码目录"

@@ -132,7 +132,10 @@ export function Sources({
   const [notice, setNotice] = useState("");
   const [adding, setAdding] = useState(false);
   const [kind, setKind] = useState<CodeSource["kind"]>("uploaded_archive");
+  useEffect(() => { setDirectory(undefined); setArchive(undefined); }, [kind]);
+  useEffect(() => { if (!adding) { setDirectory(undefined); setArchive(undefined); } }, [adding]);
   const [directory, setDirectory] = useState<DirectorySelection>();
+  const [archive, setArchive] = useState<File>();
   const [sourceID, setSourceID] = useState(() => `src-${crypto.randomUUID()}`);
   const importController = useRef<AbortController>();
   useEffect(() => () => importController.current?.abort(), []);
@@ -376,8 +379,9 @@ export function Sources({
                 importController.current = new AbortController();
                 await importDirectory(api, project.id, sourceID, String(data.get("name")), directory, canBuildKnowledge, importController.current.signal);
               } else if (kind === "uploaded_archive") {
+                if (!archive) throw new Error("请先选择源码压缩包。");
                 importController.current = new AbortController();
-                await importArchive(api, project.id, sourceID, String(data.get("name")), data.get("archive") as File, canBuildKnowledge, importController.current.signal);
+                await importArchive(api, project.id, sourceID, String(data.get("name")), archive, canBuildKnowledge, importController.current.signal);
               } else await api.post(
                 `/v1/projects/${encodeURIComponent(project.id)}/sources`,
                 sourceInput(
@@ -420,7 +424,7 @@ export function Sources({
               <option value="git_repository">Git 仓库</option>
             </select>
           </label>
-          {kind === "uploaded_archive" ? <ArchivePicker onChange={() => setSourceID(`src-${crypto.randomUUID()}`)} /> : kind === "uploaded_directory" ? <DirectoryPicker onChange={next => { setDirectory(next); setSourceID(`src-${crypto.randomUUID()}`); }} /> : <label>
+          {kind === "uploaded_archive" ? <ArchivePicker onChange={file => { setArchive(file); setSourceID(`src-${crypto.randomUUID()}`); }} /> : kind === "uploaded_directory" ? <DirectoryPicker onChange={next => { setDirectory(next); setSourceID(`src-${crypto.randomUUID()}`); }} /> : <label>
             {kind === "local_folder" ? "容器内目录" : "Git 仓库 URL"}
             <input
               name="location"

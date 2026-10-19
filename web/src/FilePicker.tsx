@@ -9,6 +9,9 @@ export function FilePicker(props: {
   label: string;
   action: string;
   icon: ReactNode;
+  // The form still reads the field by name; a missing name silently uploaded a
+  // null file while the picker looked like it had worked.
+  name: string;
   accept?: string;
   multiple?: boolean;
   directory?: boolean;
@@ -30,6 +33,7 @@ export function FilePicker(props: {
           id={id}
           className="file-picker-input"
           type="file"
+          name={props.name}
           accept={props.accept}
           multiple={props.multiple}
           disabled={props.disabled}

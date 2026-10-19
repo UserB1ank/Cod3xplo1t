@@ -17,18 +17,22 @@ export function DirectoryPicker({ onChange }: { onChange: (selection?: Directory
       label="选择电脑上的源码目录"
       action="选择目录"
       icon={<FolderOpen size={15} />}
+      name="directory"
       directory
       multiple
       disabled={!supported || reading}
       value={name}
       onChange={async event => {
+        const files = event.currentTarget.files;
+        // A dismissed dialog fires change with no files in some browsers; keeping
+        // the previous selection is what makes "cancel" harmless.
+        if (!files || !files.length) return;
         controller.current?.abort();
         const current = new AbortController(); controller.current = current;
-        const files = event.currentTarget.files;
-        setName(Array.from(files || [])[0]?.webkitRelativePath.split("/")[0] || "");
+        setName(Array.from(files)[0]?.webkitRelativePath.split("/")[0] || "");
         onChange(undefined); setSelection(undefined); setError(""); setReading(true);
         try {
-          const next = await prepareDirectory(Array.from(files || []), current.signal);
+          const next = await prepareDirectory(Array.from(files), current.signal);
           if (!current.signal.aborted) { setSelection(next); onChange(next); }
         } catch (caught) {
           if (!current.signal.aborted) {
