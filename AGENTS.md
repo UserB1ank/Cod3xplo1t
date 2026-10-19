@@ -67,6 +67,8 @@
 
 - 2026-10-19 — #52 默认部署改为应用 + PostgreSQL，SQLite 收为独立路径：根 `compose.yaml` 改为「应用 + PostgreSQL」，一次性 `secrets` 服务在首次启动时把数据库密码、DSN 与安装密钥写进私有卷 `pg-secrets`，仓库 / Compose / 环境变量都不出现密钥，重启复用同一组凭据；`make run` 等价于 `docker compose up -d`（含构建与健康等待），`make standalone` 用 `compose.standalone.yaml` 起单容器 SQLite，两栈独立项目与数据卷，不能同时绑定 18085。应用镜像改为每次 `up` 重建，避免旧镜像被静默复用；两栈都有 healthcheck。同时修复升级回归：编译型内置插件的包摘要随宿主变化时，既有插件目录接受新摘要并启动（manifest 仍不可变，进程插件仍严格），新增 Memory / SQLite 用例。已用真实 Docker 验证 `docker compose up -d`（裸命令）、`make run`、`make standalone` 均在 18085 返回 healthz 200，重启后仍健康，旧数据卷在新镜像下不再重启循环；`internal/storage` / `internal/plugin` / `scripts` 全量 `-race`、gofmt / vet / staticcheck 通过。已知 #27 的未跟踪 WIP 文件仍让 `internal/app` 无法编译，全树 `make test` / `make lint` 待其完成后补跑。按交付流程提交并关闭；未 push。
 
+- 2026-10-19 — #53 目录上传按整目录合并排除项，并统一选择控件样式：`directory-import.ts` 改为先按路径分量分类——生成目录 / 版本库（`.git`、`node_modules`、`dist` 等）按整目录合并为一条带文件数的排除记录，文件级规则（`.env*`、`*.pem`、`*.key`、`id_*`）仍逐项记录；10,000 文件上限只统计将上传的文件，生成目录不再挤占预算；manifest 排除条目有界（≤200），不再随目录规模膨胀，也不再对这些文件读取内容与计算摘要。新增 `FilePicker` 共享控件（隐藏原生 input + 系统 `secondary` 按钮 + 已选名称），目录与压缩包两个入口共用，结果区域显示将上传文件数、字节数、排除文件数与目录数并可展开。服务端无需改协议即可接受整目录排除条目，新增 `ExtractDirectory` 用例覆盖按一条计数；前端 23 项测试与构建通过，`internal/sourceimport` / `internal/api` 回归与 `-race`、`internal/sourceimport` staticcheck 通过，18085 已重建并确认提供新样式与新文案。按交付流程提交并关闭；未 push。
+
 ## Agent skills
 
 ### Issue tracker

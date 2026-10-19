@@ -258,7 +258,7 @@ export function Sources({
                           ? `请求 ${source.ref}`
                           : "内容寻址"}
                       </small>
-                      {source.import && <details><summary>导入 {source.import.format} · 排除 {source.import.skipped} 项</summary><p className="muted">上传摘要：{source.import.sha256}。排除记录最多展示 200 项；快照阶段的省略另见覆盖范围。</p><ul>{source.import.excluded.map((path, index) => <li key={index}><code>{path}</code></li>)}</ul></details>}
+                      {source.import && <details><summary>导入 {source.import.format} · 排除 {source.import.skipped} 项</summary><p className="muted">上传摘要：{source.import.sha256}。生成目录与版本库按整目录合并为一条排除记录；排除记录最多展示 200 项，快照阶段的省略另见覆盖范围。</p><ul>{source.import.excluded.map((path, index) => <li key={index}><code>{path}</code></li>)}</ul></details>}
                       {source.credential_ref && (
                         <small className="source-secondary">
                           凭据引用：{source.credential_ref}
