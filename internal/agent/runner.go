@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/open-mcp-ai/Codexploit/internal/path"
@@ -373,6 +374,7 @@ func (r *Runner) execute(ctx context.Context, auditID string, p *path.Path, owne
 		status:       RunRunning,
 		generation:   generationOf(p),
 		aliases:      sessionAliases,
+		batchResults: map[string]batchCallRecord{},
 		reservations: map[string]int{},
 		usageSeen:    map[string]bool{},
 		proposals:    map[string]proposalVerdict{},
@@ -608,8 +610,13 @@ type runnerSession struct {
 	// acceptance and the one repair budget. modelRequests counts permitted
 	// requests, repairs counts granted corrections, reserved is the sum of the
 	// reservations still outstanding.
-	generation    int64
-	aliases       *AliasTable
+	generation int64
+	aliases    *AliasTable
+	// toolMu serialises tool-call bookkeeping so a batch may execute its calls
+	// concurrently without racing the run version; batchResults makes a replayed
+	// call idempotent within one run.
+	toolMu        sync.Mutex
+	batchResults  map[string]batchCallRecord
 	modelRequests int
 	repairs       int
 	reserved      int
@@ -812,6 +819,8 @@ func (s *runnerSession) applyEvent(ctx context.Context, ev RuntimeEvent) bool {
 		stop = s.applyProposal(ctx, ev)
 	case ev.Repair != nil:
 		stop = s.applyRepair(ctx, ev)
+	case ev.Batch != nil:
+		stop = s.applyBatch(ctx, ev)
 	case ev.Tool != nil:
 		stop = s.applyTool(ctx, ev)
 	case ev.Expansion != nil:
@@ -1024,11 +1033,8 @@ func (s *runnerSession) failPersistIfNeeded() bool {
 }
 
 // applyTool validates a tool request against the current policy and either runs it
-// through the registry or refuses it.
-//
-// A request outside the allowlist is denied and the run continues: refusing an
-// over-reach is the protocol working, not the adapter failing. Exhausting the
-// tool budget is different — the run is over it and stops.
+// through the registry or refuses it. Adapters that cannot batch use this path;
+// the host rules are the same as for one call inside a batch.
 func (s *runnerSession) applyTool(ctx context.Context, ev RuntimeEvent) bool {
 	req := *ev.Tool
 	reply := ToolResult{CallID: req.CallID, Tool: req.Tool, Error: "tool request denied"}
@@ -1040,108 +1046,238 @@ func (s *runnerSession) applyTool(ctx context.Context, ev RuntimeEvent) bool {
 			}
 		}
 	}()
-	asked := Event{
+	asked := s.askTool(req)
+	if err := ValidateToolRequest(req, s.policy, s.toolCalls); err != nil {
+		deniedReply, denied := s.denyTool(req, err.Error(), map[string]string{"allowed_tools": strings.Join(s.policy.AllowedTools, ",")})
+		reply = deniedReply
+		if errors.Is(err, ErrBudgetExhausted) {
+			if s.append(asked, denied) {
+				return true
+			}
+			s.stop, s.status, s.errText = StopToolBudget, RunBudgetExceeded, err.Error()
+			return true
+		}
+		return s.append(asked, denied)
+	}
+	prepared, executor, deniedReply, deniedEvent := s.prepareToolCall(req)
+	if deniedReply != nil {
+		reply = *deniedReply
+		return s.append(asked, *deniedEvent)
+	}
+	result, stop := s.executeToolCall(ctx, prepared, executor, asked)
+	reply = result
+	return stop
+}
+
+// applyBatch decides one assistant turn's calls. The whole batch arrives before
+// anything runs, so the host reserves the tool budget in source order; calls over
+// the remaining budget are denied with paired results instead of being dropped.
+// Allowed calls may execute concurrently, but results pair with provider history
+// in source order and every call has exactly one outcome.
+func (s *runnerSession) applyBatch(ctx context.Context, ev RuntimeEvent) bool {
+	batch := *ev.Batch
+	results := make([]ToolResult, len(batch.Calls))
+	defer func() {
+		if ev.BatchReply != nil {
+			select {
+			case ev.BatchReply <- results:
+			case <-ctx.Done():
+			}
+		}
+	}()
+	summary := Event{
+		Type: EventToolBatchRequested, Actor: runnerActorAgent,
+		Summary: fmt.Sprintf("tool batch requested: %d call(s)", len(batch.Calls)),
+		Detail: map[string]string{
+			"round_id": runnerCapText(batch.RoundID, MaxNotesChars),
+			"calls":    fmt.Sprint(len(batch.Calls)), "max_calls_per_turn": fmt.Sprint(s.policy.MaxCallsPerTurn),
+			"concurrency": fmt.Sprint(s.policy.ToolConcurrency),
+		},
+	}
+	if len(batch.Calls) == 0 {
+		_ = s.update(summary)
+		return false
+	}
+	if len(batch.Calls) > s.policy.MaxCallsPerTurn {
+		reason := fmt.Sprintf("the batch has %d calls; at most %d are accepted per turn", len(batch.Calls), s.policy.MaxCallsPerTurn)
+		events := []Event{summary}
+		for i, call := range batch.Calls {
+			results[i] = s.denialResult(call, reason)
+			events = append(events, s.denialEvent(call, reason))
+		}
+		s.invalidCalls += len(batch.Calls)
+		return s.update(events...)
+	}
+
+	type slot struct {
+		request  ToolRequest
+		executor ToolExecutor
+		allow    bool
+	}
+	slots := make([]slot, len(batch.Calls))
+	seen := map[string]bool{}
+	used := 0
+	budgetExhausted := false
+	events := []Event{summary}
+	for i, call := range batch.Calls {
+		call.CallID = strings.TrimSpace(call.CallID)
+		if call.CallID == "" || seen[call.CallID] {
+			reason := "call_id is required and must be unique in a batch"
+			results[i] = s.denialResult(call, reason)
+			events = append(events, s.denialEvent(call, reason))
+			s.invalidCalls++
+			continue
+		}
+		seen[call.CallID] = true
+		if cached, ok := s.batchResults[call.CallID]; ok && cached.Digest == batchCallDigest(call) {
+			results[i] = cached.Result
+			continue
+		}
+		if s.policy.MaxToolCalls > 0 && s.toolCalls+used >= s.policy.MaxToolCalls {
+			reason := fmt.Sprintf("tool budget exhausted: %d of %d calls used", s.toolCalls+used, s.policy.MaxToolCalls)
+			results[i] = s.denialResult(call, reason)
+			events = append(events, s.denialEvent(call, reason))
+			budgetExhausted = true
+			continue
+		}
+		if err := ValidateToolRequest(call, s.policy, s.toolCalls+used); err != nil {
+			results[i] = s.denialResult(call, err.Error())
+			events = append(events, s.denialEvent(call, err.Error()))
+			s.invalidCalls++
+			if errors.Is(err, ErrBudgetExhausted) {
+				budgetExhausted = true
+			}
+			continue
+		}
+		prepared, executor, deniedReply, deniedEvent := s.prepareToolCall(call)
+		if deniedReply != nil {
+			results[i] = *deniedReply
+			events = append(events, *deniedEvent)
+			continue
+		}
+		slots[i] = slot{request: prepared, executor: executor, allow: true}
+		used++
+	}
+	if stop := s.update(events...); stop {
+		return true
+	}
+
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, s.policy.ToolConcurrency)
+	for index := range slots {
+		if !slots[index].allow {
+			continue
+		}
+		wg.Add(1)
+		go func(position int) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			reply, _ := s.executeToolCall(ctx, slots[position].request, slots[position].executor, s.askTool(slots[position].request))
+			results[position] = reply
+		}(index)
+	}
+	wg.Wait()
+	if s.persistErr != nil {
+		s.failPersist()
+		return true
+	}
+	if budgetExhausted {
+		s.stop = StopToolBudget
+		s.status = RunBudgetExceeded
+		s.errText = fmt.Sprintf("the tool budget of %d is exhausted", s.policy.MaxToolCalls)
+		return true
+	}
+	return false
+}
+
+// askTool is the request event every call records, batch or not.
+func (s *runnerSession) askTool(req ToolRequest) Event {
+	return Event{
 		Type: EventToolRequested, Actor: runnerActorAgent,
 		CallID: req.CallID, Tool: req.Tool,
 		Summary: "tool requested: " + runnerCapText(req.Tool, MaxNotesChars),
 		Detail:  map[string]string{"arguments": fmt.Sprint(len(req.Args))},
 	}
-	if err := ValidateToolRequest(req, s.policy, s.toolCalls); err != nil {
-		denied := Event{
-			Type: EventToolDenied, Actor: runnerActorOrchestrator,
-			CallID: req.CallID, Tool: req.Tool,
-			Summary: "tool denied: " + err.Error(),
-			Detail:  map[string]string{"reason": err.Error(), "allowed_tools": strings.Join(s.policy.AllowedTools, ",")},
-		}
-		reply.Error = err.Error()
-		reply.Result = s.toolEnvelope(false, "", err.Error())
-		if errors.Is(err, ErrBudgetExhausted) {
-			if s.append(asked, denied) {
-				return true
-			}
-			s.stop = StopToolBudget
-			s.status = RunBudgetExceeded
-			s.errText = err.Error()
-			return true
-		}
-		return s.append(asked, denied)
+}
+
+func (s *runnerSession) denyTool(req ToolRequest, reason string, extra map[string]string) (ToolResult, Event) {
+	detail := map[string]string{"reason": reason}
+	for key, value := range extra {
+		detail[key] = value
 	}
+	return s.denialResult(req, reason), Event{
+		Type: EventToolDenied, Actor: runnerActorOrchestrator,
+		CallID: req.CallID, Tool: req.Tool,
+		Summary: "tool denied: " + reason, Detail: detail,
+	}
+}
+
+func (s *runnerSession) denialResult(req ToolRequest, reason string) ToolResult {
+	return ToolResult{CallID: req.CallID, Tool: req.Tool, Error: reason, Result: s.toolEnvelope(false, "", reason)}
+}
+
+func (s *runnerSession) denialEvent(req ToolRequest, reason string) Event {
+	return Event{
+		Type: EventToolDenied, Actor: runnerActorOrchestrator,
+		CallID: req.CallID, Tool: req.Tool,
+		Summary: "tool denied: " + reason, Detail: map[string]string{"reason": reason},
+	}
+}
+
+// prepareToolCall converts a policy-approved call into the exact request a tool
+// receives, or returns the paired denial. It does not execute anything.
+func (s *runnerSession) prepareToolCall(req ToolRequest) (ToolRequest, ToolExecutor, *ToolResult, *Event) {
 	executor, ok := s.lookup(req.Tool)
 	if !ok {
-		denied := Event{
-			Type: EventToolDenied, Actor: runnerActorOrchestrator,
-			CallID: req.CallID, Tool: req.Tool,
-			Summary: "tool denied: " + req.Tool + " is allowed by the policy but not registered with the orchestrator",
-			Detail:  map[string]string{"reason": "not registered"},
-		}
-		reply.Error = "tool is not registered with the orchestrator"
-		reply.Result = s.toolEnvelope(false, "", reply.Error)
-		return s.append(asked, denied)
+		result, event := s.denyTool(req, "tool is not registered with the orchestrator", nil)
+		return req, nil, &result, &event
 	}
 	descriptor := executor.Descriptor()
-	// Protocol-v1 adapters still send string-valued arguments. Convert only the
-	// fields the schema declares, then validate like any other request.
 	if len(req.LegacyArgs) > 0 && len(req.Args) == 0 {
 		converted, err := LegacyToolArgs(descriptor.InputSchema, req.LegacyArgs)
 		if err != nil {
 			s.invalidCalls++
-			denied := Event{
-				Type: EventToolDenied, Actor: runnerActorOrchestrator,
-				CallID: req.CallID, Tool: req.Tool,
-				Summary: "tool denied: " + err.Error(),
-				Detail:  map[string]string{"reason": err.Error()},
-			}
-			reply.Error = "tool request denied: " + err.Error()
-			reply.Result = s.toolEnvelope(false, "", reply.Error)
-			return s.append(asked, denied)
+			result, event := s.denyTool(req, err.Error(), nil)
+			return req, nil, &result, &event
 		}
 		req.Args = converted
 	}
-	// The model speaks in aliases. Only id-bearing fields are resolved, and an
-	// unknown alias is a denial: an id from another run or outside this task's
-	// scope must never reach a tool.
 	if s.aliases != nil {
 		resolved, err := s.aliases.ResolveToolArgs(req.Args)
 		if err != nil {
 			s.invalidCalls++
-			denied := Event{
-				Type: EventToolDenied, Actor: runnerActorOrchestrator,
-				CallID: req.CallID, Tool: req.Tool,
-				Summary: "tool denied: " + err.Error(),
-				Detail:  map[string]string{"reason": err.Error()},
-			}
-			reply.Error = "tool request denied: " + err.Error()
-			reply.Result = s.toolEnvelope(false, "", reply.Error)
-			return s.append(asked, denied)
+			result, event := s.denyTool(req, err.Error(), nil)
+			return req, nil, &result, &event
 		}
 		req.Args = resolved
 	}
 	if err := ValidateToolArgs(descriptor.InputSchema, req.Args); err != nil {
 		s.invalidCalls++
-		denied := Event{
-			Type: EventToolDenied, Actor: runnerActorOrchestrator,
-			CallID: req.CallID, Tool: req.Tool,
-			Summary: "tool denied: " + err.Error(),
-			Detail:  map[string]string{"reason": err.Error(), "schema_version": descriptor.Version},
-		}
-		reply.Error = err.Error()
-		reply.Result = s.toolEnvelope(false, "", reply.Error)
-		return s.append(asked, denied)
+		result, event := s.denyTool(req, err.Error(), map[string]string{"schema_version": descriptor.Version})
+		return req, nil, &result, &event
 	}
-	// Scope comes from the task, not the request: a client cannot substitute a
-	// snapshot, path or audit, and the tools read these from the context.
+	return req, executor, nil, nil
+}
+
+// executeToolCall runs one prepared call, records its exchange and returns the
+// model-facing envelope. It is the only writer of the tool counters, so a batch
+// can execute concurrently without racing the run's version.
+func (s *runnerSession) executeToolCall(ctx context.Context, req ToolRequest, executor ToolExecutor, asked Event) (ToolResult, bool) {
 	toolCtx := WithToolScope(ctx, ToolScope{
 		SnapshotID: s.task.SnapshotID, PathID: s.task.PathID,
 		AuditID: s.task.AuditID, RunID: s.run.ID,
 	})
-
 	started := s.runner.now()
 	result, callErr := executor.Call(toolCtx, req.Args)
 	elapsed := s.runner.now().Sub(started).Milliseconds()
+
+	s.toolMu.Lock()
+	defer s.toolMu.Unlock()
 	s.toolCalls++
 	s.exchanges++
 	s.run.ToolCalls = s.toolCalls
-	reply.ElapsedMS = elapsed
+	reply := ToolResult{CallID: req.CallID, Tool: req.Tool, ElapsedMS: elapsed}
 	payload, truncated := "", false
 	if callErr == nil {
 		reply.OK, reply.Error, reply.Refs = result.OK, result.Error, result.Refs
@@ -1154,14 +1290,13 @@ func (s *runnerSession) applyTool(ctx context.Context, ev RuntimeEvent) bool {
 			s.truncations++
 		}
 		if !result.OK {
-			// The model asked a well-formed question and the tool could not answer
-			// it. That is the invalid-call signal, distinct from a denied request.
 			s.invalidCalls++
 		}
 	} else {
 		reply.Error = callErr.Error()
+		reply.Result = s.toolEnvelope(false, "", reply.Error)
 	}
-	// One exchange, one novelty sample — including an exchange that failed, which
+	// One exchange, one novelty sample — including a failed exchange, which
 	// produced no evidence and must read as zero rather than as missing data.
 	s.observeExchange(result.Refs)
 
@@ -1187,7 +1322,6 @@ func (s *runnerSession) applyTool(ctx context.Context, ev RuntimeEvent) bool {
 		resultEvent.Detail["ok"] = "false"
 		resultEvent.Detail["error"] = callErr.Error()
 	case !result.OK:
-		reply.Result = s.toolEnvelope(false, "", result.Error)
 		resultEvent.Summary = "tool returned no result for " + req.Tool
 		resultEvent.Detail["ok"] = "false"
 		if result.Error != "" {
@@ -1201,13 +1335,23 @@ func (s *runnerSession) applyTool(ctx context.Context, ev RuntimeEvent) bool {
 			resultEvent.Detail["truncated"] = "true"
 		}
 	}
-	return s.update(asked, allowed, resultEvent)
+	s.batchResults[req.CallID] = batchCallRecord{Digest: batchCallDigest(req), Result: reply}
+	return reply, s.update(asked, allowed, resultEvent)
+}
+
+// batchCallRecord makes a replayed call idempotent: the same id and bytes return
+// the earlier result, a different call under the same id is refused by the batch.
+type batchCallRecord struct {
+	Digest string
+	Result ToolResult
+}
+
+func batchCallDigest(req ToolRequest) string {
+	return digest16("codexploit/tool-call/v1", req.CallID, req.Tool, string(req.Args))
 }
 
 // toolEnvelope is the one model-facing shape of a tool result. The receipt is the
-// host's count, not an estimate the model can drift from: calls, tokens and
-// repairs left, how many obligations are closed, and where the usage numbers come
-// from.
+// host's count, not an estimate the model can drift from.
 func (s *runnerSession) toolEnvelope(ok bool, result, failure string) string {
 	envelope := ToolResultEnvelope{OK: ok, Result: result, Error: failure, Budget: s.budgetReceipt()}
 	encoded, err := json.Marshal(envelope)
@@ -1219,8 +1363,6 @@ func (s *runnerSession) toolEnvelope(ok bool, result, failure string) string {
 
 func (s *runnerSession) budgetReceipt() *BudgetReceipt {
 	receipt := &BudgetReceipt{
-		CallsLeft:        0,
-		RepairsLeft:      0,
 		ObligationsTotal: len(s.task.Obligations),
 		BudgetEnforced:   s.policy.TokenBudget > 0,
 		UsageSource:      MetricsSourceLegacyEstimate,
@@ -1237,8 +1379,6 @@ func (s *runnerSession) budgetReceipt() *BudgetReceipt {
 		receipt.UsageSource = MetricsSourceReported
 	}
 	if s.policy.TokenBudget > 0 {
-		// Outstanding reservations count against the receipt as well: the model must
-		// see what it can still spend, not what is merely unreserved.
 		left := s.policy.TokenBudget - s.run.InputTokens - s.run.OutputTokens - s.reserved
 		if left < 0 {
 			left = 0
@@ -1253,9 +1393,6 @@ func (s *runnerSession) budgetReceipt() *BudgetReceipt {
 			}
 		}
 		receipt.ObligationsClosed = closed
-	}
-	if s.toolCalls >= s.policy.MaxToolCalls && s.policy.MaxToolCalls > 0 {
-		receipt.CallsLeft = 0
 	}
 	return receipt
 }
@@ -1771,7 +1908,8 @@ func runnerRawAnswer(ev RuntimeEvent) ([]byte, bool) {
 // which case the runner's own policy is what the run is judged against.
 func runnerPolicyEmpty(p ExplorationPolicy) bool {
 	return p.MaxHops == 0 && p.MaxBranches == 0 && p.MaxToolCalls == 0 && p.MaxExpansions == 0 &&
-		p.TimeoutSeconds == 0 && p.TokenBudget == 0 && p.MaxRepeatedOutputs == 0 && len(p.AllowedTools) == 0
+		p.TimeoutSeconds == 0 && p.TokenBudget == 0 && p.MaxRepeatedOutputs == 0 &&
+		p.MaxCallsPerTurn == 0 && p.ToolConcurrency == 0 && len(p.AllowedTools) == 0
 }
 
 // runnerCapText bounds a note before it reaches the event log. Only Summary,

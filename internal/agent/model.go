@@ -184,16 +184,18 @@ const (
 
 // Event types of a run. A request and its result share a CallID.
 const (
-	EventRunCreated       = "run_created"
-	EventRunStarted       = "run_started"
-	EventTaskDelivered    = "task_delivered"
-	EventToolRequested    = "tool_requested"
-	EventToolAllowed      = "tool_allowed"
-	EventToolResult       = "tool_result"
-	EventToolDenied       = "tool_denied"
-	EventExpansionAsked   = "expansion_requested"
-	EventExpansionDecided = "expansion_decided"
-	EventOutputReceived   = "output_received"
+	EventRunCreated         = "run_created"
+	EventRunStarted         = "run_started"
+	EventTaskDelivered      = "task_delivered"
+	EventToolRequested      = "tool_requested"
+	EventToolBatchRequested = "tool_batch_requested"
+	EventToolBatchSettled   = "tool_batch_settled"
+	EventToolAllowed        = "tool_allowed"
+	EventToolResult         = "tool_result"
+	EventToolDenied         = "tool_denied"
+	EventExpansionAsked     = "expansion_requested"
+	EventExpansionDecided   = "expansion_decided"
+	EventOutputReceived     = "output_received"
 	// Turn-control events. They are explicit decisions, not reasoning: a permit
 	// granted, a proposal accepted, a correction requested or refused.
 	EventModelPermitRequested = "model_permit_requested"
@@ -250,6 +252,12 @@ type ExplorationPolicy struct {
 	// MaxRepeatedOutputs stops a run that keeps producing the same answer without
 	// new evidence.
 	MaxRepeatedOutputs int `json:"max_repeated_outputs"`
+	// MaxCallsPerTurn bounds one assistant turn's tool batch (1..8, default 4).
+	// The host reserves budget for the whole batch before running any of it.
+	MaxCallsPerTurn int `json:"max_calls_per_turn"`
+	// ToolConcurrency bounds how many calls of one batch execute at once (1..4,
+	// default 1). Results still pair with provider history in source order.
+	ToolConcurrency int `json:"tool_concurrency"`
 }
 
 // DefaultExplorationPolicy returns the documented starting values: 2 hops, 4 active
@@ -258,6 +266,7 @@ func DefaultExplorationPolicy() ExplorationPolicy {
 	return ExplorationPolicy{
 		MaxHops: 2, MaxBranches: 4, MaxToolCalls: 30, MaxExpansions: 3,
 		TimeoutSeconds: 600, TokenBudget: 0, MaxRepeatedOutputs: 2,
+		MaxCallsPerTurn: 4, ToolConcurrency: 1,
 		AllowedTools: []string{},
 	}
 }
@@ -282,6 +291,18 @@ func (p ExplorationPolicy) Normalize() ExplorationPolicy {
 	}
 	if p.MaxRepeatedOutputs <= 0 {
 		p.MaxRepeatedOutputs = d.MaxRepeatedOutputs
+	}
+	if p.MaxCallsPerTurn <= 0 {
+		p.MaxCallsPerTurn = d.MaxCallsPerTurn
+	}
+	if p.MaxCallsPerTurn > 8 {
+		p.MaxCallsPerTurn = 8
+	}
+	if p.ToolConcurrency <= 0 {
+		p.ToolConcurrency = d.ToolConcurrency
+	}
+	if p.ToolConcurrency > 4 {
+		p.ToolConcurrency = 4
 	}
 	if p.AllowedTools == nil {
 		p.AllowedTools = []string{}
@@ -445,6 +466,14 @@ type ToolRequest struct {
 	// fields the tool schema declares, then validates the result like any other
 	// request; the strings never reach a tool.
 	LegacyArgs map[string]string `json:"-"`
+}
+
+// ToolBatch is one assistant turn's tool calls. It is submitted whole so the host
+// can reserve budget in source order before any call runs; the reply pairs with
+// provider history in the same source order.
+type ToolBatch struct {
+	RoundID string        `json:"round_id"`
+	Calls   []ToolRequest `json:"calls"`
 }
 
 // BudgetReceipt is the host's authoritative statement of what is left. A model

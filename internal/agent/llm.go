@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/open-mcp-ai/Codexploit/internal/llm"
 )
@@ -27,7 +28,7 @@ func (r *ModelRuntime) Ready() error {
 }
 
 func (*ModelRuntime) Capabilities() RuntimeCapabilities {
-	return RuntimeCapabilities{Name: "llm", Version: "1", ToolCalls: true, TokenUsage: true, TurnControl: true, Notes: []string{"OpenAI-compatible Chat Completions or Responses; no hidden reasoning persisted; a bounded token budget requires a positive input estimate and provider output limit"}}
+	return RuntimeCapabilities{Name: "llm", Version: "1", ToolCalls: true, BatchTools: true, TokenUsage: true, TurnControl: true, Notes: []string{"OpenAI-compatible Chat Completions or Responses; no hidden reasoning persisted; a bounded token budget requires a positive input estimate and provider output limit"}}
 }
 
 func (r *ModelRuntime) Start(ctx context.Context, task Task) (*Handle, error) {
@@ -137,32 +138,19 @@ func (r *ModelRuntime) runModel(ctx context.Context, cfg llm.Config, task Task, 
 			}
 		}
 
-		if len(completion.Message.Calls) != 1 {
-			reason := "one_tool_call_per_turn"
-			verdict, ok := requestRepair(ctx, events, requestID, reason, "request exactly one tool per turn")
-			if !ok {
-				return nil, ctx.Err()
+		calls := completion.Message.Calls
+		// Every call needs a provider id: pairing is by id, and a call without one
+		// cannot be answered in a valid history.
+		unpaired := false
+		for _, call := range calls {
+			if strings.TrimSpace(call.ID) == "" || len(call.ID) > 200 {
+				unpaired = true
+				break
 			}
-			if verdict.Decision != DecisionRepair {
-				return nil, ErrTurnDenied
-			}
-			// Every call needs a paired result even when it is refused, or the
-			// provider rejects the next request as a malformed conversation.
-			for _, rejected := range completion.Message.Calls {
-				if rejected.ID == "" {
-					continue
-				}
-				messages = append(messages, llm.Message{Role: "tool", ToolCallID: rejected.ID,
-					Content: toolRepair(reason, "request exactly one tool per turn")})
-			}
-			continue
 		}
-
-		call := completion.Message.Calls[0]
-		if !allowedTool(call.Function.Name, task.Exploration.AllowedTools) || call.ID == "" ||
-			len(call.ID) > 200 || len(call.Function.Arguments) > 32000 || !json.Valid([]byte(call.Function.Arguments)) {
+		if unpaired {
 			reason := "invalid_tool_call"
-			hint := "call one of the listed tools with a JSON object of native arguments"
+			hint := "every tool call needs a unique id and a JSON argument object"
 			verdict, ok := requestRepair(ctx, events, requestID, reason, hint)
 			if !ok {
 				return nil, ctx.Err()
@@ -170,33 +158,51 @@ func (r *ModelRuntime) runModel(ctx context.Context, cfg llm.Config, task Task, 
 			if verdict.Decision != DecisionRepair {
 				return nil, ErrTurnDenied
 			}
-			if call.ID != "" {
+			for _, call := range calls {
+				if strings.TrimSpace(call.ID) == "" {
+					continue
+				}
 				messages = append(messages, llm.Message{Role: "tool", ToolCallID: call.ID, Content: toolRepair(reason, hint)})
-			} else {
-				messages = append(messages, llm.Message{Role: "user", Content: answerRepair("the tool call carries no id")})
 			}
+			messages = append(messages, llm.Message{Role: "user", Content: answerRepair("a tool call carried no id")})
 			continue
 		}
-		req := ToolRequest{
-			CallID: fmt.Sprintf("model-%d", round),
-			Tool:   call.Function.Name,
-			Args:   json.RawMessage(call.Function.Arguments),
+
+		batch := make([]ToolRequest, 0, len(calls))
+		for _, call := range calls {
+			if len(call.Function.Arguments) > 32000 {
+				return nil, ErrTurnDenied
+			}
+			batch = append(batch, ToolRequest{
+				CallID: call.ID,
+				Tool:   call.Function.Name,
+				Args:   json.RawMessage(call.Function.Arguments),
+			})
 		}
-		reply := make(chan ToolResult, 1)
-		if !sendEvent(ctx, events, RuntimeEvent{Type: EventToolRequested, Tool: &req, ToolReply: reply}) {
+		reply := make(chan []ToolResult, 1)
+		if !sendEvent(ctx, events, RuntimeEvent{
+			Type: EventToolRequested, RequestID: requestID,
+			Batch: &ToolBatch{RoundID: requestID, Calls: batch}, BatchReply: reply,
+			Summary: fmt.Sprintf("worker requests %d tool call(s)", len(batch)),
+		}) {
 			return nil, ctx.Err()
 		}
 		select {
-		case result := <-reply:
-			content := result.Result
-			if content == "" {
-				raw, err := json.Marshal(modelToolResult{OK: result.OK, Error: firstNonEmpty(result.Error, "tool returned no result")})
-				if err != nil {
-					return nil, err
-				}
-				content = string(raw)
+		case results := <-reply:
+			if len(results) != len(batch) {
+				return nil, fmt.Errorf("agent: the host answered %d of %d tool calls", len(results), len(batch))
 			}
-			messages = append(messages, llm.Message{Role: "tool", ToolCallID: call.ID, Content: content})
+			for index, result := range results {
+				content := result.Result
+				if content == "" {
+					raw, err := json.Marshal(modelToolResult{OK: result.OK, Error: firstNonEmpty(result.Error, "tool returned no result")})
+					if err != nil {
+						return nil, err
+					}
+					content = string(raw)
+				}
+				messages = append(messages, llm.Message{Role: "tool", ToolCallID: batch[index].CallID, Content: content})
+			}
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		}
@@ -300,15 +306,6 @@ func nativeTools(descriptors []ToolDescriptor, allowed []string) ([]llm.Tool, er
 		out = append(out, llm.Tool{Name: descriptor.Name, Description: descriptor.Description, Parameters: parameters})
 	}
 	return out, nil
-}
-
-func allowedTool(name string, allowed []string) bool {
-	for _, candidate := range allowed {
-		if candidate == name {
-			return true
-		}
-	}
-	return false
 }
 
 // modelToolResult is what the model receives from one tool call. The evidence ids

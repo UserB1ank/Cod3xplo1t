@@ -147,28 +147,41 @@ func TestModelRepairsInvalidToolArguments(t *testing.T) {
 	}
 }
 
-// TestModelRepairsMultipleToolCalls covers a model that batches two requests in a
-// turn the protocol accepts only one of.
-func TestModelRepairsMultipleToolCalls(t *testing.T) {
+// TestModelExecutesMultipleToolCallsInOneBatch covers a turn with several calls:
+// the host reserves the budget for the whole batch and the provider history keeps
+// one paired result per call in source order.
+func TestModelExecutesMultipleToolCallsInOneBatch(t *testing.T) {
 	first := map[string]any{
 		"id": "call-a", "type": "function",
-		"function": map[string]string{"name": "graph_query", "arguments": `{}`},
+		"function": map[string]string{"name": "graph.query", "arguments": `{"symbol":"a"}`},
 	}
 	second := map[string]any{
 		"id": "call-b", "type": "function",
-		"function": map[string]string{"name": "graph_query", "arguments": `{}`},
+		"function": map[string]string{"name": "graph.query", "arguments": `{"symbol":"b"}`},
 	}
 	run, provider := runRepairScenario(t,
 		chatToolCalls(first, second),
-		chatToolCall("model-call-3", `{}`),
 		chatAnswer(runnerTestAnswer()),
 	)
-	if run.Status != RunSucceeded || run.ToolCalls != 1 {
-		t.Fatalf("run = %s calls=%d requests=%d err=%q metrics=%+v, want SUCCEEDED with 1 call", run.Status, run.ToolCalls, provider.count(), run.Error, run.Metrics)
+	if run.Status != RunSucceeded || run.ToolCalls != 2 {
+		t.Fatalf("run = %s calls=%d requests=%d err=%q metrics=%+v, want SUCCEEDED with 2 calls", run.Status, run.ToolCalls, provider.count(), run.Error, run.Metrics)
 	}
 	messages := provider.lastRequest()
-	if !repairMessageSeen(messages, "call-a", "one_tool_call_per_turn") || !repairMessageSeen(messages, "call-b", "one_tool_call_per_turn") {
-		t.Fatal("both rejected calls must receive a paired repair message")
+	seen := map[string]string{}
+	order := []string{}
+	for _, message := range messages {
+		if message.Role == "tool" {
+			seen[message.ToolCallID] = message.Content
+			order = append(order, message.ToolCallID)
+		}
+	}
+	if len(order) != 2 || order[0] != "call-a" || order[1] != "call-b" {
+		t.Fatalf("tool results order = %v, want source order", order)
+	}
+	for _, id := range []string{"call-a", "call-b"} {
+		if !strings.Contains(seen[id], "edge-list") {
+			t.Fatalf("%s did not receive the tool result: %q", id, seen[id])
+		}
 	}
 }
 

@@ -28,6 +28,9 @@ type RuntimeCapabilities struct {
 	// TokenUsage reports whether the adapter reports token counts. Without them the
 	// token budget cannot be enforced, and the run says so.
 	TokenUsage bool `json:"token_usage"`
+	// BatchTools reports whether the adapter submits one turn's calls as a batch.
+	// An adapter without it keeps the one-call path and is still bounded.
+	BatchTools bool `json:"batch_tools"`
 	// TurnControl reports whether the adapter asks for permission before each
 	// provider request and submits proposed answers for validation. Without it the
 	// adapter is still bounded by the tool gate, but its provider requests and
@@ -92,8 +95,13 @@ type RuntimeEvent struct {
 	Summary string
 	// Detail carries small structured extras (counts, ids, reasons).
 	Detail map[string]string
-	// Tool, when set, is a request for a whitelisted tool call.
+	// Tool, when set, is a request for one whitelisted tool call by an adapter
+	// that cannot submit a batch.
 	Tool *ToolRequest
+	// Batch, when set, is one assistant turn's calls, submitted together. The
+	// reply is in source order and has exactly one result per call.
+	Batch      *ToolBatch
+	BatchReply chan<- []ToolResult
 	// ToolReply is an optional per-request feedback channel. Interactive adapters
 	// wait for the orchestrator's bounded result, including explicit denials.
 	ToolReply chan<- ToolResult

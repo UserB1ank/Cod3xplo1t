@@ -188,7 +188,11 @@ type AgentConfig struct {
 	// means the registry's own names.
 	MaxExpansions int
 	TokenBudget   int
-	AllowedTools  []string
+	// MaxCallsPerTurn and ToolConcurrency bound one model turn's tool batch.
+	// Zero means the documented default (4 calls, one at a time).
+	MaxCallsPerTurn int
+	ToolConcurrency int
+	AllowedTools    []string
 	// Owner names the lease holder; empty means "orchestrator".
 	Owner string
 	// HeartbeatSeconds is the lease renewal cadence; zero means the orchestrator's
@@ -588,12 +592,14 @@ func (r *Runtime) wireAgent(cfg AgentConfig) error {
 		}
 	}
 	policy := agent.ExplorationPolicy{
-		MaxHops:       cfg.MaxHops,
-		MaxBranches:   cfg.MaxBranches,
-		MaxToolCalls:  cfg.MaxToolCalls,
-		MaxExpansions: cfg.MaxExpansions,
-		TokenBudget:   cfg.TokenBudget,
-		AllowedTools:  allowed,
+		MaxHops:         cfg.MaxHops,
+		MaxBranches:     cfg.MaxBranches,
+		MaxToolCalls:    cfg.MaxToolCalls,
+		MaxExpansions:   cfg.MaxExpansions,
+		TokenBudget:     cfg.TokenBudget,
+		MaxCallsPerTurn: cfg.MaxCallsPerTurn,
+		ToolConcurrency: cfg.ToolConcurrency,
+		AllowedTools:    allowed,
 	}.Normalize()
 	// Normalize exists to make a wire request complete, and it fills an unset
 	// expansion ceiling with the documented default. A configured zero is a

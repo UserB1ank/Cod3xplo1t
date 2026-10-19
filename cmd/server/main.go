@@ -69,6 +69,8 @@ func run() error {
 		agentRuntime    = flag.String("agent-runtime", app.AgentRuntimeDisabled, "agent adapter: disabled, scripted, cli, llm or pi")
 		agentRuntimes   = flag.String("agent-runtimes", "", "comma-separated runtimes a task may choose (default: only --agent-runtime)")
 		agentWorkDir    = flag.String("agent-working-dir", "", "working directory of the agent process")
+		agentMaxCalls   = flag.Int("agent-max-calls-per-turn", 4, "maximum tool calls in one model turn (1-8)")
+		agentToolConc   = flag.Int("agent-tool-concurrency", 1, "calls of one batch executed at once (1-4)")
 		piNode          = flag.String("pi-node", "node", "node binary used by the pi runtime")
 		piWorker        = flag.String("pi-worker", "/app/pi-worker/dist/main.js", "pi worker entrypoint (runtime/pi-worker dist)")
 		agentTimeout    = flag.Int("agent-timeout", 0, "agent run timeout in seconds (0 uses the policy default)")
@@ -172,6 +174,8 @@ func run() error {
 			MaxToolCalls:       *agentMaxTools,
 			MaxExpansions:      *agentMaxExpand,
 			TokenBudget:        *agentTokenBudge,
+			MaxCallsPerTurn:    *agentMaxCalls,
+			ToolConcurrency:    *agentToolConc,
 			AllowedTools:       commaSeparated(*agentTools),
 			Owner:              *agentOwner,
 			HeartbeatSeconds:   *agentHeartbeat,

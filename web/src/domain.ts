@@ -18,7 +18,7 @@ export const findingMeaning: Record<FindingStatus, string> = {
 export const eventNames: Record<string, string> = {
   path_claimed: '路径已被领取', path_status_changed: '路径状态更新', path_heartbeat: '收到 worker 心跳',
   hypothesis_recorded: '记录结构化假设', run_started: 'Agent 开始分析', run_finished: 'Agent 运行结束',
-  tool_result: '查询结果已记录', expansion_decided: '局部扩展策略已决策', verification_finished: '验证完成', audit_created: '审计已创建',
+  tool_batch_requested: '工具批次请求', tool_result: '查询结果已记录', expansion_decided: '局部扩展策略已决策', verification_finished: '验证完成', audit_created: '审计已创建',
 };
 export const countFormat = new Intl.NumberFormat('zh-CN');
 export function compact(n: number) { return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n); }

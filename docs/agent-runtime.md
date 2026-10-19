@@ -349,6 +349,25 @@ output contract. Repository content is fenced with a fence longer than any backt
 run inside it and labelled untrusted; it is data, never instructions. The renderer
 reads no files, so a repository's `AGENTS.md` or skills cannot enter the prompt.
 
+## Tool batches
+
+A model turn may contain several tool calls. The adapter submits the whole batch
+before anything runs, so the host reserves the tool budget in source order: calls
+that fit are executed, the rest receive paired denials instead of being dropped.
+A batch larger than the per-turn limit is denied as a whole, one paired result per
+identifiable call.
+
+`max_calls_per_turn` defaults to 4 (hard cap 8) and `tool_concurrency` to 1 (hard
+cap 4); both are part of the run's exploration policy, so the values a run used
+are persisted with it. Calls execute concurrently up to the limit, but the
+provider history is paired in source order and every completed call records its
+event in completion order. A replayed call id with the same bytes returns the
+earlier result; the same id would not execute twice. When the batch exhausts the
+tool budget the run stops with `BUDGET_EXCEEDED` before another provider request;
+pausing instead of stopping belongs to #45.
+
+Adapters that cannot batch keep the one-call path and the same host rules.
+
 ## Turn control
 
 An adapter that declares `TurnControl` may not act on its own: every provider
