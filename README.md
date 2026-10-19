@@ -69,7 +69,7 @@ task, snapshot, evidence and a separate high / medium / low severity assessment.
 docker compose up -d --build
 ```
 
-Open `http://localhost:18080`, create the administrator account on first startup,
+Open `http://localhost:18085`, create the administrator account on first startup,
 and sign in with its username and password. Then open
 **模型设置** to configure the LLM protocol, Base URL, model and API Key. Test the
 connection and save with LLM enabled. No LLM credentials belong in Compose,
@@ -91,7 +91,7 @@ make postgres-up SOURCE_ROOT=/absolute/path/to/source
 
 It generates the database password, DSN and installation key outside the
 repository, reuses them on later runs, and serves the application at
-`http://localhost:18095`. Remote Git cloning is disabled by default; rebuild the
+`http://localhost:18085`. Remote Git cloning is disabled by default; rebuild the
 stack with `CODEXPLOIT_ALLOW_NETWORK=true make postgres-up` if the project needs
 a Git URL. Use `make postgres-status`, `make postgres-logs` and
 `make postgres-down` to inspect or stop it. See
@@ -102,7 +102,7 @@ The Docker build includes the complete frontend and needs no host Go or Node
 installation. See [Web UI and deployment](docs/webui.md) for local source mounts,
 Agent configuration, development, upgrade and backup procedures.
 
-The separate [interactive design prototype](http://127.0.0.1:18080/prototype/#tasks)
+The separate [interactive design prototype](http://127.0.0.1:18085/prototype/#tasks)
 demonstrates an ARTEX-inspired task table, explicit folder/Git sources, shared
 graphs, plugin manifests, typed workflows and an independent PostgreSQL storage
 plan. It uses page-memory examples and does not scan code or change production

@@ -27,7 +27,7 @@ case "${1:-}" in
 esac
 
 PROJECT="${CODEXPLOIT_PG_PROJECT:-codexploit-catalog}"
-PORT="${CODEXPLOIT_PG_PORT:-18095}"
+PORT="${CODEXPLOIT_PG_PORT:-18085}"
 SECRETS_DIR="${CODEXPLOIT_PG_SECRETS_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/codexploit/postgres}"
 SOURCE_ROOT="${SOURCE_ARG:-${CODEXPLOIT_SOURCE_ROOT:-$PWD}}"
 
@@ -159,7 +159,10 @@ url="http://127.0.0.1:${PORT}"
 
 case "$COMMAND" in
 	up)
-		compose up -d --build
+		if ! compose up -d --build; then
+			echo "error: could not start the application at $url; if the port is occupied, set CODEXPLOIT_PG_PORT to an unused port" >&2
+			exit 1
+		fi
 		ready=0
 		if command -v curl >/dev/null 2>&1; then
 			printf 'Waiting for %s/healthz ' "$url"

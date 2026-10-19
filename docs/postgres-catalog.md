@@ -42,7 +42,7 @@ make postgres-up SOURCE_ROOT=/srv/source-inputs
 
 脚本会：
 
-- 默认使用 Compose 项目 `codexploit-catalog`，页面为 `http://127.0.0.1:18095`。
+- 默认使用 Compose 项目 `codexploit-catalog`，页面为 `http://127.0.0.1:18085`。
 - 默认把当前目录作为只读代码根挂载到 `/repos`；用 `SOURCE_ROOT` / `CODEXPLOIT_SOURCE_ROOT` 覆盖。
 - 在仓库外的 `${XDG_CONFIG_HOME:-$HOME/.config}/codexploit/postgres` 生成
   `postgres-password`、`postgres-dsn` 和 `settings-key`；用
@@ -88,7 +88,7 @@ export CODEXPLOIT_SOURCE_ROOT=/srv/source-inputs
 docker compose -p codexploit-catalog -f compose.postgres.yaml up -d --build
 ```
 
-应用默认仅监听本机 `18095`，可用 `CODEXPLOIT_PG_PORT` 修改。数据库没有宿主机端口，只加入 `internal: true` 的目录网络；应用另外加入 Web 网络用于其明确授权的出站访问。Git 网络访问默认关闭，可用 `CODEXPLOIT_ALLOW_NETWORK=true` 启用。只读输入根中的 `service` 对应页面的 `/repos/service`。
+应用默认仅监听本机 `18085`，可用 `CODEXPLOIT_PG_PORT` 修改。数据库没有宿主机端口，只加入 `internal: true` 的目录网络；应用另外加入 Web 网络用于其明确授权的出站访问。Git 网络访问默认关闭，可用 `CODEXPLOIT_ALLOW_NETWORK=true` 启用。只读输入根中的 `service` 对应页面的 `/repos/service`。
 
 首次在页面设置管理员账号后，可创建项目和代码源、固定快照、查看和下载产物；在工作流页编译真实计划后，可从任务页执行并查看运行及控制。在“插件中心”依次运行 Go 解析、语义与路径插件，选择明确的上游调用，完成后点击“发布到共享图谱”；部分覆盖结果会明确标注。进入“共享知识图谱”查看固定图层和共享知识版本。管理员侧栏“数据存储”实时展示驱动、执行模式、迁移版本、readiness、实际能力及数据保存位置。模型设置继续在程序内管理。Compose 开启任务调度器并加载镜像内固定扫描器包；验证执行器默认 `unsupported`，没有可用环境时明确返回阻塞结果。
 

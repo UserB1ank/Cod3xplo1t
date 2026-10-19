@@ -49,6 +49,8 @@
 
 - 2026-10-19 — #18 PostgreSQL 部署共享登录会话与加密模型设置：新增 `access.Repository` 与 SQL IdentityRepository，账号摘要、会话撤销、登录限流窗口由数据库原子操作；PostgreSQL 应用实例共享初始化、登录、退出与限流状态，旧 `account.json` 与工作区 `settings/llm.enc` 首次启动导入一次，SQLite / Memory 保持原工作区与内存会话。新增 `llm.Repository` 与 SettingsRepository，模型设置密文与生效版本存入 `llm_settings`，版本 CAS / ETag / 工作流固定 `config_version` 使用同一版本；安装密钥由 `--settings-key-file` 独立提供，缺失或错误时设置接口返回 503 并保留原密文。正式 API 区分 `identity_unavailable` / `settings_unavailable`，响应、日志和 Compose 不包含安装密钥或 API Key；存储状态页显示账号 / 设置为 PostgreSQL、密钥为外部文件。已按确认的仓储、管理器、认证 / 设置 HTTP、真实 PG 双实例边界完成 TDD red/green（跨实例撤销、重建恢复、限流、密文脱敏、并发设置 CAS、错误密钥、旧登录 / 旧设置导入回归）；已通过完整乱序竞态回归、三轮 `make test-stress`、`make test-postgres`、`make lint`、契约检查、前端测试 / 构建与 Docker 构建；按交付流程提交并关闭；未 push。
 
+- 2026-10-19 — #23 SQLite / PostgreSQL Web 默认入口统一为 18085：同步两套 Compose、PostgreSQL 启动脚本、启动提示与部署文档，保留显式端口覆盖，启动失败提示检查冲突；内部监听与开发端口保持兼容。已完成启动脚本公开边界 TDD red/green、完整乱序竞态回归、三轮 `make test-stress`、`make lint`、契约检查、前端测试 / 构建与 Docker 构建；独立 SQLite 容器完成 18085 登录 / 页面 / 项目重建恢复，现有 PostgreSQL 应用已切到 18085，重建前后挂载、项目 / 快照数量、加密设置与会话一致，数据库仍只在内部网络开放。按交付流程提交并关闭；未 push。
+
 ## Agent skills
 
 ### Issue tracker

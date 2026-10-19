@@ -99,7 +99,7 @@ HttpOnly session cookie instead.
 docker compose up -d --build
 ```
 
-Open `http://localhost:18080`. On first startup, create an administrator account
+Open `http://localhost:18085`. On first startup, create an administrator account
 in the application, then sign in with its username and password. There is no
 default username/password. Account names allow 3–64 letters, digits, underscores
 and hyphens; passwords require 12–128 characters. After initialization, setup
@@ -123,6 +123,12 @@ across instances in PostgreSQL. Remote-address headers are not trusted for rate
 limiting. If a reverse proxy terminates HTTPS, set `X-Forwarded-Proto: https` so
 login sets a Secure cookie. Never expose the HTTP port directly outside a trusted
 local environment.
+
+Both SQLite and PostgreSQL deployments default to Web port `18085`. To run both
+on the same host, explicitly choose another port for one deployment with
+`CODEXPLOIT_PORT` (SQLite) or `CODEXPLOIT_PG_PORT` (PostgreSQL). A port conflict
+fails startup; it does not stop another deployment or select a different port.
+Container-internal port `8080` and frontend development port `5173` are unchanged.
 
 `CODEXPLOIT_PORT` optionally changes the host port. Compose binds to loopback
 by default and enables `--web-auth`, the native LLM adapter and resident
