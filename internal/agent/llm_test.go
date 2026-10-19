@@ -51,7 +51,7 @@ func TestModelRuntimeUsesOrchestratorFeedbackAndLiveSettings(t *testing.T) {
 		t.Fatal("unconfigured model consumed queued work")
 	}
 	update := llm.Update{Enabled: true, Protocol: "chat-completions", BaseURL: provider.URL, Model: "test-model", TimeoutSeconds: 5, MaxOutputTokens: 1024}
-	if _, err := settings.Save(update, settings.Public().Version); err != nil {
+	if _, err := settings.Save(update, agentPublicVersion(t, settings)); err != nil {
 		t.Fatal(err)
 	}
 	run, err := runner.RunOnce(context.Background(), "audit-1")
@@ -59,10 +59,19 @@ func TestModelRuntimeUsesOrchestratorFeedbackAndLiveSettings(t *testing.T) {
 		t.Fatalf("model run failed: %+v %v", run, err)
 	}
 	update.Enabled = false
-	if _, err := settings.Save(update, settings.Public().Version); err != nil {
+	if _, err := settings.Save(update, agentPublicVersion(t, settings)); err != nil {
 		t.Fatal(err)
 	}
 	if runner.Ready() == nil {
 		t.Fatal("disabled settings did not apply live")
 	}
+}
+
+func agentPublicVersion(t *testing.T, settings *llm.Manager) string {
+	t.Helper()
+	public, err := settings.Public()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return public.Version
 }

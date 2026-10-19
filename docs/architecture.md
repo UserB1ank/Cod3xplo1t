@@ -8,10 +8,11 @@ described below. The design prototype is available at `/prototype/` after buildi
 
 The implemented PostgreSQL execution profile is documented in
 [postgres-catalog.md](postgres-catalog.md). It persists catalog/graph/publication state,
-tasks and paths, workflows, Agent/verification runs and events, findings, evidence and
-report indexes. Database-clock leases and monotonic epochs fence independent workers.
-Content files, accounts, sessions and model settings remain in the workspace; shared
-authentication and settings are tracked by #18.
+tasks and paths, workflows, Agent/verification runs and events, findings, evidence,
+report indexes, account digests, revocable sessions and encrypted model settings.
+Database-clock leases and monotonic epochs fence independent workers. Content files
+remain in the workspace; model-settings ciphertext is decrypted with an independent
+deployment key file.
 
 How the implemented system is put together: the pipeline, what each package is
 responsible for, what is stored where, which way dependencies point, and where
@@ -86,7 +87,9 @@ agent's internal reasoning is. See [`agent-runtime.md`](agent-runtime.md).
 | `internal/findings` | Versioned rule-family fingerprints, plugin observation ledger, candidate/confirmed statistics and reason-bearing severity audit | never lets an observation become `confirmed`, never merges on title alone, never recomputes a stored fingerprint | `internal/verify`, `internal/storage`, `internal/workflowexec`, `internal/api` |
 | `internal/schedule` | P7 scheduler: the resident loop that reclaims expired leases, dispatches due paths under a concurrency budget, defers failures with a durable backoff, and exposes the metrics this layer owns | never dispatch a path it does not hold a lease on, never retry a cancelled path, never busy-loop, never widen a run's policy | `internal/app`, `internal/api`, `cmd` |
 | `internal/path` | P4 AuditPath engine: bounded candidate enumeration, exact dedup by canonical edge sequence, approximate clustering, versioned scoring with a stored feature snapshot, the state machine, the marginal-coverage picker and the audit service | never claim dataflow, never make a path without evidence refs, never write an illegal transition, never let a score lose its version or its reasons | `internal/app`, `internal/storage` (implements `path.Store`), `internal/graph` (provides the readers) |
-| `internal/storage` | Persistence: `Store` (projects, snapshots, manifests), `GraphStore` (SCG documents, relationally), `ASGStore` (attack-surface documents), `AuditStore` (audits, paths, score snapshots, events; an alias of `path.Store`), `IdempotencyStore` (durable write claims), the migration runner, in-memory and `database/sql` implementations | never choose a driver (the caller passes one), never interpret an artifact beyond comparing identity, never overwrite an immutable record with different content | `internal/app`; through `app.Runtime`, `internal/api`, `internal/mcp` |
+| `internal/storage` | Persistence: `Store` (projects, snapshots, manifests), `GraphStore` (SCG documents, relationally), `ASGStore` (attack-surface documents), `AuditStore` (audits, paths, score snapshots, events; an alias of `path.Store`), `IdempotencyStore` (durable write claims), `access.Repository` (account digest, sessions, rate limits), `llm.Repository` (encrypted settings CAS), the migration runner, in-memory and `database/sql` implementations | never choose a driver (the caller passes one), never interpret an artifact beyond comparing identity, never overwrite an immutable record with different content | `internal/app`; through `app.Runtime`, `internal/api`, `internal/mcp` |
+| `internal/access` | Administrator account validation, PBKDF2 digests, revocable sessions and login rate limits; workspace-file mode for SQLite/memory and a shared repository mode for PostgreSQL | never persist a plaintext password or raw peer address; never confuse a repository outage with invalid credentials | `cmd/server`, `internal/api` |
+| `internal/llm` | Encrypted model settings (workspace file or shared ciphertext), installation-key loading, CAS versions, OpenAI-compatible clients and the real connection test | never return the API key or installation key through a public value; never reset ciphertext when the key is missing | `internal/app`, `internal/api`, `internal/agent` |
 | `internal/api` | REST adapter: routing, request decoding and body limits, capability-based authentication, `Idempotency-Key` handling, ETag/If-Match, JSON error mapping | contains no analysis logic and no driver choice; never exposes a route without a capability rule | `cmd/server` |
 | `internal/mcp` | MCP adapter: nine read-only graph tools, argument validation, error classification, provenance block | no writes, no shell, no arbitrary file access, no free-form query language | `cmd/mcp` |
 | `internal/app` | Composition root: the single place where the SQLite driver, the migration set, the frontends, the store, the graph service, the attack-surface service and the path engine are chosen and wired | must stay free of HTTP and CLI concerns | `cmd/cli`, `cmd/server`, `cmd/mcp` |
@@ -187,6 +190,7 @@ The rules behind that order:
 | `DBPath` | `""` or `memory` selects the in-process store, any other value a SQLite file (its directory is created, the schema is migrated) |
 | `StorageDriver` | empty / `sqlite` retains the complete runtime; `postgres` selects the wired execution profile and rejects a simultaneous `DBPath` |
 | `PostgresDSNFile` | runtime credential file required for `postgres`; connection and migration failures stop startup without a SQLite fallback |
+| `SettingsKeyFile` | independent installation key for encrypted PostgreSQL model settings; SQLite and memory keep the workspace `settings.key` |
 | `AllowNetwork` | forwarded to the repository manager: remote git URLs are refused without it |
 | `GitBin` | overrides the git executable |
 | `Freeze` | `*bool`; the tree is made read-only unless a caller explicitly disables it |

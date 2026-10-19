@@ -16,12 +16,15 @@ const capabilityNames: Record<string, string> = {
   findings: "发现分组与分级审计",
   workflows: "工作流与执行恢复",
   reports: "固定版本报告",
+  identity: "账号与会话",
+  settings: "加密模型设置",
 };
 const locationNames: Record<string, string> = {
   catalog: "结构化业务状态",
   artifact_content: "产物内容",
   accounts: "账号与会话",
   model_settings: "模型设置",
+  settings_key: "安装加密密钥",
 };
 const driverNames = {
   postgres: "PostgreSQL",
@@ -123,7 +126,7 @@ export function Storage({
           {status.profile !== "complete" && (
             <Hint>
               {status.profile === "execution"
-                ? "PostgreSQL 已接通任务、工作流、发现、证据与报告。执行领取使用数据库租约与栅栏；账号、会话、模型设置和产物内容仍由应用工作区管理，共享认证与设置尚未接线。"
+                ? "PostgreSQL 已接通任务、工作流、发现、证据、报告、账号会话与加密模型设置。执行领取、登录会话和设置 CAS 都由共享数据库协调；安装密钥来自独立部署密钥文件，只备份数据库无法解密模型设置。产物内容仍保存在应用工作区。"
                 : "PostgreSQL 已接通目录、直接插件分析、固定图谱与多来源发布。任务、工作流、发现分级和报告尚未接线，对应操作会被拒绝。"}
             </Hint>
           )}
@@ -152,17 +155,18 @@ export function Storage({
                     <dd>
                       {location === "workspace"
                         ? "应用工作区"
-                        : driverNames[location as keyof typeof driverNames] ||
-                          location}
+                        : location === "external_file"
+                          ? "独立部署密钥文件"
+                          : driverNames[location as keyof typeof driverNames] ||
+                            location}
                     </dd>
                   </div>
                 ))}
               </dl>
               <Hint>
-                账号、会话和模型设置继续由应用工作区管理。
-                {status.profile !== "complete" &&
-                  "当前 PostgreSQL 模式仅用于单应用实例。"}
-                产物内容保留在工作区，目录保存不可变索引。
+                账号、会话与模型设置在 PostgreSQL 模式下使用共享数据库；安装密钥必须由部署侧独立提供并与备份分开保存。
+                认证与设置可在多个实例间共享，但产物内容仍位于应用工作区，完整多实例部署还需要共享产物存储。
+                目录保存不可变索引，模型设置只保存密文。
               </Hint>
             </Panel>
           </div>

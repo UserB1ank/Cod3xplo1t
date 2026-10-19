@@ -25,7 +25,11 @@ func (s *Server) handleLLMSettings(w http.ResponseWriter, r *http.Request) {
 	if s.llmUnavailable(w) {
 		return
 	}
-	public := s.LLMSettings.Public()
+	public, err := s.LLMSettings.Public()
+	if err != nil {
+		writeLLMError(w, err)
+		return
+	}
 	w.Header().Set("ETag", `"`+public.Version+`"`)
 	writeJSON(w, http.StatusOK, public)
 }
@@ -80,9 +84,16 @@ func (s *Server) handleTestLLMSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 func writeLLMError(w http.ResponseWriter, err error) {
-	if errors.Is(err, llm.ErrConflict) {
+	switch {
+	case errors.Is(err, llm.ErrConflict):
 		writeError(w, http.StatusPreconditionFailed, "settings_conflict", err)
-		return
+	case errors.Is(err, llm.ErrKeyUnavailable), errors.Is(err, llm.ErrDecrypt):
+		w.Header().Set("Cache-Control", "no-store")
+		writeError(w, http.StatusServiceUnavailable, "settings_unavailable", err)
+	case errors.Is(err, llm.ErrRepositoryUnavailable):
+		w.Header().Set("Cache-Control", "no-store")
+		writeError(w, http.StatusServiceUnavailable, "settings_unavailable", errors.New("模型设置暂不可用，请检查共享设置存储连接"))
+	default:
+		writeError(w, http.StatusBadRequest, "invalid_settings", err)
 	}
-	writeError(w, http.StatusBadRequest, "invalid_settings", err)
 }

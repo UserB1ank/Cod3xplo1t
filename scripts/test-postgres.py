@@ -17,15 +17,17 @@ def main():
         (fixture / "dsn").write_text(
             "postgres://catalog:" + password + "@postgres:5432/codexploit?sslmode=disable"
         )
+        (fixture / "settings-key").write_text(secrets.token_hex(32))
         # Compose file-backed secrets are bind mounts. Container users need
         # read access; the host's temporary parent directory remains private.
-        for name in ("password", "dsn"):
+        for name in ("password", "dsn", "settings-key"):
             (fixture / name).chmod(0o444)
         (fixture / "sources").mkdir()
         environment = dict(os.environ)
         environment.update({
             "CODEXPLOIT_POSTGRES_PASSWORD_FILE": str(fixture / "password"),
             "CODEXPLOIT_POSTGRES_DSN_FILE": str(fixture / "dsn"),
+            "CODEXPLOIT_SETTINGS_KEY_FILE": str(fixture / "settings-key"),
             "CODEXPLOIT_SOURCE_ROOT": str(fixture / "sources"),
         })
         command = ["docker", "compose", "--project-name", project,

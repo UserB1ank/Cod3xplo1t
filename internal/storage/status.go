@@ -27,13 +27,14 @@ func StorageCapabilities(_ Store) map[string]bool {
 	return map[string]bool{
 		"projects": true, "sources": true, "snapshots": true, "artifacts": true, "inventory": true,
 		"knowledge": true, "plugins": true, "tasks": true, "findings": true, "workflows": true, "reports": true,
+		"identity": true, "settings": true,
 	}
 }
 
 // ProbeStatus checks connectivity and the business columns actually used by
 // supported operations. A live connection alone does not prove schema readiness.
 func ProbeStatus(ctx context.Context, store Store) Status {
-	result := Status{APIVersion: "codexploit/v1", Driver: "memory", Profile: "complete", Readiness: "ready", SchemaVersion: "memory", Capabilities: StorageCapabilities(store), Locations: map[string]string{"catalog": "memory", "artifact_content": "workspace", "accounts": "workspace", "model_settings": "workspace"}}
+	result := Status{APIVersion: "codexploit/v1", Driver: "memory", Profile: "complete", Readiness: "ready", SchemaVersion: "memory", Capabilities: StorageCapabilities(store), Locations: map[string]string{"catalog": "memory", "artifact_content": "workspace", "accounts": "workspace", "model_settings": "workspace", "settings_key": "workspace"}}
 	if store == nil {
 		result.Readiness = "unavailable"
 		return result
@@ -47,6 +48,9 @@ func ProbeStatus(ctx context.Context, store Store) Status {
 	if s.postgres {
 		result.Driver, result.Profile = "postgres", "execution"
 		result.Locations["catalog"] = "postgres"
+		result.Locations["accounts"] = "postgres"
+		result.Locations["model_settings"] = "postgres"
+		result.Locations["settings_key"] = "external_file"
 	}
 	result.SchemaVersion = "unknown"
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
@@ -93,6 +97,10 @@ func ProbeStatus(ctx context.Context, store Store) Status {
 		`SELECT observation_id,content_hash FROM finding_observations LIMIT 0`,
 		`SELECT audit_id,version FROM finding_severity_audits LIMIT 0`,
 		`SELECT run_id,version FROM workflow_runs LIMIT 0`,
+		`SELECT singleton,username FROM identity_account LIMIT 0`,
+		`SELECT token_hash,expires_at FROM identity_sessions LIMIT 0`,
+		`SELECT peer_hash,count FROM identity_login_attempts LIMIT 0`,
+		`SELECT singleton,version FROM llm_settings LIMIT 0`,
 	} {
 		rows, err := s.db.QueryContext(ctx, query)
 		if err != nil {

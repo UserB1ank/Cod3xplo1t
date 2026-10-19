@@ -23,7 +23,7 @@ func TestEncryptedSettingsPersistAndProtectRetainedCredentials(t *testing.T) {
 		t.Fatal(err)
 	}
 	update := testUpdate()
-	public, err := m.Save(update, m.Public().Version)
+	public, err := m.Save(update, publicVersion(t, m))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,13 +84,13 @@ func TestSettingsConcurrentReadsAndSave(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for range 50 {
-				_ = m.Public()
+				_, _ = m.Public()
 				_, _ = m.Current()
 			}
 		}()
 	}
 	for range 5 {
-		if _, err := m.Save(testUpdate(), m.Public().Version); err != nil {
+		if _, err := m.Save(testUpdate(), publicVersion(t, m)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -106,7 +106,7 @@ func TestSettingsRejectInvalidURLsAndCorruption(t *testing.T) {
 		}
 		u := testUpdate()
 		u.BaseURL = endpoint
-		if _, err := m.Save(u, m.Public().Version); err == nil {
+		if _, err := m.Save(u, publicVersion(t, m)); err == nil {
 			t.Fatal("accepted unsafe URL")
 		}
 	}
@@ -115,7 +115,7 @@ func TestSettingsRejectInvalidURLsAndCorruption(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := m.Save(testUpdate(), m.Public().Version); err != nil {
+	if _, err := m.Save(testUpdate(), publicVersion(t, m)); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "llm.enc"), []byte("corrupt"), 0600); err != nil {
@@ -124,4 +124,13 @@ func TestSettingsRejectInvalidURLsAndCorruption(t *testing.T) {
 	if _, err := Open(dir); err == nil {
 		t.Fatal("silently accepted corrupt settings")
 	}
+}
+
+func publicVersion(t *testing.T, m *Manager) string {
+	t.Helper()
+	public, err := m.Public()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return public.Version
 }

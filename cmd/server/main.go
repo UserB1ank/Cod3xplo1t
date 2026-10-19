@@ -21,8 +21,8 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/api"
 	"github.com/open-mcp-ai/Codexploit/internal/app"
 	"github.com/open-mcp-ai/Codexploit/internal/graph"
-	"github.com/open-mcp-ai/Codexploit/internal/llm"
 	pathpkg "github.com/open-mcp-ai/Codexploit/internal/path"
+	"github.com/open-mcp-ai/Codexploit/internal/storage"
 	"github.com/open-mcp-ai/Codexploit/internal/webui"
 )
 
@@ -54,6 +54,7 @@ func run() error {
 		dbPath          = flag.String("db", "", "SQLite database file (default <workspace>/codexploit.db, \"memory\" for an in-process store)")
 		storageDriver   = flag.String("storage", "sqlite", "storage profile: sqlite or postgres")
 		postgresDSNFile = flag.String("postgres-dsn-file", "", "runtime PostgreSQL credential file; never put a DSN in arguments")
+		settingsKeyFile = flag.String("settings-key-file", "", "independent installation key for encrypted PostgreSQL model settings")
 		allowNetwork    = flag.Bool("allow-network", false, "permit cloning remote git URLs")
 		gitBin          = flag.String("git", "git", "git executable")
 		gitCAFile       = flag.String("git-ca-file", "", "deployment-owned HTTPS CA bundle for Git")
@@ -132,13 +133,6 @@ func run() error {
 	if *webAuth && *anonymous {
 		return errors.New("--web-auth cannot be combined with --insecure-anonymous")
 	}
-	var accounts *access.Manager
-	if *webAuth {
-		accounts, err = access.Open(filepath.Join(absWorkspace, "auth"))
-		if err != nil {
-			return fmt.Errorf("open workspace accounts: %w", err)
-		}
-	}
 	var auth *api.Authenticator
 	if *webAuth && len(apiTokens) == 0 && strings.TrimSpace(os.Getenv("CODEXPLOIT_API_TOKENS")) == "" {
 		auth, err = api.NewAuthenticator(nil)
@@ -148,26 +142,18 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	var modelSettings *llm.Manager
-	if strings.EqualFold(strings.TrimSpace(*agentRuntime), app.AgentRuntimeLLM) {
-		modelSettings, err = llm.Open(filepath.Join(absWorkspace, "settings"))
-		if err != nil {
-			return fmt.Errorf("open model settings: %w", err)
-		}
-	}
-
 	rt, err := app.Build(ctx, app.Config{
 		Workspace:          absWorkspace,
 		DBPath:             path,
 		StorageDriver:      *storageDriver,
 		PostgresDSNFile:    *postgresDSNFile,
+		SettingsKeyFile:    *settingsKeyFile,
 		AllowNetwork:       *allowNetwork,
 		GitBin:             *gitBin,
 		GitCAFile:          *gitCAFile,
 		GitCredentialFiles: credentialFiles,
 		PluginPackages:     *pluginPackages,
 		Agent: app.AgentConfig{
-			ModelSettings:      modelSettings,
 			Enabled:            !strings.EqualFold(strings.TrimSpace(*agentRuntime), app.AgentRuntimeDisabled),
 			Runtime:            *agentRuntime,
 			Command:            agentCommand,
@@ -214,6 +200,30 @@ func run() error {
 	}
 	defer rt.Close()
 
+	var accounts *access.Manager
+	if *webAuth {
+		if repo, ok := storage.IdentityRepository(rt.Store); ok && storage.IsPostgres(rt.Store) {
+			accounts, err = access.OpenRepository(repo)
+			if err == nil {
+				imported, importErr := access.ImportLegacyAccount(filepath.Join(absWorkspace, "auth"), repo)
+				if importErr != nil {
+					logger.Warn("could not import the workspace account into PostgreSQL", "error", importErr)
+				} else if imported {
+					logger.Info("imported the workspace administrator account into PostgreSQL")
+				}
+			}
+		} else {
+			accounts, err = access.Open(filepath.Join(absWorkspace, "auth"))
+		}
+		if err != nil {
+			return fmt.Errorf("open account store: %w", err)
+		}
+	}
+	if rt.LLMSettings != nil && rt.LLMSettings.Unavailable() != nil {
+		logger.Warn("model settings are unavailable; model runs stay paused until the installation key is restored",
+			"hint", "pass --settings-key-file with a deployment secret")
+	}
+
 	if rt.Agent == nil {
 		logger.Info("agent disabled; run and hypothesis routes answer 501",
 			"hint", "pass --agent-runtime scripted (with --agent-scripted-answer) or --agent-runtime cli --agent-command <binary>")
@@ -248,7 +258,7 @@ func run() error {
 		api.WithASGBuilder(rt.ASGBuilder),
 		api.WithAudit(rt.Audit),
 		api.WithAgent(rt.Agent),
-		api.WithLLMSettings(modelSettings),
+		api.WithLLMSettings(rt.LLMSettings),
 		api.WithVerifier(rt.Verifier),
 		api.WithVerifyPlanner(rt.VerifyPlanner),
 		api.WithScheduler(rt.Scheduler),

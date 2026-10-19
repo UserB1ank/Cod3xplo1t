@@ -28,7 +28,16 @@ func sameOrigin(r *http.Request) bool {
 
 func (s *Server) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusOK, map[string]bool{"password_login": s.Accounts != nil, "setup_required": s.Accounts != nil && !s.Accounts.Configured()})
+	configured := false
+	if s.Accounts != nil {
+		value, err := s.Accounts.Configured()
+		if err != nil {
+			identityUnavailable(w, err)
+			return
+		}
+		configured = value
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"password_login": s.Accounts != nil, "setup_required": s.Accounts != nil && !configured})
 }
 
 func (s *Server) handleAccountLogin(setup bool) http.HandlerFunc {
@@ -77,7 +86,10 @@ func (s *Server) handleAccountLogout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if cookie, err := r.Cookie(sessionCookie); err == nil && s.Accounts != nil {
-		s.Accounts.Logout(cookie.Value)
+		if err := s.Accounts.Logout(cookie.Value); err != nil {
+			identityUnavailable(w, err)
+			return
+		}
 	}
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Path: "/api", HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: -1})
 	w.Header().Set("Cache-Control", "no-store")
@@ -86,14 +98,25 @@ func (s *Server) handleAccountLogout(w http.ResponseWriter, r *http.Request) {
 
 func accountError(w http.ResponseWriter, err error, setup bool) {
 	switch {
+	case errors.Is(err, access.ErrUnavailable):
+		identityUnavailable(w, err)
 	case errors.Is(err, access.ErrRateLimited):
 		w.Header().Set("Retry-After", "60")
 		writeError(w, http.StatusTooManyRequests, "login_rate_limited", err)
 	case errors.Is(err, access.ErrAlreadyConfigured):
 		writeError(w, http.StatusConflict, "account_exists", err)
+	case errors.Is(err, access.ErrTooManySessions):
+		writeError(w, http.StatusConflict, "session_limit", err)
 	case setup:
 		writeError(w, http.StatusBadRequest, "account_setup_failed", err)
 	default:
 		writeError(w, http.StatusUnauthorized, "invalid_credentials", access.ErrInvalidCredentials)
 	}
+}
+
+// identityUnavailable keeps repository failures distinct from bad credentials:
+// a caller must not be told to retry a password when the shared store is down.
+func identityUnavailable(w http.ResponseWriter, err error) {
+	w.Header().Set("Cache-Control", "no-store")
+	writeError(w, http.StatusServiceUnavailable, "identity_unavailable", access.ErrUnavailable)
 }

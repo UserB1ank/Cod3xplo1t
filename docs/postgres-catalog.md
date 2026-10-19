@@ -1,6 +1,6 @@
-# PostgreSQL 执行模式（Issue #15 / #16 / #17）
+# PostgreSQL 执行模式（Issue #15 / #16 / #17 / #18）
 
-这是使用独立 PostgreSQL 容器的实验部署。业务执行可通过数据库租约协调多个 worker；现有账号、会话和模型设置尚未共享，正式 Compose 仍部署一个应用实例。默认 `compose.yaml` 仍使用完整 SQLite 模式，已有数据卷不变。本模式不会回退或双写 SQLite，也不迁移已有 SQLite 数据。
+这是使用独立 PostgreSQL 容器的实验部署。业务执行可通过数据库租约协调多个 worker；账号摘要、可撤销会话、登录限流和加密模型设置现在保存在共享数据库中，因此两个应用实例看到相同的登录与设置状态。默认 `compose.yaml` 仍使用完整 SQLite 模式，已有数据卷不变。本模式不会回退或双写 SQLite，也不迁移已有 SQLite 数据。
 
 ## 已接通的操作
 
@@ -12,11 +12,13 @@
 - 从已完成调用发布共享知识版本；原生 SCG / ASG / 候选路径索引、直接分析元数据、版本、批次索引和 outbox 同事务提交。相同批次重放返回原版本，不同内容冲突；并发发布使用 head CAS。
 - 正式图谱页按固定视图分页查看符号、节点、候选路径、源码和来源；共享知识版本保留同一事实的多个插件观察。直接分析以 invocation 标识，不能冒充执行任务。
 - 创建并持久化任务组织、路径队列、Agent / 验证运行、连续事件、发现与证据、工作流版本 / 计划 / 运行 / 节点。正式任务页支持暂停、继续、取消和重试，漏洞库支持带原因的分级审计，报告保存固定版本内容并提供授权下载。
-- 应用和数据库容器重建后保留任务、事件、证据、版本与 ID。快照、产物内容、账号和模型设置仍保存在应用工作区卷；PostgreSQL 保存结构化业务状态。
+- 保存管理员账号摘要、登录会话、退出撤销状态和登录限流窗口；一个实例登录后另一个实例可验证，退出后跨实例立即失效，容器重建后会话仍按原到期时间有效。
+- 将模型设置密文和生效版本存入 `llm_settings`，使用安装密钥文件加解密。设置 CAS、ETag 与工作流运行固定记录使用同一版本；缺失或错误的密钥明确返回不可用，不重置已保存密文。
+- 应用和数据库容器重建后保留任务、事件、证据、版本与 ID。快照与产物内容仍保存在应用工作区卷；PostgreSQL 保存结构化业务状态、账号、会话和加密模型设置。首次启用共享账号或模型设置时，应用会把已有工作区 `auth/account.json` 导入数据库一次，并用安装密钥把 `settings/llm.enc` 重新加密后导入一次；数据库已有对应记录时不会覆盖。
 
 基础源码识别和内置分析不执行目标的 build、test、hook 或安装脚本。外部插件仅登记不代表执行器已安装，以插件目录的 executable 能力为准。模型未配置、验证执行器不可用或产物缺失时返回真实错误，不能由存储 readiness 推断执行器可用。
 
-账号、会话、加密模型设置和产物文件仍沿用现有工作区实现；共享认证与设置由 #18 接入。双 worker 集成测试覆盖共享业务数据库下的执行竞争，不代表多个公开应用实例已具备完整的共享登录和文件部署能力。
+账号、会话与加密模型设置在 PostgreSQL 模式使用共享数据库；安装密钥不在数据库中，必须由部署侧通过独立文件提供。产物内容仍保存在应用工作区，因此完整多实例部署还需要共享该卷或接入后续独立产物服务；当前双 worker 与双实例测试证明认证、会话撤销、设置 CAS 和执行栅栏语义，不表示所有文件型数据已可跨主机共享。
 
 ## worker 租约与恢复
 
@@ -32,12 +34,14 @@
 
 - 数据库密码，供官方 PostgreSQL 镜像的 `POSTGRES_PASSWORD_FILE` 读取。
 - PostgreSQL URL，供应用的 `--postgres-dsn-file` 读取。地址为 Compose 服务名 `postgres:5432`、数据库 `codexploit`、用户 `catalog`；密码与第一个文件一致。内部容器网络可使用 `sslmode=disable`；外部部署须按自己的 TLS 策略配置。
+- 安装密钥文件，供应用的 `--settings-key-file` 读取。文件内容为 64 位十六进制或 32 字节原始密钥，生成示例：`openssl rand -hex 32 > /runtime-secrets/settings-key`。所有应用实例必须使用同一个文件；丢失它会使已保存的模型设置无法解密。
 
 通过环境变量传入**文件路径**与只读代码根目录，不将凭据写入命令行、Compose 或 `.env`。文件必须允许容器用户读取（Compose 的文件 secret 使用只读 bind mount），父目录保持私有。
 
 ```sh
 export CODEXPLOIT_POSTGRES_PASSWORD_FILE=/runtime-secrets/postgres-password
 export CODEXPLOIT_POSTGRES_DSN_FILE=/runtime-secrets/postgres-dsn
+export CODEXPLOIT_SETTINGS_KEY_FILE=/runtime-secrets/settings-key
 export CODEXPLOIT_SOURCE_ROOT=/srv/source-inputs
 docker compose -p codexploit-catalog -f compose.postgres.yaml up -d --build
 ```
@@ -46,13 +50,13 @@ docker compose -p codexploit-catalog -f compose.postgres.yaml up -d --build
 
 首次在页面设置管理员账号后，可创建项目和代码源、固定快照、查看和下载产物；在工作流页编译真实计划后，可从任务页执行并查看运行及控制。在“插件中心”依次运行 Go 解析、语义与路径插件，选择明确的上游调用，完成后点击“发布到共享图谱”；部分覆盖结果会明确标注。进入“共享知识图谱”查看固定图层和共享知识版本。管理员侧栏“数据存储”实时展示驱动、执行模式、迁移版本、readiness、实际能力及数据保存位置。模型设置继续在程序内管理。Compose 开启任务调度器并加载镜像内固定扫描器包；验证执行器默认 `unsupported`，没有可用环境时明确返回阻塞结果。
 
-停止服务使用相同项目名与文件执行 `docker compose ... down`；保留数据时不要加 `--volumes`。重建仅应用容器使用 `docker compose ... up -d --force-recreate codexploit`，业务状态保留在 PostgreSQL 卷中。
+停止服务使用相同项目名与文件执行 `docker compose ... down`；保留数据时不要加 `--volumes`。重建仅应用容器使用 `docker compose ... up -d --force-recreate codexploit`，业务状态、账号、会话和模型密文保留在 PostgreSQL 卷中；安装密钥仍在仓库外文件，必须单独备份。
 
 ## 状态与失败语义
 
 `GET /api/v1/storage/status` 需要 admin 权限，响应受 `contracts/v1/storage-status.schema.json` 校验，且 `Cache-Control: no-store`。已接线业务的数据库连接和必要列探测成功时返回 200；断连、取消或结构缺失时返回带 `readiness: unavailable` 的 503。readiness 只代表声明的存储模式，不代表未接线功能、每个产物内容或外部执行器可用。
 
-响应只含固定枚举、能力布尔值和迁移版本；不返回 DSN、数据库地址、用户名、凭据文件路径、工作区路径或驱动原始错误。读者可通过 `/api/me` 的 `features` 获得功能开关，不能查看管理员状态接口。PostgreSQL 连接或迁移失败会终止启动，不创建备用 SQLite 文件。
+响应只含固定枚举、能力布尔值和迁移版本；不返回 DSN、数据库地址、用户名、凭据文件路径、安装密钥路径、工作区路径或驱动原始错误。PostgreSQL 模式下 `accounts` 与 `model_settings` 显示 `postgres`，`settings_key` 显示 `external_file`；`identity` 与 `settings` 能力表示已接线。读者可通过 `/api/me` 的 `features` 获得功能开关，不能查看管理员状态接口。PostgreSQL 连接或迁移失败会终止启动，不创建备用 SQLite 文件；安装密钥缺失或错误不会终止其他业务，但模型设置返回 503 `settings_unavailable`。
 
 迁移使用独立目录 `migrations/postgres/`。应用先在同一事务与连接中取得 PostgreSQL advisory transaction lock，再创建迁移表、读取版本、执行 DDL 与写入版本；失败整体回滚，连接断开或事务结束自动释放锁。多个应用同时启动不会重复应用迁移。参考 [PostgreSQL 16 锁文档](https://www.postgresql.org/docs/16/explicit-locking.html#ADVISORY-LOCKS)。
 
@@ -76,4 +80,4 @@ make test-postgres
 go test ./internal/storage ./internal/api -run '^TestPostgres' -race -shuffle=on -count=1 -timeout 240s
 ```
 
-测试覆盖双 worker 服务端时钟与 epoch 栅栏、真实会话断连回滚、Serializable 并发重试、远端控制、发布后中断恢复、证据和报告授权。每个用例创建独立临时 schema，结束后删除；测试身份需有建 schema 权限。常规三平台 `make test` 不需要外部服务，继续覆盖完整 SQLite / Memory 模式，显式跳过 PostgreSQL 用例。
+测试覆盖双 worker 服务端时钟与 epoch 栅栏、真实会话断连回滚、Serializable 并发重试、远端控制、发布后中断恢复、证据和报告授权，以及账号 / 会话跨实例撤销、登录限流、设置 CAS、重建解密和密钥缺失 / 错误。每个用例创建独立临时 schema，结束后删除；测试身份需有建 schema 权限。常规三平台 `make test` 不需要外部服务，继续覆盖完整 SQLite / Memory 模式，显式跳过 PostgreSQL 用例。

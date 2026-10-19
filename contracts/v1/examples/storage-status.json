@@ -4,7 +4,7 @@
   "profile": "execution",
   "readiness": "ready",
   "durable": true,
-  "schema_version": "0004",
+  "schema_version": "0006",
   "capabilities": {
     "projects": true,
     "sources": true,
@@ -16,12 +16,15 @@
     "tasks": true,
     "findings": true,
     "workflows": true,
-    "reports": true
+    "reports": true,
+    "identity": true,
+    "settings": true
   },
   "locations": {
     "catalog": "postgres",
     "artifact_content": "workspace",
-    "accounts": "workspace",
-    "model_settings": "workspace"
+    "accounts": "postgres",
+    "model_settings": "postgres",
+    "settings_key": "external_file"
   }
 }

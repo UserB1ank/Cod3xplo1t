@@ -535,3 +535,22 @@ func TestBuildInstallsADeploymentProcessPackage(t *testing.T) {
 		t.Fatal("scanner adapter input contract was not wired into the workflow compiler")
 	}
 }
+
+func TestBuildWiresWorkspaceModelSettingsForSQLite(t *testing.T) {
+	t.Parallel()
+	rt, err := Build(context.Background(), Config{
+		Workspace: t.TempDir(),
+		DBPath:    "memory",
+		Agent:     AgentConfig{Enabled: true, Runtime: AgentRuntimeLLM},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { rt.Close() })
+	if rt.LLMSettings == nil || rt.AgentConfig.ModelSettings != rt.LLMSettings {
+		t.Fatal("SQLite LLM runtime did not open the workspace model settings")
+	}
+	if rt.LLMSettings.Unavailable() != nil {
+		t.Fatalf("fresh workspace settings unavailable: %v", rt.LLMSettings.Unavailable())
+	}
+}

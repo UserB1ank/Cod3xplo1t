@@ -89,6 +89,10 @@ type Config struct {
 	// PluginPackages is a deployment-managed directory of verified process
 	// plugin packages. It is empty when no external package is installed.
 	PluginPackages string
+	// SettingsKeyFile is the independent installation key used to decrypt the
+	// model settings stored in PostgreSQL. SQLite and memory keep the workspace
+	// settings.key and ignore it.
+	SettingsKeyFile string
 }
 
 // SchedulerConfig describes the resident scheduler of a deployment.
@@ -238,8 +242,12 @@ type Runtime struct {
 	Metrics *schedule.Metrics
 	// SchedulerConfig is the configuration the scheduler was wired from.
 	SchedulerConfig SchedulerConfig
-	Workspace       string
-	closers         []func() error
+	// LLMSettings is the model-settings manager exposed to the API. PostgreSQL
+	// stores ciphertext in the shared database; SQLite and memory keep the
+	// workspace files. It is non-nil only when the LLM runtime is enabled.
+	LLMSettings *llm.Manager
+	Workspace   string
+	closers     []func() error
 }
 
 // Build constructs a runtime, applying migrations when a SQL database is used.
@@ -321,6 +329,11 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 			store.Close()
 			return nil, err
 		}
+		if err := rt.wireModelSettings(cfg.SettingsKeyFile); err != nil {
+			rt.Close()
+			store.Close()
+			return nil, err
+		}
 		for _, wire := range []func() error{
 			func() error { return rt.wireAgent(rt.AgentConfig) },
 			func() error { return rt.wireVerification(rt.VerificationConfig) },
@@ -351,6 +364,9 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 			return nil, err
 		}
 		if err := rt.wirePlugins(executors); err != nil {
+			return nil, err
+		}
+		if err := rt.wireModelSettings(cfg.SettingsKeyFile); err != nil {
 			return nil, err
 		}
 		if err := rt.wireAgent(rt.AgentConfig); err != nil {
@@ -392,6 +408,10 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 		sqlStore.Close()
 		return nil, err
 	}
+	if err := rt.wireModelSettings(cfg.SettingsKeyFile); err != nil {
+		sqlStore.Close()
+		return nil, err
+	}
 	if err := rt.wireAgent(rt.AgentConfig); err != nil {
 		sqlStore.Close()
 		return nil, err
@@ -409,6 +429,50 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 	}
 	rt.closers = append(rt.closers, sqlStore.Close)
 	return rt, nil
+}
+
+// wireModelSettings opens the model settings before the agent runtime is built.
+// PostgreSQL uses the shared SettingsRepository and an independent installation
+// key file; SQLite and memory keep the existing workspace files. A missing or
+// invalid key leaves the manager in an explicit unavailable state instead of
+// failing the whole server or resetting saved ciphertext.
+func (r *Runtime) wireModelSettings(keyFile string) error {
+	if r.AgentConfig.ModelSettings != nil {
+		r.LLMSettings = r.AgentConfig.ModelSettings
+		return nil
+	}
+	if !r.AgentConfig.Enabled || !strings.EqualFold(strings.TrimSpace(r.AgentConfig.Runtime), AgentRuntimeLLM) {
+		return nil
+	}
+	if repo, ok := storage.SettingsRepository(r.Store); ok && storage.IsPostgres(r.Store) {
+		key, err := llm.LoadInstallationKey(keyFile)
+		if err != nil {
+			r.LLMSettings = llm.NewUnavailableRepository(repo, err)
+			slog.Warn("model settings are unavailable",
+				"reason", "the installation key file is missing or invalid",
+				"hint", "pass --settings-key-file with a deployment secret")
+		} else {
+			settings, err := llm.NewRepository(repo, key)
+			if err != nil {
+				return err
+			}
+			r.LLMSettings = settings
+			imported, importErr := llm.ImportLegacySettings(context.Background(), repo, filepath.Join(r.Workspace, "settings"), key)
+			if importErr != nil {
+				slog.Warn("could not import the workspace model settings into PostgreSQL", "error", importErr)
+			} else if imported {
+				slog.Info("imported the workspace model settings into PostgreSQL")
+			}
+		}
+	} else {
+		settings, err := llm.Open(filepath.Join(r.Workspace, "settings"))
+		if err != nil {
+			return fmt.Errorf("open workspace model settings: %w", err)
+		}
+		r.LLMSettings = settings
+	}
+	r.AgentConfig.ModelSettings = r.LLMSettings
+	return nil
 }
 
 func (r *Runtime) wirePlugins(executors []plugin.Executor) error {

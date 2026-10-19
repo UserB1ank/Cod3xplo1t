@@ -35,6 +35,7 @@ services:
       - --workspace=/data
       - --storage=postgres
       - --postgres-dsn-file=/run/secrets/postgres_dsn
+      - --settings-key-file=/run/secrets/settings_key
       - --web-auth
       - --agent-runtime=llm
       - --scheduler
@@ -43,6 +44,7 @@ services:
       - --allow-network=${CODEXPLOIT_ALLOW_NETWORK:-false}
     secrets:
       - postgres_dsn
+      - settings_key
     volumes:
       - catalog-workspace:/data
       - type: bind
@@ -96,3 +98,5 @@ secrets:
     file: ${CODEXPLOIT_POSTGRES_PASSWORD_FILE:?provide a runtime password file}
   postgres_dsn:
     file: ${CODEXPLOIT_POSTGRES_DSN_FILE:?provide a runtime DSN file}
+  settings_key:
+    file: ${CODEXPLOIT_SETTINGS_KEY_FILE:?provide an independent settings key file}

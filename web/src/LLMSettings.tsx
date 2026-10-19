@@ -147,10 +147,16 @@ export function LLMSettings({
         </div>
       )}
       {!settings ? (
-        <div className="loading">
-          <Loader2 className="spin" size={20} />
-          正在读取模型配置…
-        </div>
+        error ? (
+          <Hint>
+            模型设置当前不可用。请确认部署侧已提供匹配的安装密钥，并检查共享数据库连接后重新读取。
+          </Hint>
+        ) : (
+          <div className="loading">
+            <Loader2 className="spin" size={20} />
+            正在读取模型配置…
+          </div>
+        )
       ) : (
         <div className="model-settings-layout">
           <Panel title="LLM 连接配置" eyebrow="SERVER-SIDE CONFIGURATION">

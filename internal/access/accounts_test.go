@@ -20,8 +20,8 @@ func TestAccountPersistenceAndRevocableExpiringSessions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if m.Configured() {
-		t.Fatal("new installation unexpectedly configured")
+	if configured, err := m.Configured(); err != nil || configured {
+		t.Fatalf("new installation configured=%v err=%v", configured, err)
 	}
 	if err := m.Setup("testadmin", fixturePassword, "fixture"); err != nil {
 		t.Fatal(err)
@@ -50,12 +50,14 @@ func TestAccountPersistenceAndRevocableExpiringSessions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if user, ok := m.Authenticate(token); !ok || user != "testadmin" {
-		t.Fatal("session not authenticated")
+	if user, ok, err := m.Authenticate(token); err != nil || !ok || user != "testadmin" {
+		t.Fatalf("session not authenticated: user=%q ok=%v err=%v", user, ok, err)
 	}
-	m.Logout(token)
-	if _, ok := m.Authenticate(token); ok {
-		t.Fatal("logout did not revoke session")
+	if err := m.Logout(token); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := m.Authenticate(token); err != nil || ok {
+		t.Fatalf("logout did not revoke session: ok=%v err=%v", ok, err)
 	}
 	now := time.Now()
 	m.now = func() time.Time { return now }
@@ -64,8 +66,8 @@ func TestAccountPersistenceAndRevocableExpiringSessions(t *testing.T) {
 		t.Fatal(err)
 	}
 	now = now.Add(SessionLifetime + time.Second)
-	if _, ok := m.Authenticate(token); ok {
-		t.Fatal("expired session accepted")
+	if _, ok, err := m.Authenticate(token); err != nil || ok {
+		t.Fatalf("expired session accepted: ok=%v err=%v", ok, err)
 	}
 }
 

@@ -108,15 +108,21 @@ an explicitly configured API token. Finish first-run setup locally before
 making the service reachable through a network proxy.
 
 The server stores only a random salt and PBKDF2-HMAC-SHA256 password hash with
-600,000 iterations in `/data/auth/account.json`, with owner-only permissions.
-This follows the [OWASP PBKDF2 guidance](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#pbkdf2).
+600,000 iterations. The default SQLite deployment keeps them in
+`/data/auth/account.json` with owner-only permissions; the PostgreSQL execution
+profile stores the account digest, live sessions and login rate-limit windows in
+the shared database. This follows the
+[OWASP PBKDF2 guidance](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#pbkdf2).
 The session cookie is HttpOnly and SameSite=Strict, lives at most 12 hours, and
-can be revoked with **退出登录**. Sessions are invalidated on server restart;
+can be revoked with **退出登录**. In the PostgreSQL profile a login is shared by
+all application instances, logout revokes it everywhere, and sessions survive an
+application rebuild; SQLite and memory sessions are invalidated on restart and
 the account remains available. Browser-origin mutation checks protect cookie
-authentication, and login attempts are limited to five per minute per peer IP.
-Remote-address headers are not trusted for rate limiting. If a reverse proxy
-terminates HTTPS, set `X-Forwarded-Proto: https` so login sets a Secure cookie.
-Never expose the HTTP port directly outside a trusted local environment.
+authentication, and login attempts are limited to five per minute per peer IP
+across instances in PostgreSQL. Remote-address headers are not trusted for rate
+limiting. If a reverse proxy terminates HTTPS, set `X-Forwarded-Proto: https` so
+login sets a Secure cookie. Never expose the HTTP port directly outside a trusted
+local environment.
 
 `CODEXPLOIT_PORT` optionally changes the host port. Compose binds to loopback
 by default and enables `--web-auth`, the native LLM adapter and resident
@@ -143,11 +149,23 @@ available for CLI clients and custom multi-role deployments.
    new claims. Unconfigured/disabled models do not consume queued attempts.
 
 Settings apply to the whole installation; project knowledge remains isolated.
-The server encrypts configuration using AES-256-GCM in `/data/settings/llm.enc`.
-The installation encryption key is `/data/settings/settings.key`. Both files
-are owner-only and belong in the data volume, never in a repository or image.
-Back up both together. Encryption protects accidental plaintext disclosure; an
-operator with full access to the volume also has the decryption key.
+In the SQLite and memory profiles the server encrypts configuration using
+AES-256-GCM in `/data/settings/llm.enc` with `/data/settings/settings.key`.
+Both files are owner-only and belong in the data volume, never in a repository
+or image; back them up together.
+
+In the PostgreSQL execution profile only ciphertext and the effective version
+are stored in the shared `llm_settings` table. The installation key comes from
+the independent deployment secret referenced by `--settings-key-file`, not from
+the database or the application workspace. On the first PostgreSQL start the
+server re-encrypts an existing workspace `settings/llm.enc` with that key and
+imports it once; an existing database row is never overwritten. All application instances must
+receive the same key. Back up the database and the installation key separately;
+a database backup without the key cannot decrypt model settings. If the key is
+missing or does not match, the model settings page and API report an explicit
+unavailable state instead of resetting the saved configuration. Encryption
+protects accidental plaintext disclosure; an operator with both the database and
+the key can decrypt the configuration.
 The API returns only `api_key_configured`, never the saved key. Browser input
 stays in memory and is cleared after saving. Changing the Base URL requires
 re-entering or explicitly clearing the key to avoid sending an old credential
@@ -202,8 +220,9 @@ setting is server-side only and does not expose a filesystem browser.
 
 Source definitions currently start at version 1 and are read-only. **更新快照与图谱**
 captures changed content; it does not edit the definition. Source records and
-task bindings use the existing persistent SQLite database. PostgreSQL and
-external artifact storage remain separate implementation work.
+task bindings use the configured SQLite or PostgreSQL store; the PostgreSQL
+execution profile also shares accounts, sessions and encrypted model settings.
+External artifact storage remains separate implementation work.
 
 ### Git credentials
 
@@ -255,10 +274,13 @@ does not replace execution with demo results.
 To upgrade, keep the same Compose project/volume and run
 `docker compose up -d --build`. Schema migrations run on startup. To back up,
 stop the service and back up the entire data volume, including SQLite and the
-snapshot trees, account database in `auth` and the entire `settings` directory, before
-restarting. Do not use `docker compose down -v` when
-retaining project data. Frozen source trees should be removed via snapshot
-lifecycle commands rather than manual filesystem deletion.
+snapshot trees, the account database in `auth` and the entire `settings`
+directory. In the PostgreSQL execution profile also take a consistent database
+backup and separately protect the deployment-provided installation key file;
+the application workspace still holds artifact content and snapshots. Do not use
+`docker compose down -v` when retaining project data. Frozen source trees should
+be removed via snapshot lifecycle commands rather than manual filesystem
+deletion.
 
 ## New API surface
 

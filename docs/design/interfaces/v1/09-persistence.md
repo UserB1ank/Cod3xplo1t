@@ -75,6 +75,6 @@ Redis 可作为缓存或通知加速器，任务权属和恢复信息的权威�
 
 ## 当前实现边界
 
-当前正式部署是 SQLite + `/data` 数据卷。`storage.SQL` 已有 PostgreSQL 占位符与锁分支，但应用注册驱动、所有迁移、全套并发测试、账号/会话和 LLM 文件存储均未完成 PostgreSQL 接线与验收，不能仅修改连接字符串即宣称支持。
+当前默认部署仍是 SQLite + `/data` 数据卷；PostgreSQL 执行模式已接通业务状态、账号、可撤销会话和加密模型设置。账号摘要、会话、登录限流窗口和设置密文由 `IdentityRepository` / `SettingsRepository` 的 SQL 适配器保存，安装密钥由独立部署密钥文件提供。产物内容仍在工作区，独立产物服务属于后续实现。
 
-本次交付接口方案、Schema 与配置原型；真实 PostgreSQL 容器和数据迁移属于 [实施步骤](10-adoption.md) 中的后续实现。
+SQLite 与 Memory 保留原有工作区账号文件和会话实现，不改变默认部署的数据位置。SQLite → PostgreSQL 的数据迁移、备份与恢复演练仍属于后续实施步骤。

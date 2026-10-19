@@ -525,7 +525,11 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 				return
 			}
 		} else if cookie, err := r.Cookie(sessionCookie); err == nil && s.Accounts != nil {
-			name, valid := s.Accounts.Authenticate(cookie.Value)
+			name, valid, authErr := s.Accounts.Authenticate(cookie.Value)
+			if authErr != nil {
+				identityUnavailable(w, authErr)
+				return
+			}
 			if !valid {
 				s.unauthorized(w, r, "login session expired")
 				return

@@ -15,12 +15,18 @@ test("storage page preserves its route and displays a real unavailable probe", a
     readiness: "unavailable",
     durable: true,
     schema_version: "unknown",
-    capabilities: { projects: true, tasks: false },
+    capabilities: {
+      projects: true,
+      tasks: false,
+      identity: false,
+      settings: false,
+    },
     locations: {
       catalog: "postgres",
       artifact_content: "workspace",
-      accounts: "workspace",
-      model_settings: "workspace",
+      accounts: "postgres",
+      model_settings: "postgres",
+      settings_key: "external_file",
     },
   };
   const client = new ApiClient(

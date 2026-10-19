@@ -47,7 +47,9 @@
         "tasks",
         "findings",
         "workflows",
-        "reports"
+        "reports",
+        "identity",
+        "settings"
       ],
       "properties": {
         "projects": {
@@ -82,13 +84,19 @@
         },
         "reports": {
           "type": "boolean"
+        },
+        "identity": {
+          "type": "boolean"
+        },
+        "settings": {
+          "type": "boolean"
         }
       },
       "additionalProperties": false
     },
     "locations": {
       "type": "object",
-      "required": ["catalog", "artifact_content", "accounts", "model_settings"],
+      "required": ["catalog", "artifact_content", "accounts", "model_settings", "settings_key"],
       "properties": {
         "catalog": {
           "enum": ["memory", "sqlite", "postgres"]
@@ -97,10 +105,13 @@
           "const": "workspace"
         },
         "accounts": {
-          "const": "workspace"
+          "enum": ["workspace", "postgres"]
         },
         "model_settings": {
-          "const": "workspace"
+          "enum": ["workspace", "postgres"]
+        },
+        "settings_key": {
+          "enum": ["workspace", "external_file"]
         }
       },
       "additionalProperties": false

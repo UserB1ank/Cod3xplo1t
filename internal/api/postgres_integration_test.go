@@ -46,10 +46,14 @@ func TestPostgresExecutionStatusIsRedactedAndRequiresAdmin(t *testing.T) {
 	var result struct {
 		Driver, Profile, Readiness string
 		Capabilities               map[string]bool
+		Locations                  map[string]string
 	}
 	status.decode(t, &result)
-	if result.Driver != "postgres" || result.Profile != "execution" || result.Readiness != "ready" || !result.Capabilities["sources"] || !result.Capabilities["tasks"] || !result.Capabilities["workflows"] || !result.Capabilities["findings"] {
+	if result.Driver != "postgres" || result.Profile != "execution" || result.Readiness != "ready" || !result.Capabilities["sources"] || !result.Capabilities["tasks"] || !result.Capabilities["workflows"] || !result.Capabilities["findings"] || !result.Capabilities["identity"] || !result.Capabilities["settings"] {
 		t.Fatalf("false capabilities: %s", status.body)
+	}
+	if result.Locations["accounts"] != "postgres" || result.Locations["model_settings"] != "postgres" || result.Locations["settings_key"] != "external_file" {
+		t.Fatalf("shared locations: %s", status.body)
 	}
 	if err := rt.Store.Close(); err != nil {
 		t.Fatal(err)

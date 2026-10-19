@@ -84,7 +84,7 @@ Status codes used across the API:
 | `413` | request body larger than 1 MiB |
 | `422` | snapshot limit exceeded |
 | `501` | the server was started without the graph, attack-surface or audit service (`graph_unavailable`, `asg_unavailable`, `audit_unavailable`) |
-| `503` | query exceeded its time budget |
+| `503` | query exceeded its time budget, or `identity_unavailable` / `settings_unavailable` when the shared PostgreSQL identity/settings store or installation key is unavailable |
 
 ## Idempotency and optimistic concurrency
 
@@ -1077,8 +1077,19 @@ version returns 428. The test endpoint sends a real, bounded function-call
 request without repository content and does not save the draft. It returns
 502 on provider/connection failure, with a sanitized message.
 
-Settings persist encrypted in the runtime data volume and apply to new runs
-without restarting. Disabled/unconfigured models do not claim queued work.
+In the SQLite and memory profiles settings persist encrypted in the runtime
+data volume. The PostgreSQL execution profile stores only ciphertext and its
+effective version in the shared `llm_settings` table, so every application
+instance reads the same configuration. The installation key is supplied
+separately with `--settings-key-file`; it is never stored in the database,
+Compose, logs or API responses. A missing, unreadable or mismatched key leaves
+settings in an explicit unavailable state: GET and PUT/POST answer `503
+settings_unavailable` and no saved ciphertext is reset. Database failures also
+answer 503, with a sanitized message.
+
+Settings apply to new runs without restarting. A successful save advances the
+configuration version used for the ETag and recorded in each workflow run's
+fixed model reference. Disabled/unconfigured models do not claim queued work.
 See [Web UI deployment](webui.md#docker-deployment) for the Docker setup,
 credential storage and backup procedure.
 
@@ -1095,10 +1106,24 @@ the auth bootstrap endpoints and liveness are the explicit exceptions.
 
 Cookie-authenticated mutations require a same-origin browser request. Cross-site
 login/setup/logout requests are refused. Failed login returns a generic 401;
-five attempts per minute per peer IP trigger 429 with `Retry-After: 60`.
-Account hashes persist in the Docker data volume; sessions are deliberately
-in-memory and expire on restart. Explicit bearer API tokens remain supported
-for automation and CLI clients.
+five attempts per minute per peer IP trigger 429 with `Retry-After: 60`. The
+rate-limit key is a SHA-256 digest of the peer address, not the raw address.
+
+In the PostgreSQL execution profile the account digest, live sessions and the
+rate-limit windows are stored in the shared database. A login on one application
+instance is accepted by another, logout revokes the session for all instances,
+and sessions survive an application rebuild until they expire or are revoked.
+SQLite and memory profiles keep the existing workspace account file and
+in-memory sessions. An identity-store failure returns `503 identity_unavailable`
+instead of a misleading 401. Explicit bearer API tokens remain supported for
+automation and CLI clients.
+
+When PostgreSQL is first initialized, the server imports an existing
+`<workspace>/auth/account.json` once if the database has no account, and
+re-encrypts an existing `<workspace>/settings/llm.enc` with the independent
+installation key once if the shared settings row is absent. An upgrading
+deployment therefore keeps its administrator login and saved model
+configuration without reopening first-run setup.
 
 ## 工作流版本与编译计划
 

@@ -47,6 +47,8 @@
 
 - 2026-10-19 — #17 PostgreSQL 持久化任务与工作流执行：迁移任务组织、路径、工作流 / 节点、Agent / 验证运行、发现 / 证据及连续事件，启用正式认证 API 和页面。路径领取 / 退避 / 续租 / 完成使用数据库时钟与单调 `lease_epoch`；工作流 coordinator、插件宿主及候选 Agent 使用数据库租约和栅栏，双 worker 不接管存活工作，断连停止领取，明确回滚的序列化 / 死锁事务有界重试。状态与事件同事务提交，活动执行阻止快照删除；重建复用完成调用和产物，从固定输出恢复发布后的候选分析，回收旧 Agent 分配并拒绝迟到提交。语义与路径插件升至 1.2.0，保留旧版本清单与证据。已通过两个已确认边界的逐项 TDD red/green、真实 PG 双 worker / 会话中断 / Serializable / 恢复测试、全新 `make test-postgres`、完整乱序竞态回归、三轮 `make test-stress`、`make lint`、契约检查、前端测试 / 构建和 Docker 构建；正式页面验收真实四插件扫描、任务置顶 / 分类、继续 / 取消 / 失败重试、分级审计和报告预览 / 下载。两个独立容器重建后 14 份文档与 32 个产物摘要一致，旧调用和任务组织保留；PostgreSQL 无宿主端口，原 SQLite 服务不变。共享账号 / 会话与加密设置留给 #18。按交付流程提交并关闭；未 push。
 
+- 2026-10-19 — #18 PostgreSQL 部署共享登录会话与加密模型设置：新增 `access.Repository` 与 SQL IdentityRepository，账号摘要、会话撤销、登录限流窗口由数据库原子操作；PostgreSQL 应用实例共享初始化、登录、退出与限流状态，旧 `account.json` 与工作区 `settings/llm.enc` 首次启动导入一次，SQLite / Memory 保持原工作区与内存会话。新增 `llm.Repository` 与 SettingsRepository，模型设置密文与生效版本存入 `llm_settings`，版本 CAS / ETag / 工作流固定 `config_version` 使用同一版本；安装密钥由 `--settings-key-file` 独立提供，缺失或错误时设置接口返回 503 并保留原密文。正式 API 区分 `identity_unavailable` / `settings_unavailable`，响应、日志和 Compose 不包含安装密钥或 API Key；存储状态页显示账号 / 设置为 PostgreSQL、密钥为外部文件。已按确认的仓储、管理器、认证 / 设置 HTTP、真实 PG 双实例边界完成 TDD red/green（跨实例撤销、重建恢复、限流、密文脱敏、并发设置 CAS、错误密钥、旧登录 / 旧设置导入回归）；已通过完整乱序竞态回归、三轮 `make test-stress`、`make test-postgres`、`make lint`、契约检查、前端测试 / 构建与 Docker 构建；按交付流程提交并关闭；未 push。
+
 ## Agent skills
 
 ### Issue tracker
