@@ -168,7 +168,7 @@ func (s *Server) writeSourceError(w http.ResponseWriter, err error) {
 
 func (s *Server) captureSourceSnapshot(ctx context.Context, source storage.SourceDefinition) (*repository.Snapshot, error) {
 	input := repository.Source{Raw: source.Location, NameOverride: fmt.Sprintf("projects/%s/sources/%s/v%d", source.ProjectID, source.ID, source.Version)}
-	if source.Kind == "uploaded_archive" {
+	if source.Kind == "uploaded_archive" || source.Kind == "uploaded_directory" {
 		if source.Snapshot == "" {
 			return nil, errors.New("上传源码已移除或未完成，请重新上传")
 		}

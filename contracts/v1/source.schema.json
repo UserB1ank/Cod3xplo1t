@@ -28,7 +28,8 @@
       "enum": [
         "local_folder",
         "git_repository",
-        "uploaded_archive"
+        "uploaded_archive",
+        "uploaded_directory"
       ]
     },
     "location": {
@@ -69,7 +70,8 @@
           "enum": [
             "zip",
             "tar",
-            "tar.gz"
+            "tar.gz",
+            "directory"
           ]
         },
         "sha256": {
@@ -79,7 +81,7 @@
         "bytes": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 67108864
+          "maximum": 134217728
         },
         "files": {
           "type": "integer",
@@ -186,7 +188,10 @@
       "if": {
         "properties": {
           "kind": {
-            "const": "uploaded_archive"
+            "enum": [
+              "uploaded_archive",
+              "uploaded_directory"
+            ]
           }
         }
       },
@@ -206,6 +211,26 @@
           "required": [
             "credential_ref"
           ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "uploaded_directory"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "import": {
+            "properties": {
+              "format": {
+                "const": "directory"
+              }
+            }
+          }
         }
       }
     }

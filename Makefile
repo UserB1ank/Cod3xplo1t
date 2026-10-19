@@ -32,11 +32,11 @@ build: build-web build-scanner
 	$(GO) build -trimpath -o bin/mcp ./cmd/mcp
 
 build-scanner:
-	@mkdir -p "bin/plugin-packages/codexploit.static-patterns@1.0.1"
-	$(GO) build -trimpath -o "bin/plugin-packages/codexploit.static-patterns@1.0.1/scanner" ./cmd/scanner
-	@cp internal/scanner/manifest.json "bin/plugin-packages/codexploit.static-patterns@1.0.1/manifest.json"
-	@chmod 0755 "bin/plugin-packages/codexploit.static-patterns@1.0.1/scanner"
-	@chmod 0644 "bin/plugin-packages/codexploit.static-patterns@1.0.1/manifest.json"
+	@mkdir -p "bin/plugin-packages/codexploit.static-patterns@1.0.2"
+	$(GO) build -trimpath -o "bin/plugin-packages/codexploit.static-patterns@1.0.2/scanner" ./cmd/scanner
+	@cp internal/scanner/manifest.json "bin/plugin-packages/codexploit.static-patterns@1.0.2/manifest.json"
+	@chmod 0755 "bin/plugin-packages/codexploit.static-patterns@1.0.2/scanner"
+	@chmod 0644 "bin/plugin-packages/codexploit.static-patterns@1.0.2/manifest.json"
 
 build-web:
 	npm --prefix web ci --no-audit --no-fund

@@ -52,7 +52,7 @@ func TestPostgresArchiveImportPersistsAcrossRuntimeRebuild(t *testing.T) {
 	testImportPersistence(t, postgresConfig(t), true)
 }
 
-func testImportPersistence(t *testing.T, config app.Config, rebuild bool) {
+func testImportPersistence(t *testing.T, config app.Config, rebuild bool, directory ...bool) {
 	rt, err := app.Build(context.Background(), config)
 	if err != nil {
 		t.Fatal(err)
@@ -61,15 +61,23 @@ func testImportPersistence(t *testing.T, config app.Config, rebuild bool) {
 	var created projectResponse
 	do(t, env.ts, "POST", "/api/v1/projects", map[string]any{"api_version": "codexploit/v1", "name": "Persistent upload"}, nil).decode(t, &created)
 	project := created.Project
-	archive := zipImportFixture(t, map[string]string{"code/main.go": "package main\nfunc main() {}\n", "code/.env": "SYNTHETIC_ONLY=1\n", "code/.git/config": "synthetic test metadata", "code/node_modules/noise.js": "fixture"})
-	endpoint := "/api/v1/projects/" + project.ID + "/imports/src-persistent?name=Upload&format=zip"
-	if result := doAs(t, env.ts, readerSecret, "POST", endpoint, archive, nil); result.status != 403 {
+	fixtureFiles := map[string]string{"code/main.go": "package main\nfunc main() {}\n", "code/.env": "SYNTHETIC_ONLY=1\n", "code/.git/config": "synthetic test metadata", "code/node_modules/noise.js": "fixture"}
+	archive := zipImportFixture(t, fixtureFiles)
+	contentType := "application/octet-stream"
+	format := "zip"
+	if len(directory) > 0 && directory[0] {
+		archive, contentType = directoryBody(t, fixtureFiles)
+		format = "directory"
+	}
+	headers := map[string]string{"Content-Type": contentType}
+	endpoint := "/api/v1/projects/" + project.ID + "/imports/src-persistent?name=Upload&format=" + format
+	if result := doAs(t, env.ts, readerSecret, "POST", endpoint, archive, headers); result.status != 403 {
 		t.Fatalf("reader upload: %d", result.status)
 	}
-	if result := doAs(t, env.ts, "", "POST", endpoint, archive, nil); result.status != 401 {
+	if result := doAs(t, env.ts, "", "POST", endpoint, archive, headers); result.status != 401 {
 		t.Fatalf("anonymous upload: %d", result.status)
 	}
-	result := do(t, env.ts, "POST", endpoint, archive, nil)
+	result := do(t, env.ts, "POST", endpoint, archive, headers)
 	if result.status != 201 {
 		t.Fatalf("upload: %d %s", result.status, result.body)
 	}
@@ -78,15 +86,20 @@ func testImportPersistence(t *testing.T, config app.Config, rebuild bool) {
 	if initial.Snapshot.Files != 1 {
 		t.Fatalf("excluded files entered snapshot: %s", result.body)
 	}
-	if replay := do(t, env.ts, "POST", endpoint, archive, nil); replay.status != 201 {
+	if replay := do(t, env.ts, "POST", endpoint, archive, headers); replay.status != 201 {
 		t.Fatalf("replay: %d %s", replay.status, replay.body)
 	}
-	if conflict := do(t, env.ts, "POST", endpoint, zipImportFixture(t, map[string]string{"main.go": "package changed\n"}), nil); conflict.status != 409 {
+	changed := zipImportFixture(t, map[string]string{"main.go": "package changed\n"})
+	changedType := "application/octet-stream"
+	if format == "directory" {
+		changed, changedType = directoryBody(t, map[string]string{"main.go": "package changed\n"})
+	}
+	if conflict := do(t, env.ts, "POST", endpoint, changed, map[string]string{"Content-Type": changedType}); conflict.status != 409 {
 		t.Fatalf("changed immutable upload: %d %s", conflict.status, conflict.body)
 	}
 	var other projectResponse
 	do(t, env.ts, "POST", "/api/v1/projects", map[string]any{"api_version": "codexploit/v1", "name": "Other scope"}, nil).decode(t, &other)
-	if cross := do(t, env.ts, "POST", "/api/v1/projects/"+other.Project.ID+"/imports/src-persistent?name=Cross&format=zip", archive, nil); cross.status != 409 {
+	if cross := do(t, env.ts, "POST", "/api/v1/projects/"+other.Project.ID+"/imports/src-persistent?name=Cross&format="+format, archive, headers); cross.status != 409 {
 		t.Fatalf("cross-project source takeover: %d %s", cross.status, cross.body)
 	}
 	if rebuild {

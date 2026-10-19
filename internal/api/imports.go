@@ -38,7 +38,15 @@ func (s *Server) handleImportSource(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
-	upload, err := sourceimport.Extract(ctx, r.Body, format)
+	var upload *sourceimport.Upload
+	var err error
+	kind := "uploaded_archive"
+	if format == "directory" {
+		kind = "uploaded_directory"
+		upload, err = sourceimport.ExtractDirectory(ctx, r.Body, r.Header.Get("Content-Type"))
+	} else {
+		upload, err = sourceimport.Extract(ctx, r.Body, format)
+	}
 	if err != nil {
 		status, code := 400, "invalid_import"
 		if errors.Is(err, sourceimport.ErrBudget) {
@@ -51,7 +59,7 @@ func (s *Server) handleImportSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer upload.Close()
-	source := storage.SourceDefinition{APIVersion: "codexploit/v1", ID: id, ProjectID: project, Name: name, Kind: "uploaded_archive", Location: "upload:" + upload.Report.SHA256, Version: 1, Import: &upload.Report}
+	source := storage.SourceDefinition{APIVersion: "codexploit/v1", ID: id, ProjectID: project, Name: name, Kind: kind, Location: "upload:" + upload.Report.SHA256, Version: 1, Import: &upload.Report}
 	if err := repo.CreateSource(ctx, source); err != nil {
 		prior, readErr := repo.GetSource(ctx, id)
 		if !errors.Is(err, storage.ErrConflict) || readErr != nil || prior.ProjectID != project || prior.Kind != source.Kind || prior.Location != source.Location {

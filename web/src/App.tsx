@@ -35,6 +35,9 @@ import {
 import { ApiClient } from "./api";
 import { importArchive, validateArchive } from "./source-import";
 import { ArchivePicker } from "./ArchivePicker";
+import { DirectoryPicker } from "./DirectoryPicker";
+import { importDirectory } from "./directory-import";
+import type { DirectorySelection } from "./directory-import";
 import { Configuration } from "./Configuration";
 import { Sources, sourceInput, readSources, type CodeSource } from "./Sources";
 import { ProjectTasks } from "./TaskList";
@@ -676,7 +679,7 @@ export default function App() {
             action(
               canBuildKnowledge ? "建立项目与图谱" : "建立项目与快照",
               async () => {
-                if (values.kind === "uploaded_archive" && values.file) {
+                if ((values.kind === "uploaded_archive" && values.file) || (values.kind === "uploaded_directory" && values.directory)) {
                   let projectID = values.projectID;
                   if (!projectID) {
                     const created = await api.post<{ project: Project }>("/v1/projects", {
@@ -687,7 +690,8 @@ export default function App() {
                     refresh((n) => n + 1);
                   }
                   navigate({ project: projectID, view: "sources" });
-                  await importArchive(api, projectID, values.sourceID, values.name, values.file, canBuildKnowledge, values.signal);
+                  if (values.directory && values.kind === "uploaded_directory") await importDirectory(api, projectID, values.sourceID, values.name, values.directory, canBuildKnowledge, values.signal);
+                  else await importArchive(api, projectID, values.sourceID, values.name, values.file!, canBuildKnowledge, values.signal);
                   if (creationTarget) navigate({ project: projectID, view: creationTarget });
                   return;
                 }
@@ -2414,6 +2418,7 @@ function ProjectForm({
     kind: string;
     credentialRef: string;
     file?: File;
+    directory?: DirectorySelection;
     signal?: AbortSignal;
     sourceID: string;
     projectID?: string;
@@ -2421,6 +2426,7 @@ function ProjectForm({
   }) => void;
 }) {
   const [kind, setKind] = useState("uploaded_archive");
+  const [directory, setDirectory] = useState<DirectorySelection>();
   const [projectID, rememberProject] = useState<string>();
   const [sourceID, setSourceID] = useState(() => `src-${crypto.randomUUID()}`);
   const controller = useRef<AbortController>();
@@ -2441,6 +2447,7 @@ function ProjectForm({
         if (kind === "uploaded_archive") {
           try { validateArchive(file as File); } catch (error) { setError(errorText(error)); return; }
         }
+        if (kind === "uploaded_directory" && !directory) { setError("请先选择目录并等待文件校验完成。"); return; }
         setError("");
         controller.current = new AbortController();
         onSubmit({
@@ -2449,7 +2456,7 @@ function ProjectForm({
           ref: String(form.get("ref")),
           kind,
           credentialRef: String(form.get("credential_ref") || ""),
-          file: file instanceof File ? file : undefined,
+          file: file instanceof File ? file : undefined, directory,
           signal: controller.current.signal, sourceID, projectID, rememberProject,
         });
       }}
@@ -2475,12 +2482,13 @@ function ProjectForm({
           }}
         >
           <option value="uploaded_archive">本地代码 · 上传压缩包</option>
+          <option value="uploaded_directory">本地代码 · 选择目录上传</option>
           <option value="local_folder">本地代码 · 已登记的只读目录</option>
           <option value="git_repository">Git 仓库 · 固定提交</option>
           <option value="legacy_auto">既有自动识别入口</option>
         </select>
       </label>
-      {kind === "uploaded_archive" ? <ArchivePicker onChange={() => setSourceID(`src-${crypto.randomUUID()}`)} /> : <>
+      {kind === "uploaded_archive" ? <ArchivePicker onChange={() => setSourceID(`src-${crypto.randomUUID()}`)} /> : kind === "uploaded_directory" ? <DirectoryPicker onChange={next => { setDirectory(next); setSourceID(`src-${crypto.randomUUID()}`); }} /> : <>
       <label>
         {kind === "local_folder"
           ? "容器内代码目录"
@@ -2544,7 +2552,7 @@ function ProjectForm({
         </div>
       )}
       </fieldset>
-      {busy && kind === "uploaded_archive" && <div role="status"><progress /> 正在上传、校验并建立固定快照… <button type="button" className="text-button" onClick={() => controller.current?.abort()}>取消上传</button></div>}
+      {busy && kind.startsWith("uploaded_") && <div role="status"><progress /> 正在上传、校验并建立固定快照… <button type="button" className="text-button" onClick={() => controller.current?.abort()}>取消上传</button></div>}
       <FormFooter busy={busy} label={buildKnowledge ? "创建项目并建立图谱" : "创建项目并固定快照"} />
     </form>
   );

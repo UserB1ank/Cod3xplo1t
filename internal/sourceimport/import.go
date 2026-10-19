@@ -30,8 +30,8 @@ const (
 )
 
 var (
-	ErrInvalid = errors.New("源码包无效：请使用 ZIP、TAR 或 TAR.GZ，且只包含普通文件与目录")
-	ErrBudget  = errors.New("源码上传超限：压缩包最多 64 MiB，展开最多 128 MiB、10000 项，单文件最多 4 MiB")
+	ErrInvalid = errors.New("源码上传无效：请检查文件清单、摘要、相对路径或 ZIP / TAR / TAR.GZ 结构，只支持普通文件与目录")
+	ErrBudget  = errors.New("源码上传超限：压缩包最多 64 MiB，源码总计最多 128 MiB、10000 项，单文件最多 4 MiB")
 )
 
 type Report struct {
