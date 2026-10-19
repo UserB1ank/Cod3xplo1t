@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strings"
 	"sync"
 
 	"github.com/google/jsonschema-go/jsonschema"
@@ -97,6 +98,21 @@ func resolveConfig(raw json.RawMessage) (*jsonschema.Resolved, error) {
 		return nil, ErrInvalid
 	}
 	return resolved, nil
+}
+
+// RebuiltBuiltin reports whether a stored record may take a new package digest
+// without changing its identity.
+//
+// A compiled adapter is rebuilt with the host, and its package digest hashes the
+// host packages it embeds: rebuilding the binary changes the digest but not the
+// manifest. The manifest (id, version, schema, permissions) is the contract a
+// workflow plan pins and must stay immutable; the package digest records which
+// build produced it, and an invocation keeps the digest it actually ran with.
+// An installed process package is a supply-chain artifact and stays strict.
+func RebuiltBuiltin(prior, next Record) bool {
+	return prior.ManifestDigest == next.ManifestDigest &&
+		prior.PackageDigest != next.PackageDigest &&
+		strings.HasPrefix(prior.Source, "compiled ")
 }
 
 func (c *Catalog) Register(ctx context.Context, raw json.RawMessage, packageDigest, source string) (Record, error) {

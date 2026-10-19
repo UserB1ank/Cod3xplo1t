@@ -22,10 +22,22 @@ func (s *SQL) PutPlugin(ctx context.Context, record plugin.Record) error {
 	if err != nil {
 		return err
 	}
-	if prior.ManifestDigest != record.ManifestDigest || prior.PackageDigest != record.PackageDigest {
+	if prior.ManifestDigest != record.ManifestDigest {
 		return plugin.ErrConflict
 	}
-	return nil
+	if prior.PackageDigest == record.PackageDigest {
+		return nil
+	}
+	if !plugin.RebuiltBuiltin(prior, record) {
+		return plugin.ErrConflict
+	}
+	// A rebuilt compiled adapter keeps its manifest and takes the digest of the
+	// build that produced it; refusing here would make every deployment unable to
+	// start after an upgrade.
+	_, err = s.db.ExecContext(ctx, s.rebind(
+		`UPDATE plugin_versions SET record_json = ? WHERE plugin_id = ? AND version = ?`),
+		string(raw), record.Manifest.ID, record.Manifest.Version)
+	return err
 }
 func (s *SQL) GetPlugin(ctx context.Context, id, version string) (plugin.Record, error) {
 	var raw string

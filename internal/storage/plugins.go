@@ -17,9 +17,20 @@ func (m *Memory) PutPlugin(ctx context.Context, record plugin.Record) error {
 	key := record.Manifest.ID + "@" + record.Manifest.Version
 	if raw, ok := m.plugins[key]; ok {
 		var prior plugin.Record
-		if json.Unmarshal(raw, &prior) != nil || prior.ManifestDigest != record.ManifestDigest || prior.PackageDigest != record.PackageDigest {
+		if err := json.Unmarshal(raw, &prior); err != nil || prior.ManifestDigest != record.ManifestDigest {
 			return plugin.ErrConflict
 		}
+		if prior.PackageDigest == record.PackageDigest {
+			return nil
+		}
+		if !plugin.RebuiltBuiltin(prior, record) {
+			return plugin.ErrConflict
+		}
+		updated, err := json.Marshal(record)
+		if err != nil {
+			return err
+		}
+		m.plugins[key] = updated
 		return nil
 	}
 	raw, err := json.Marshal(record)
