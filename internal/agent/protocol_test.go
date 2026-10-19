@@ -49,6 +49,7 @@ func checklistAnswer() Answer {
 			Status:    HypothesisCandidate, Confidence: "medium",
 		},
 		Obligations: closedVerdicts(),
+		Falsifier:   &Falsifier{Claim: "the value is validated before the query", Checked: false},
 	}
 }
 

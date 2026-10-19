@@ -87,6 +87,8 @@
 
 - 2026-10-20 — #44 用证据新颖度判定收敛并扩展停止原因：novelty 改为按**完整模型探索轮次**（一轮带工具调用的模型回合）取 canonical 证据并集，同一轮内先重复后新证据仍算进展；重复查询 / 改 limit 不增加。连续 K=3 个探索轮次无新证据时以 `no_new_evidence` 收敛停止（RunFailed，不合成结论、不新增 abstain），在下一个 provider 请求许可前关闭上一轮并拒绝该请求；修复 / 控制回合不计探索轮次，直接作答不凭空记 novelty=0。`RunMetrics.Novelty` 保留逐轮序列，历史记录保持原计数。`applyPermit` 前完成上一轮、`finish` 关闭最后一轮但不把合法答案改成收敛停止。已通过同批次三调用（前两个重复、第三个新证据不误停）、四轮同证据后停止（provider 只发 4 次、novelty `[1,0,0,0]`、事件含停止原因）、修复回合不计轮、直接作答无样本、既有 golden / 批次 / 单调用测试、`internal/agent` 竞态；任务运行表以提示展示轮次新颖度。按交付流程提交并关闭；未 push。
 
+- 2026-10-20 — #41 让结论带上可核验的反证：schema 2 的 candidate / refuted 答案新增 `falsifier{claim, checked, how}`，`claim` 必填；`checked=true` 时 `how` 必须解析到本 run **成功**的调用结果或该任务携带的输入证据（canonical id），仅出现 call id、被拒绝 / 失败的调用、他人 run 的证据均不通过；别名由 Go 在 `ResolveAnswer` 中解析，存储保持 canonical。不可解析的 `how` 走宿主既有修复预算（2 次，≤300 字节），耗尽 INVALID_OUTPUT；inconclusive 不强制已检查 falsifier，开放义务仍需既有 blocker；不新增 confirmed 提升路径。模型提示词加入 falsifier 约定。已通过结构校验（缺字段 / checked 无 how / refuted / inconclusive）、输入证据与别名解析、他人 run 引用修复后接受、修复耗尽 INVALID_OUTPUT、失败 / 拒绝调用与未知引用拒绝、既有 agent 全量测试与竞态、staticcheck。按交付流程提交并关闭；未 push。
+
 ## Agent skills
 
 ### Issue tracker

@@ -258,6 +258,15 @@ func (t *AliasTable) ResolveAnswer(raw []byte) []byte {
 			}
 		}
 	}
+	if falsifier, ok := document["falsifier"].(map[string]any); ok {
+		list, _ := falsifier["how"].([]any)
+		for index, item := range list {
+			ref, _ := item.(string)
+			if id, ok := t.Resolve(ref); ok {
+				list[index] = id
+			}
+		}
+	}
 	if expansion, ok := document["requested_expansion"].(map[string]any); ok {
 		if node, _ := expansion["target_node_id"].(string); node != "" {
 			if id, ok := t.Resolve(node); ok {

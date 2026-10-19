@@ -157,6 +157,32 @@ func ValidateAnswer(answer *Answer, task Task) error {
 	if len(task.Obligations) > 0 {
 		problems = append(problems, validateObligationVerdicts(answer.Obligations, task.Obligations, answer.Hypothesis.Status)...)
 	}
+	// Schema 2 conclusions must say what would refute them. A hypothesis without
+	// a falsifier is an assertion, not an audited claim.
+	if task.SchemaVersion == SchemaVersionObligations &&
+		(answer.Hypothesis.Status == HypothesisCandidate || answer.Hypothesis.Status == HypothesisRefuted) {
+		if answer.Falsifier == nil {
+			problems = append(problems, "a candidate or refuted answer needs a falsifier: what observation would refute the claim")
+		} else {
+			if strings.TrimSpace(answer.Falsifier.Claim) == "" {
+				problems = append(problems, "falsifier.claim is required")
+			}
+			if len(answer.Falsifier.Claim) > MaxStatementChars {
+				problems = append(problems, fmt.Sprintf("falsifier.claim exceeds %d characters", MaxStatementChars))
+			}
+			if answer.Falsifier.Checked && len(answer.Falsifier.How) == 0 {
+				problems = append(problems, "falsifier.checked=true needs at least one how reference")
+			}
+			if len(answer.Falsifier.How) > MaxEvidenceItems {
+				problems = append(problems, fmt.Sprintf("falsifier.how is limited to %d references", MaxEvidenceItems))
+			}
+			for _, how := range answer.Falsifier.How {
+				if len(strings.TrimSpace(how)) == 0 || len(how) > 200 {
+					problems = append(problems, "falsifier.how entries must be non-empty and at most 200 characters")
+				}
+			}
+		}
+	}
 	if answer.RequestedExpansion != nil {
 		ask := answer.RequestedExpansion
 		if strings.TrimSpace(ask.TargetNodeID) == "" {

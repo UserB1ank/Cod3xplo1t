@@ -428,6 +428,18 @@ type Answer struct {
 	// Obligations answers the task's checklist by kind. Required when the task
 	// carries one; a conclusive hypothesis requires every verdict to be closed.
 	Obligations []ObligationVerdict `json:"obligations,omitempty"`
+	// Falsifier states what would refute a candidate or refuted claim. Schema 2
+	// answers require it; checked inspection must name the evidence it used.
+	Falsifier *Falsifier `json:"falsifier,omitempty"`
+}
+
+// Falsifier is the explicit counter-check of a conclusion. Claim is the
+// observation that would overturn the hypothesis; When Checked, How names the
+// successful calls or input evidence the host can resolve.
+type Falsifier struct {
+	Claim   string   `json:"claim"`
+	Checked bool     `json:"checked"`
+	How     []string `json:"how,omitempty"`
 }
 
 // HypothesisDraft is the claim the agent is making.

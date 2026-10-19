@@ -349,6 +349,22 @@ output contract. Repository content is fenced with a fence longer than any backt
 run inside it and labelled untrusted; it is data, never instructions. The renderer
 reads no files, so a repository's `AGENTS.md` or skills cannot enter the prompt.
 
+## Falsifiers
+
+A schema 2 candidate or refuted conclusion must say what would refute it:
+`falsifier{claim, checked, how}`. `claim` is the observation that would overturn
+the hypothesis. When `checked` is true, `how` must name what the host can prove
+from this run — a successful tool call result, or an evidence id the task carried
+in. A call id that never ran, a denied or failed call, another run's evidence, or
+an alias the host cannot resolve does not pass; the aliases are resolved by Go,
+so the stored answer carries canonical ids.
+
+An unprovable `how` is a correctable output error: the host replies with a bounded
+repair through the same two-repair budget as any other protocol error, and the run
+ends `INVALID_OUTPUT` when it is exhausted. An inconclusive answer does not need a
+falsifier; it still needs a blocker for every open obligation, and no path in this
+flow promotes a candidate to confirmed.
+
 ## Evidence novelty and convergence
 
 Novelty is measured per **completed exploration round** — one model turn with

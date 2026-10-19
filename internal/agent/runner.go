@@ -1026,6 +1026,9 @@ func (s *runnerSession) applyProposal(ctx context.Context, ev RuntimeEvent) bool
 	}
 	answer, err := DecodeAnswer(raw, s.task)
 	if err == nil {
+		err = s.checkFalsifier(answer)
+	}
+	if err == nil {
 		s.answer = answer
 		reply = AnswerDecision{Decision: DecisionAccepted, RepairsUsed: s.repairs}
 		s.proposals[proposal.RequestID] = proposalVerdict{digest: digest, decision: reply}
@@ -1546,6 +1549,35 @@ func (s *runnerSession) applyAnswerOutput(ev RuntimeEvent) bool {
 	return !s.acceptAnswer(raw, "event")
 }
 
+// checkFalsifier resolves a checked falsifier against what this run can prove: a
+// successful call result from this run, or evidence the task carried in. A call id
+// alone, a denied or failed call, or another run's evidence does not pass.
+func (s *runnerSession) checkFalsifier(answer *Answer) error {
+	if answer == nil || answer.Falsifier == nil || !answer.Falsifier.Checked {
+		return nil
+	}
+	inputs := map[string]struct{}{}
+	for _, ref := range s.task.EvidenceRefs {
+		if ref.ID != "" {
+			inputs[ref.ID] = struct{}{}
+		}
+	}
+	s.toolMu.Lock()
+	defer s.toolMu.Unlock()
+	for _, how := range answer.Falsifier.How {
+		how = strings.TrimSpace(how)
+		if _, ok := inputs[how]; ok {
+			continue
+		}
+		record, ok := s.batchResults[how]
+		if ok && record.Result.OK && record.Result.Error == "" {
+			continue
+		}
+		return fmt.Errorf("%w: falsifier.how %q does not resolve to a successful call of this run or to input evidence", ErrInvalidAnswer, how)
+	}
+	return nil
+}
+
 // acceptAnswer runs adapter output through DecodeAnswer, rejects a repeat that
 // carries no new evidence, and only then accepts it. Invalid output ends the run:
 // an adapter that cannot produce the protocol is not going to produce it by being
@@ -1557,6 +1589,11 @@ func (s *runnerSession) acceptAnswer(raw []byte, source string) bool {
 		s.stop = StopInvalidOutput
 		s.status = RunInvalidOutput
 		s.errText = err.Error()
+		return false
+	}
+	if err := s.checkFalsifier(answer); err != nil {
+		s.rejectOutput(source, err)
+		s.stop, s.status, s.errText = StopInvalidOutput, RunInvalidOutput, err.Error()
 		return false
 	}
 	if repeated, count := s.tracker.Observe(answer.Hypothesis.Statement, len(answer.SupportingEvidence)+len(answer.ContradictingEvidence)); repeated {
