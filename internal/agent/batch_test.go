@@ -236,3 +236,101 @@ func TestBatchPolicyIsPersistedWithTheRun(t *testing.T) {
 		t.Fatalf("persisted policy = %+v, want 3 calls and concurrency 2", run.Exploration)
 	}
 }
+
+// refTool returns one evidence ref per call, so a round's novelty is the size of
+// the union of the refs its calls produced.
+type refTool struct{}
+
+func (t *refTool) Name() string     { return "graph.query" }
+func (t *refTool) Describe() string { return "ref test tool" }
+func (t *refTool) Descriptor() ToolDescriptor {
+	return ToolDescriptor{
+		Name: t.Name(), Description: t.Describe(), Version: "1",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"symbol":{"type":"string"}},"additionalProperties":false}`),
+	}
+}
+func (t *refTool) Call(_ context.Context, raw json.RawMessage) (ToolResult, error) {
+	var args map[string]string
+	_ = json.Unmarshal(raw, &args)
+	return ToolResult{OK: true, Result: `{"ok":true}`, Refs: []string{args["symbol"]}}, nil
+}
+
+func TestNoveltyCountsTheWholeRoundAndDoesNotStopEarly(t *testing.T) {
+	run, provider, _ := runBatchScenario(t, runnerTestPolicy(), &refTool{},
+		chatToolCalls(batchCall("call-1", "A"), batchCall("call-2", "A"), batchCall("call-3", "B")),
+		chatAnswer(runnerTestAnswer()),
+	)
+	if run.Status != RunSucceeded {
+		t.Fatalf("run = %s (%q)", run.Status, run.Error)
+	}
+	if provider.count() != 2 {
+		t.Fatalf("provider requests = %d, want 2", provider.count())
+	}
+	if run.Metrics == nil || len(run.Metrics.Novelty) != 1 || run.Metrics.Novelty[0] != 2 {
+		t.Fatalf("novelty = %+v, want one round with two new refs", run.Metrics)
+	}
+}
+
+func TestThreeRoundsWithoutNewEvidenceStopTheRun(t *testing.T) {
+	var responses []string
+	for round := 0; round < 4; round++ {
+		responses = append(responses, chatToolCalls(batchCall(fmt.Sprintf("call-%d", round), "A")))
+	}
+	responses = append(responses, chatAnswer(runnerTestAnswer()))
+	run, provider, store := runBatchScenario(t, runnerTestPolicy(), &refTool{}, responses...)
+	if run.Status != RunFailed || run.StopReason != StopNoNewEvidence {
+		t.Fatalf("run = %s/%s, want FAILED/%s", run.Status, run.StopReason, StopNoNewEvidence)
+	}
+	if provider.count() != 4 {
+		t.Fatalf("provider requests = %d, want 4: the fifth is denied before the request", provider.count())
+	}
+	if run.Metrics == nil || len(run.Metrics.Novelty) != 4 {
+		t.Fatalf("novelty = %+v, want four rounds", run.Metrics)
+	}
+	want := []int{1, 0, 0, 0}
+	for index, value := range want {
+		if run.Metrics.Novelty[index] != value {
+			t.Fatalf("novelty = %v, want %v", run.Metrics.Novelty, want)
+		}
+	}
+	events, err := store.ListRunEvents(EventQuery{RunID: run.ID, Limit: 200})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, event := range events {
+		if event.Type == EventRunFinished && strings.Contains(event.Summary, StopNoNewEvidence) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("the run-finished event does not name the converged stop")
+	}
+}
+
+func TestRepairTurnsDoNotCountAsExplorationRounds(t *testing.T) {
+	run, provider, _ := runBatchScenario(t, runnerTestPolicy(), &refTool{},
+		chatToolCalls(batchCall("call-1", "A")),
+		chatAnswerRaw(`{"schema_version":1,"unexpected":true}`),
+		chatAnswer(runnerTestAnswer()),
+	)
+	if run.Status != RunSucceeded {
+		t.Fatalf("run = %s (%q)", run.Status, run.Error)
+	}
+	if provider.count() != 3 {
+		t.Fatalf("provider requests = %d, want 3 (tool, rejected answer, repaired answer)", provider.count())
+	}
+	if run.Metrics == nil || len(run.Metrics.Novelty) != 1 || run.Metrics.Novelty[0] != 1 {
+		t.Fatalf("novelty = %+v, want only the exploration round", run.Metrics)
+	}
+}
+
+func TestDirectAnswerAddsNoNoveltySample(t *testing.T) {
+	run, _, _ := runBatchScenario(t, runnerTestPolicy(), &refTool{}, chatAnswer(runnerTestAnswer()))
+	if run.Status != RunSucceeded {
+		t.Fatalf("run = %s (%q)", run.Status, run.Error)
+	}
+	if run.Metrics == nil || len(run.Metrics.Novelty) != 0 {
+		t.Fatalf("novelty = %+v, want no sample for a direct answer", run.Metrics)
+	}
+}

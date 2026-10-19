@@ -1496,7 +1496,7 @@ function TaskWorkbench({
                           <Badge status={run.status} />
                         </td>
                         <td>{run.tool_calls}</td>
-                        <td>
+                        <td title={run.metrics?.novelty ? `轮次新颖度 ${run.metrics.novelty.join(" / ")}` : undefined}>
                           {run.metrics?.model_requests ?? "—"}
                           {run.metrics?.source === "legacy_estimate" && <span className="subtle-label"> 旧估算</span>}
                         </td>

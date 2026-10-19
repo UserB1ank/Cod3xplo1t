@@ -349,6 +349,23 @@ output contract. Repository content is fenced with a fence longer than any backt
 run inside it and labelled untrusted; it is data, never instructions. The renderer
 reads no files, so a repository's `AGENTS.md` or skills cannot enter the prompt.
 
+## Evidence novelty and convergence
+
+Novelty is measured per **completed exploration round** — one model turn with
+tool calls — not per exchange. A round's new evidence is the union of the
+canonical refs returned to its calls: two repeated queries in the same round do
+not cancel a third call that finds something new, and asking the same question
+twice or widening a limit adds nothing.
+
+Three consecutive rounds without new evidence stop the run with
+`no_new_evidence`. That is a converged stop, not a conclusion: no answer is
+synthesized and no new abstain status exists (an inconclusive answer remains
+`inconclusive` plus an existing blocker). Repair and control turns are not
+exploration rounds; a turn that answers directly records no novelty sample. The
+permit for the next provider request closes the previous round, so the stop
+happens before another request is spent. Run metrics keep the per-round novelty
+series; records written before this rule keep the counting they were stored with.
+
 ## Tool batches
 
 A model turn may contain several tool calls. The adapter submits the whole batch

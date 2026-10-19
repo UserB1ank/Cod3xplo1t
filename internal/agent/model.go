@@ -176,10 +176,14 @@ const (
 	StopTokenBudget    = "token_budget_exceeded"
 	StopInvalidOutput  = "invalid_output"
 	StopRepeatedOutput = "repeated_output_without_new_evidence"
-	StopCancelled      = "cancelled"
-	StopAdapterFailed  = "adapter_failed"
-	StopLeaseLost      = "lease_lost"
-	StopPathNotActive  = "path_not_active"
+	// StopNoNewEvidence ends exploration after K completed model rounds added no
+	// canonical evidence. It is a converged stop, not an answer: the run has no
+	// conclusion, only a reason.
+	StopNoNewEvidence = "no_new_evidence"
+	StopCancelled     = "cancelled"
+	StopAdapterFailed = "adapter_failed"
+	StopLeaseLost     = "lease_lost"
+	StopPathNotActive = "path_not_active"
 )
 
 // Event types of a run. A request and its result share a CallID.

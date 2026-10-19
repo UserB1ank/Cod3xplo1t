@@ -473,6 +473,9 @@ func (r *Runner) finishAdapterStartFailure(ctx context.Context, p *path.Path, ow
 // finish settles the path, stores what the run produced, and writes the terminal
 // run state with its closing events.
 func (r *Runner) finish(ctx context.Context, p *path.Path, owner string, session *runnerSession, attempt, maxAttempts int) (*Run, error) {
+	// Close the last round for the record, but never convert a valid answer into a
+	// converged stop: the answer is the run's conclusion.
+	session.finishRound(false)
 	run := session.run
 	if session.persistErr != nil {
 		session.failPersist()
@@ -605,6 +608,14 @@ type runnerSession struct {
 	exchanges    int
 	invalidCalls int
 	truncations  int
+	// Novelty is per completed model exploration round, not per tool exchange:
+	// roundRefs collects the evidence of the round in progress, roundTouched
+	// distinguishes a round with calls from a turn that only answered, and
+	// emptyRounds counts consecutive rounds that added nothing.
+	roundID      string
+	roundRefs    map[string]struct{}
+	roundTouched bool
+	emptyRounds  int
 
 	// Turn control: the host owns provider-request permission, answer
 	// acceptance and the one repair budget. modelRequests counts permitted
@@ -634,19 +645,65 @@ type runnerSession struct {
 	persistErr error
 }
 
-// observeExchange records one executed tool exchange and how much new evidence it
-// reported. A repeated ref is not novelty: asking the same question twice must not
-// read as progress.
-func (s *runnerSession) observeExchange(refs []string) {
+// NoEvidenceRounds is K: three completed exploration rounds without new evidence
+// end exploration. A round is one model turn with tool calls, never a repair or a
+// single tool exchange inside a batch.
+const NoEvidenceRounds = 3
+
+// noteToolRefs adds one call's evidence to the exploration round it belongs to.
+// A single call from an adapter without round ids is its own round, which keeps
+// the legacy adapters' counting intact.
+func (s *runnerSession) noteToolRefs(roundID string, refs []string) {
+	if strings.TrimSpace(roundID) == "" {
+		s.beginRound("")
+		s.addRoundRefs(refs)
+		s.roundTouched = true
+		s.finishRound(false)
+		return
+	}
+	s.beginRound(roundID)
+	s.addRoundRefs(refs)
+	s.roundTouched = true
+}
+
+func (s *runnerSession) beginRound(roundID string) {
+	if s.currentRoundID() == roundID {
+		return
+	}
+	s.finishRound(false)
+	s.roundID = roundID
+	s.roundRefs = map[string]struct{}{}
+	s.roundTouched = false
+}
+
+func (s *runnerSession) currentRoundID() string {
+	return s.roundID
+}
+
+func (s *runnerSession) addRoundRefs(refs []string) {
+	if s.roundRefs == nil {
+		s.roundRefs = map[string]struct{}{}
+	}
+	for _, ref := range refs {
+		if ref = strings.TrimSpace(ref); ref != "" {
+			s.roundRefs[ref] = struct{}{}
+		}
+	}
+}
+
+// finishRound closes the round in progress, records one novelty sample and, when
+// applyStop is set, ends exploration after K empty rounds. A turn that only
+// answered has no round to record.
+func (s *runnerSession) finishRound(applyStop bool) bool {
+	if !s.roundTouched {
+		s.roundID, s.roundRefs, s.roundTouched = "", nil, false
+		return false
+	}
 	if s.seenRefs == nil {
 		s.seenRefs = map[string]struct{}{}
 	}
 	fresh := 0
-	for _, ref := range refs {
-		ref = strings.TrimSpace(ref)
-		if ref == "" {
-			continue
-		}
+	for ref := range s.roundRefs {
 		if _, seen := s.seenRefs[ref]; seen {
 			continue
 		}
@@ -654,6 +711,19 @@ func (s *runnerSession) observeExchange(refs []string) {
 		fresh++
 	}
 	s.novelty = append(s.novelty, fresh)
+	if fresh == 0 {
+		s.emptyRounds++
+	} else {
+		s.emptyRounds = 0
+	}
+	s.roundID, s.roundRefs, s.roundTouched = "", nil, false
+	if applyStop && s.emptyRounds >= NoEvidenceRounds {
+		s.stop = StopNoNewEvidence
+		s.status = RunFailed
+		s.errText = fmt.Sprintf("%d consecutive exploration rounds added no new evidence", s.emptyRounds)
+		return true
+	}
+	return false
 }
 
 // metrics renders the session's counters. It is called once, when the run is
@@ -880,6 +950,17 @@ func (s *runnerSession) applyPermit(ctx context.Context, ev RuntimeEvent) bool {
 		s.stop, s.status, s.errText = StopInvalidOutput, RunInvalidOutput, reply.Reason
 		return true
 	}
+	// The previous exploration round is complete once the model asks for its next
+	// request. Closing it here is what makes K consecutive empty rounds stop the
+	// run before another request is spent.
+	if s.finishRound(true) {
+		reply.Reason = s.errText
+		return s.update(Event{
+			Type: EventModelPermitDenied, Actor: runnerActorOrchestrator, CallID: req.RequestID,
+			Summary: "provider request denied: " + reply.Reason,
+			Detail:  map[string]string{"reason": reply.Reason, "stop_reason": StopNoNewEvidence},
+		})
+	}
 	reserve := 0
 	if s.policy.TokenBudget > 0 {
 		if req.InputTokensEstimate <= 0 || req.MaxOutputTokens <= 0 {
@@ -1064,7 +1145,8 @@ func (s *runnerSession) applyTool(ctx context.Context, ev RuntimeEvent) bool {
 		reply = *deniedReply
 		return s.append(asked, *deniedEvent)
 	}
-	result, stop := s.executeToolCall(ctx, prepared, executor, asked)
+	result, refs, stop := s.executeToolCall(ctx, prepared, executor, asked)
+	s.noteToolRefs("", refs)
 	reply = result
 	return stop
 }
@@ -1164,6 +1246,7 @@ func (s *runnerSession) applyBatch(ctx context.Context, ev RuntimeEvent) bool {
 
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, s.policy.ToolConcurrency)
+	refsByCall := make([][]string, len(slots))
 	for index := range slots {
 		if !slots[index].allow {
 			continue
@@ -1173,11 +1256,17 @@ func (s *runnerSession) applyBatch(ctx context.Context, ev RuntimeEvent) bool {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			reply, _ := s.executeToolCall(ctx, slots[position].request, slots[position].executor, s.askTool(slots[position].request))
+			reply, refs, _ := s.executeToolCall(ctx, slots[position].request, slots[position].executor, s.askTool(slots[position].request))
 			results[position] = reply
+			refsByCall[position] = refs
 		}(index)
 	}
 	wg.Wait()
+	var roundRefs []string
+	for _, refs := range refsByCall {
+		roundRefs = append(roundRefs, refs...)
+	}
+	s.noteToolRefs(batch.RoundID, roundRefs)
 	if s.persistErr != nil {
 		s.failPersist()
 		return true
@@ -1263,7 +1352,7 @@ func (s *runnerSession) prepareToolCall(req ToolRequest) (ToolRequest, ToolExecu
 // executeToolCall runs one prepared call, records its exchange and returns the
 // model-facing envelope. It is the only writer of the tool counters, so a batch
 // can execute concurrently without racing the run's version.
-func (s *runnerSession) executeToolCall(ctx context.Context, req ToolRequest, executor ToolExecutor, asked Event) (ToolResult, bool) {
+func (s *runnerSession) executeToolCall(ctx context.Context, req ToolRequest, executor ToolExecutor, asked Event) (ToolResult, []string, bool) {
 	toolCtx := WithToolScope(ctx, ToolScope{
 		SnapshotID: s.task.SnapshotID, PathID: s.task.PathID,
 		AuditID: s.task.AuditID, RunID: s.run.ID,
@@ -1296,10 +1385,6 @@ func (s *runnerSession) executeToolCall(ctx context.Context, req ToolRequest, ex
 		reply.Error = callErr.Error()
 		reply.Result = s.toolEnvelope(false, "", reply.Error)
 	}
-	// One exchange, one novelty sample — including a failed exchange, which
-	// produced no evidence and must read as zero rather than as missing data.
-	s.observeExchange(result.Refs)
-
 	allowed := Event{
 		Type: EventToolAllowed, Actor: runnerActorOrchestrator,
 		CallID: req.CallID, Tool: req.Tool,
@@ -1336,7 +1421,7 @@ func (s *runnerSession) executeToolCall(ctx context.Context, req ToolRequest, ex
 		}
 	}
 	s.batchResults[req.CallID] = batchCallRecord{Digest: batchCallDigest(req), Result: reply}
-	return reply, s.update(asked, allowed, resultEvent)
+	return reply, result.Refs, s.update(asked, allowed, resultEvent)
 }
 
 // batchCallRecord makes a replayed call idempotent: the same id and bytes return

@@ -85,6 +85,8 @@
 
 - 2026-10-20 — #43 支持一轮多个工具调用并按预算执行：新增宿主 `ToolBatch`（round_id + 调用列表）与 `BatchReply`，llm 适配器把一轮全部调用作为批次提交，不再强制单调用或整体修复。宿主按源顺序独占预留工具额度：超单轮上限（默认 4，1–8）整批按每个可识别 call 配对拒绝；超剩余额度或非法/越权/参数错误的 call 配对拒绝且不执行；`ToolConcurrency` 默认 1（≤4）写入 run 的 exploration 策略，允许的调用并发执行，但 provider 历史按源顺序配对、结果事件按完成顺序记录；同一 call id 同摘要幂等返回、不同摘要不重复执行；批次耗尽工具预算时在回复全部配对结果后以 BUDGET_EXCEEDED 停止，不再发下一个 provider 请求（暂停语义留给 #45）。新增 `tool_batch_requested` 事件（调用数、上限、并发）与前端标签；旧 scripted / cli 单调用路径与规则不变，能力位 `BatchTools` 只在 llm 声明。已通过 fake-provider 批次测试（3 调用仅 2 额度、超单轮上限整批拒绝、重复 ID、非法/越权参数、慢/快调用并发且 provider 源序 / 事件完成序、策略持久化）、既有单调用与修复测试、`internal/agent` 竞态、除 `internal/app` 外全量 `go test`（该包仍被他人 #27 WIP 阻塞）、staticcheck 与契约检查。按交付流程提交并关闭；未 push。
 
+- 2026-10-20 — #44 用证据新颖度判定收敛并扩展停止原因：novelty 改为按**完整模型探索轮次**（一轮带工具调用的模型回合）取 canonical 证据并集，同一轮内先重复后新证据仍算进展；重复查询 / 改 limit 不增加。连续 K=3 个探索轮次无新证据时以 `no_new_evidence` 收敛停止（RunFailed，不合成结论、不新增 abstain），在下一个 provider 请求许可前关闭上一轮并拒绝该请求；修复 / 控制回合不计探索轮次，直接作答不凭空记 novelty=0。`RunMetrics.Novelty` 保留逐轮序列，历史记录保持原计数。`applyPermit` 前完成上一轮、`finish` 关闭最后一轮但不把合法答案改成收敛停止。已通过同批次三调用（前两个重复、第三个新证据不误停）、四轮同证据后停止（provider 只发 4 次、novelty `[1,0,0,0]`、事件含停止原因）、修复回合不计轮、直接作答无样本、既有 golden / 批次 / 单调用测试、`internal/agent` 竞态；任务运行表以提示展示轮次新颖度。按交付流程提交并关闭；未 push。
+
 ## Agent skills
 
 ### Issue tracker
