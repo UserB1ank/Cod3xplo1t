@@ -1311,6 +1311,11 @@ function TaskWorkbench({
   if (!current && task.loading) return <Loading />;
   if (task.error) return <Failure message={task.error} />;
   if (!current) return null;
+  const resumeRun = (runID: string) => {
+    const project = route.project;
+    if (!project) return;
+    void action("继续运行", () => api.resumeRun(project, runID));
+  };
   const changeScheduling = () =>
     action(current.paused ? "恢复调度" : "暂停调度", async () => {
       const read = await api.response(`/tasks/${current.audit_id}`);
@@ -1513,6 +1518,15 @@ function TaskWorkbench({
                             查看事件
                             <ChevronRight size={14} />
                           </button>
+                          {run.status === "PAUSED" && canWrite && route.project && (
+                            <button
+                              className="text-button"
+                              disabled={!!busy}
+                              onClick={() => resumeRun(run.run_id)}
+                            >
+                              继续
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))}

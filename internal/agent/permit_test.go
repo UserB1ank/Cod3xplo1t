@@ -87,8 +87,8 @@ func TestTurnControlStopsBeforeAnOversizedRequest(t *testing.T) {
 	if provider.count() != 0 {
 		t.Fatalf("provider requests = %d, want 0: the permit must be refused before the request", provider.count())
 	}
-	if run.Status != RunBudgetExceeded || run.StopReason != StopTokenBudget {
-		t.Fatalf("run = %s/%s, want BUDGET_EXCEEDED/token_budget_exceeded", run.Status, run.StopReason)
+	if run.Status != RunPaused || run.StopReason != StopBudgetPaused {
+		t.Fatalf("run = %s/%s, want PAUSED/budget_paused", run.Status, run.StopReason)
 	}
 	if run.Metrics == nil || run.Metrics.Source != MetricsSourceReported {
 		t.Fatalf("metrics = %+v, want a reported source even when the request was refused", run.Metrics)

@@ -75,24 +75,71 @@ func runnerTestPath(auditID, pathID string) path.Path {
 // orchestrator relies on: a run event sequence strictly increases, and
 // SaveHypotheses appends its hypothesis event in the same step as the upsert.
 type runnerTestStore struct {
-	mu       sync.Mutex
-	runs     map[string]Run
-	runOrder []string
-	events   map[string][]Event
-	seq      map[string]int64
-	hyps     map[string]Hypothesis
-	hypOrder []string
+	mu          sync.Mutex
+	runs        map[string]Run
+	runOrder    []string
+	events      map[string][]Event
+	seq         map[string]int64
+	hyps        map[string]Hypothesis
+	hypOrder    []string
+	checkpoints map[string]Checkpoint
 }
 
 var _ Store = (*runnerTestStore)(nil)
 
 func newRunnerTestStore() *runnerTestStore {
 	return &runnerTestStore{
-		runs:   map[string]Run{},
-		events: map[string][]Event{},
-		seq:    map[string]int64{},
-		hyps:   map[string]Hypothesis{},
+		runs:        map[string]Run{},
+		events:      map[string][]Event{},
+		seq:         map[string]int64{},
+		hyps:        map[string]Hypothesis{},
+		checkpoints: map[string]Checkpoint{},
 	}
+}
+
+func (s *runnerTestStore) SaveCheckpointAndPause(run Run, expectedVersion int64, checkpoint Checkpoint, events []Event) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	stored, ok := s.runs[run.ID]
+	if !ok {
+		return fmt.Errorf("%w: run %s", ErrRunNotFound, run.ID)
+	}
+	if expectedVersion != 0 && stored.Version != expectedVersion {
+		return fmt.Errorf("%w: run %s is at version %d", ErrConflict, run.ID, stored.Version)
+	}
+	run.Version = stored.Version + 1
+	s.runs[run.ID] = run
+	s.checkpoints[checkpoint.ID] = checkpoint
+	for _, event := range events {
+		s.seq[run.ID]++
+		event.Seq = s.seq[run.ID]
+		event.RunID = run.ID
+		event.PathID = run.PathID
+		if event.ID == "" {
+			event.ID = EventID(run.ID, event.Seq)
+		}
+		s.events[run.ID] = append(s.events[run.ID], event)
+	}
+	return nil
+}
+
+func (s *runnerTestStore) GetCheckpoint(runID string) (*Checkpoint, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var latest *Checkpoint
+	for _, checkpoint := range s.checkpoints {
+		if checkpoint.RunID != runID {
+			continue
+		}
+		copied := checkpoint
+		if latest == nil || copied.CreatedAt > latest.CreatedAt {
+			latest = &copied
+		}
+	}
+	if latest == nil {
+		return nil, fmt.Errorf("%w: checkpoint of run %s", ErrRunNotFound, runID)
+	}
+	return latest, nil
 }
 
 func (s *runnerTestStore) CreateRun(run Run) error {
@@ -163,9 +210,8 @@ func (s *runnerTestStore) UpdateRun(run Run, expectedVersion int64) error {
 	if expectedVersion != 0 && stored.Version != expectedVersion {
 		return fmt.Errorf("%w: run %s is at version %d, want %d", ErrConflict, run.ID, stored.Version, expectedVersion)
 	}
-	if run.Version == 0 {
-		run.Version = stored.Version + 1
-	}
+	// The store owns the next version, as the SQL stores do.
+	run.Version = stored.Version + 1
 	s.runs[run.ID] = run
 	return nil
 }
@@ -866,8 +912,8 @@ func TestRunnerToolRequests(t *testing.T) {
 		if err != nil {
 			t.Fatalf("RunOnce: %v", err)
 		}
-		if run.Status != RunBudgetExceeded || run.StopReason != StopToolBudget {
-			t.Fatalf("run = %s/%s, want %s/%s", run.Status, run.StopReason, RunBudgetExceeded, StopToolBudget)
+		if run.Status != RunPaused || run.StopReason != StopBudgetPaused {
+			t.Fatalf("run = %s/%s, want %s/%s", run.Status, run.StopReason, RunPaused, StopBudgetPaused)
 		}
 		if tool.callCount() != 2 || run.ToolCalls != 2 {
 			t.Errorf("tool calls = %d/%d, want 2/2", tool.callCount(), run.ToolCalls)
@@ -1551,8 +1597,8 @@ func TestRunnerTokenBudgetStopsRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunOnce: %v", err)
 	}
-	if run.Status != RunBudgetExceeded || run.StopReason != StopTokenBudget {
-		t.Fatalf("run = %s/%s, want %s/%s", run.Status, run.StopReason, RunBudgetExceeded, StopTokenBudget)
+	if run.Status != RunPaused || run.StopReason != StopBudgetPaused {
+		t.Fatalf("run = %s/%s, want %s/%s", run.Status, run.StopReason, RunPaused, StopBudgetPaused)
 	}
 	if run.InputTokens+run.OutputTokens != 80 {
 		t.Errorf("tokens = %d+%d, want the reported usage recorded", run.InputTokens, run.OutputTokens)

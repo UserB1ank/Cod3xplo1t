@@ -61,6 +61,8 @@ type Memory struct {
 	// run with its own append-only event log, so deleting a snapshot's runs is one
 	// delete per run.
 	agentRuns map[string]*agentRunDocument
+	// agentCheckpoints holds the pause documents, keyed by checkpoint id.
+	agentCheckpoints map[string]agent.Checkpoint
 	// agentHypotheses holds the claims produced by runs, keyed by hypothesis id.
 	// The upsert identity (path_id, digest) is checked when a claim is saved.
 	agentHypotheses map[string]agent.Hypothesis
@@ -98,6 +100,7 @@ func NewMemory() *Memory {
 		idempotency:         map[idempotencyKey]IdempotencyRecord{},
 		audits:              map[string]*auditDocument{},
 		agentRuns:           map[string]*agentRunDocument{},
+		agentCheckpoints:    map[string]agent.Checkpoint{},
 		agentHypotheses:     map[string]agent.Hypothesis{},
 		verificationRuns:    map[string]verify.Run{},
 		evidence:            map[string]verify.Evidence{},

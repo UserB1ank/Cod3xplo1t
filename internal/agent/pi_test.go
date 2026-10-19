@@ -248,8 +248,8 @@ func TestPiRuntimeSubmitsOneTurnAsABatch(t *testing.T) {
 
 func TestPiBatchReservesBudgetInSourceOrder(t *testing.T) {
 	run, tool, _ := runPiScenario(t, "batch-budget")
-	if run.Status != RunBudgetExceeded || run.StopReason != StopToolBudget {
-		t.Fatalf("run = %s/%s (%q), want BUDGET_EXCEEDED", run.Status, run.StopReason, run.Error)
+	if run.Status != RunPaused || run.StopReason != StopBudgetPaused {
+		t.Fatalf("run = %s/%s (%q), want PAUSED", run.Status, run.StopReason, run.Error)
 	}
 	if tool.calls != 2 {
 		t.Fatalf("tool calls = %d, want 2: the third call of the batch is denied, not executed", tool.calls)

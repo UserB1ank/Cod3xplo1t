@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -174,7 +175,7 @@ func (r *Runner) RunOnce(ctx context.Context, auditID string) (*Run, error) {
 	if p == nil {
 		return nil, ErrNotFound
 	}
-	return r.execute(ctx, auditID, p, owner, r.Policy)
+	return r.execute(ctx, auditID, p, owner, r.Policy, nil)
 }
 
 // RunPath claims a named path for one run and executes it. It is the entry point
@@ -212,13 +213,13 @@ func (r *Runner) RunPath(ctx context.Context, pathID, owner string, ttl time.Dur
 	if runnerPolicyEmpty(policy) {
 		policy = r.Policy
 	}
-	return r.execute(ctx, "", p, owner, policy)
+	return r.execute(ctx, "", p, owner, policy, nil)
 }
 
 // execute runs one path the orchestrator already holds the lease on. RunOnce and
 // RunPath differ only in how the path was chosen, so everything from the task
 // build to the settlement lives here, once.
-func (r *Runner) execute(ctx context.Context, auditID string, p *path.Path, owner string, policy ExplorationPolicy) (*Run, error) {
+func (r *Runner) execute(ctx context.Context, auditID string, p *path.Path, owner string, policy ExplorationPolicy, seed *runSeed) (*Run, error) {
 	ctx = path.WithLease(ctx, p.ID, p.LeaseEpoch)
 	adapter, err := r.selectRuntime(auditID)
 	if err != nil {
@@ -235,10 +236,18 @@ func (r *Runner) execute(ctx context.Context, auditID string, p *path.Path, owne
 	// that cannot be built or validated is an orchestrator bug, so the lease goes
 	// straight back to the queue and no run is invented.
 	policy = policy.Normalize()
-	task, err := r.Tasks.BuildTask(ctx, *p, policy)
-	if err != nil {
-		r.releaseQuietly(ctx, p.ID, owner, "task could not be built: "+err.Error())
-		return nil, fmt.Errorf("agent: build the task of path %s: %w", p.ID, err)
+	var task Task
+	if seed != nil {
+		task = seed.task
+		if seed.frontier != nil {
+			task.Resume = &ResumeContext{PreviousRunID: seed.resumeOf, Frontier: seed.frontier}
+		}
+	} else {
+		task, err = r.Tasks.BuildTask(ctx, *p, policy)
+		if err != nil {
+			r.releaseQuietly(ctx, p.ID, owner, "task could not be built: "+err.Error())
+			return nil, fmt.Errorf("agent: build the task of path %s: %w", p.ID, err)
+		}
 	}
 	if strings.TrimSpace(task.PathID) == "" {
 		task.PathID = p.ID
@@ -299,6 +308,7 @@ func (r *Runner) execute(ctx context.Context, auditID string, p *path.Path, owne
 	}
 	run := &Run{
 		ID:               RunID(p.ID, runtimeName, attempt),
+		ResumeOf:         seedResumeOf(seed),
 		ToolSchemaDigest: toolDigest,
 		Pin:              &pin,
 		PathID:           p.ID,
@@ -344,6 +354,13 @@ func (r *Runner) execute(ctx context.Context, auditID string, p *path.Path, owne
 		return run, fmt.Errorf("agent: mark run %s running: %w", run.ID, err)
 	}
 
+	if seed != nil {
+		if err := r.record(run, Event{Type: EventRunResumed, Actor: runnerActorOrchestrator,
+			Summary: "run resumed from checkpoint of " + seed.resumeOf,
+			Detail:  map[string]string{"previous_run_id": seed.resumeOf, "frontier": fmt.Sprint(len(seed.frontier)), "tool_calls": fmt.Sprint(seed.usage.ToolCalls)}}); err != nil {
+			return run, fmt.Errorf("agent: record the resume of %s: %w", seed.resumeOf, err)
+		}
+	}
 	adapterCtx := WithRunGeneration(ctx, generationOf(p))
 	adapterCtx = WithRunID(adapterCtx, run.ID)
 	adapterCtx = WithAliasTable(adapterCtx, aliases)
@@ -378,6 +395,15 @@ func (r *Runner) execute(ctx context.Context, auditID string, p *path.Path, owne
 		reservations: map[string]int{},
 		usageSeen:    map[string]bool{},
 		proposals:    map[string]proposalVerdict{},
+	}
+	if seed != nil {
+		session.seenRefs = map[string]struct{}{}
+		for _, ref := range seed.evidence {
+			session.seenRefs[ref] = struct{}{}
+		}
+		session.toolCalls = seed.usage.ToolCalls
+		run.InputTokens, run.OutputTokens = seed.usage.InputTokens, seed.usage.OutputTokens
+		run.ToolCalls = seed.usage.ToolCalls
 	}
 
 	closed := false
@@ -483,6 +509,9 @@ func (r *Runner) finish(ctx context.Context, p *path.Path, owner string, session
 	// A valid answer is a completed run unless the session already decided
 	// otherwise. A clean end with no answer is not an adapter failure: the
 	// adapter produced nothing the protocol accepts, which is invalid output.
+	if session.pauseRequested {
+		return r.finishPaused(ctx, p, owner, session)
+	}
 	if session.stop == "" {
 		if session.answer != nil {
 			session.stop = StopCompleted
@@ -552,6 +581,133 @@ func (r *Runner) finish(ctx context.Context, p *path.Path, owner string, session
 		return run, fmt.Errorf("agent: finish run %s: %w", run.ID, err)
 	}
 	return run, nil
+}
+
+// runSeed is what a resumed attempt inherits from its checkpoint. The task is the
+// paused run's own task; the frontier is its open work.
+type runSeed struct {
+	task     Task
+	evidence []string
+	usage    CheckpointUsage
+	resumeOf string
+	frontier []string
+}
+
+func seedResumeOf(seed *runSeed) string {
+	if seed == nil {
+		return ""
+	}
+	return seed.resumeOf
+}
+
+// finishPaused saves the checkpoint and only then publishes PAUSED. The attempt
+// carries no answer; the path is released so a resume can claim it again.
+func (r *Runner) finishPaused(ctx context.Context, p *path.Path, owner string, session *runnerSession) (*Run, error) {
+	run := session.run
+	checkpoint, err := BuildCheckpoint(CheckpointInput{
+		Run: *run, Task: session.task, Evidence: sessionEvidence(session.seenRefs),
+		Aliases: session.aliases, Usage: CheckpointUsage{InputTokens: run.InputTokens, OutputTokens: run.OutputTokens, ToolCalls: session.toolCalls},
+		Reason: session.pauseReason, Now: r.now(),
+	})
+	if err != nil {
+		return r.failPause(ctx, p, owner, session, err)
+	}
+	run.Status, run.StopReason, run.Error = RunPaused, StopBudgetPaused, session.pauseReason
+	run.CheckpointID = checkpoint.ID
+	run.Exploration = session.policy
+	run.ToolCalls, run.ElapsedMS, run.Metrics = session.toolCalls, r.now().Sub(session.startedAt).Milliseconds(), session.metrics()
+	run.FinishedAt = NowString(r.now())
+	if err := r.Paths.ReleasePath(context.WithoutCancel(ctx), p.ID, owner, "run "+run.ID+" paused: "+session.pauseReason); err != nil {
+		run.Error = strings.TrimSpace(run.Error + "; the path could not be released: " + err.Error())
+	}
+	events := []Event{
+		{Type: EventCheckpointSaved, Actor: runnerActorOrchestrator, Summary: "checkpoint saved: " + checkpoint.ID,
+			Detail: map[string]string{"frontier": fmt.Sprint(len(checkpoint.Frontier)), "evidence": fmt.Sprint(len(checkpoint.Evidence)), "checkpoint_digest": checkpoint.Digest}},
+		{Type: EventRunFinished, Actor: runnerActorOrchestrator, Summary: "run paused: " + session.pauseReason,
+			Detail: map[string]string{"status": string(RunPaused), "stop_reason": StopBudgetPaused, "checkpoint_id": checkpoint.ID}},
+	}
+	if err := r.Store.SaveCheckpointAndPause(*run, run.Version, checkpoint, events); err != nil {
+		run.Status, run.StopReason, run.Error = RunFailed, StopCheckpointUnavailable, "the checkpoint could not be saved: "+err.Error()
+		run.CheckpointID = ""
+		return run, r.record(run, events...)
+	}
+	run.Version++
+	return run, nil
+}
+
+func (r *Runner) failPause(ctx context.Context, p *path.Path, owner string, session *runnerSession, cause error) (*Run, error) {
+	run := session.run
+	run.Status, run.StopReason = RunFailed, StopCheckpointUnavailable
+	run.Error = "the checkpoint could not be built: " + cause.Error()
+	run.FinishedAt = NowString(r.now())
+	_ = r.Paths.ReleasePath(context.WithoutCancel(ctx), p.ID, owner, "checkpoint unavailable: "+cause.Error())
+	return run, r.record(run,
+		Event{Type: EventRunError, Actor: runnerActorOrchestrator, Summary: runnerCapText(run.Error, MaxStatementChars),
+			Detail: map[string]string{"stop_reason": StopCheckpointUnavailable}},
+		Event{Type: EventRunFinished, Actor: runnerActorOrchestrator, Summary: "run failed: checkpoint unavailable",
+			Detail: map[string]string{"status": string(RunFailed), "stop_reason": StopCheckpointUnavailable}})
+}
+
+func sessionEvidence(refs map[string]struct{}) []string {
+	out := make([]string, 0, len(refs))
+	for ref := range refs {
+		out = append(out, ref)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// Resume continues a paused run from its checkpoint as a new attempt: a new run
+// id, generation and lease, with the checkpoint's evidence, usage and frontier.
+func (r *Runner) Resume(ctx context.Context, runID string) (*Run, error) {
+	if err := r.configured(); err != nil {
+		return nil, err
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	run, err := r.Store.GetRun(runID)
+	if err != nil {
+		return nil, err
+	}
+	if run.Status != RunPaused {
+		return nil, fmt.Errorf("%w: run %s is %s", ErrRunNotPaused, runID, run.Status)
+	}
+	checkpoint, err := r.Store.GetCheckpoint(runID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrCheckpointUnavailable, err)
+	}
+	if checkpoint.RunID != run.ID {
+		return nil, fmt.Errorf("%w: the checkpoint belongs to another run", ErrCheckpointUnavailable)
+	}
+	if err := checkpoint.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrCheckpointUnavailable, err)
+	}
+	adapter, err := r.selectRuntime(run.AuditID)
+	if err != nil {
+		return nil, err
+	}
+	if !adapter.Capabilities().TurnControl {
+		return nil, ErrCheckpointUnsupported
+	}
+	if checkpoint.Pin != nil && checkpoint.Pin.ConfigVersion != "" {
+		if provider, ok := adapter.(PinProvider); ok {
+			current, err := provider.Pin()
+			if err != nil {
+				return nil, fmt.Errorf("%w: %v", ErrCheckpointStale, err)
+			}
+			if current.ConfigVersion != "" && current.ConfigVersion != checkpoint.Pin.ConfigVersion {
+				return nil, fmt.Errorf("%w: the model configuration version changed", ErrCheckpointStale)
+			}
+		}
+	}
+	owner := r.owner()
+	p, err := r.Paths.ClaimSpecificPath(ctx, checkpoint.PathID, owner, r.leaseTTL())
+	if err != nil || p == nil {
+		return nil, fmt.Errorf("%w: the path cannot be claimed", ErrCheckpointStale)
+	}
+	seed := &runSeed{task: checkpoint.Task, evidence: checkpoint.Evidence, usage: checkpoint.Usage, resumeOf: run.ID, frontier: checkpoint.Frontier}
+	return r.execute(ctx, "", p, owner, checkpoint.Task.Exploration, seed)
 }
 
 // settlePath applies the stop reason to the path. A lost lease is the one case
@@ -635,6 +791,10 @@ type runnerSession struct {
 	usageSeen     map[string]bool
 	proposals     map[string]proposalVerdict
 	turnControl   bool
+	// pauseRequested marks a budget boundary that saved a resumable checkpoint;
+	// the run ends PAUSED instead of FAILED.
+	pauseRequested bool
+	pauseReason    string
 
 	answer     *Answer
 	stop       string
@@ -909,11 +1069,8 @@ func (s *runnerSession) applyEvent(ctx context.Context, ev RuntimeEvent) bool {
 		return true
 	}
 	if s.tokenBudgetExceeded() {
-		s.stop = StopTokenBudget
-		s.status = RunBudgetExceeded
-		s.errText = fmt.Sprintf("the adapter reported %d token(s) against a budget of %d",
-			s.run.InputTokens+s.run.OutputTokens, s.policy.TokenBudget)
-		return true
+		return s.pauseBudget(fmt.Sprintf("the adapter reported %d token(s) against a budget of %d",
+			s.run.InputTokens+s.run.OutputTokens, s.policy.TokenBudget))
 	}
 	return false
 }
@@ -972,9 +1129,7 @@ func (s *runnerSession) applyPermit(ctx context.Context, ev RuntimeEvent) bool {
 		reserve = req.InputTokensEstimate + req.MaxOutputTokens
 		if s.run.InputTokens+s.run.OutputTokens+s.reserved+reserve > s.policy.TokenBudget {
 			reply.Reason = fmt.Sprintf("the reservation would exceed the token budget of %d", s.policy.TokenBudget)
-			s.stop, s.status, s.errText = StopTokenBudget, RunBudgetExceeded, reply.Reason
-			return s.update(Event{Type: EventModelPermitDenied, Actor: runnerActorOrchestrator, CallID: req.RequestID,
-				Summary: "provider request denied: " + reply.Reason, Detail: map[string]string{"reason": reply.Reason}})
+			return s.pauseBudget(reply.Reason)
 		}
 		s.reserved += reserve
 		s.reservations[req.RequestID] = reserve
@@ -1119,6 +1274,19 @@ func (s *runnerSession) failPersistIfNeeded() bool {
 // applyTool validates a tool request against the current policy and either runs it
 // through the registry or refuses it. Adapters that cannot batch use this path;
 // the host rules are the same as for one call inside a batch.
+// pauseBudget stops the attempt at a budget boundary and asks finish to persist a
+// checkpoint. The stop is not an answer: the run carries no conclusion.
+func (s *runnerSession) pauseBudget(reason string) bool {
+	if s.persistErr != nil {
+		s.failPersist()
+		return true
+	}
+	s.pauseRequested = true
+	s.pauseReason = reason
+	s.stop, s.status, s.errText = StopBudgetPaused, RunPaused, reason
+	return true
+}
+
 func (s *runnerSession) applyTool(ctx context.Context, ev RuntimeEvent) bool {
 	req := *ev.Tool
 	reply := ToolResult{CallID: req.CallID, Tool: req.Tool, Error: "tool request denied"}
@@ -1135,11 +1303,8 @@ func (s *runnerSession) applyTool(ctx context.Context, ev RuntimeEvent) bool {
 		deniedReply, denied := s.denyTool(req, err.Error(), map[string]string{"allowed_tools": strings.Join(s.policy.AllowedTools, ",")})
 		reply = deniedReply
 		if errors.Is(err, ErrBudgetExhausted) {
-			if s.append(asked, denied) {
-				return true
-			}
-			s.stop, s.status, s.errText = StopToolBudget, RunBudgetExceeded, err.Error()
-			return true
+			_ = s.append(asked, denied)
+			return s.pauseBudget(err.Error())
 		}
 		return s.append(asked, denied)
 	}
@@ -1275,10 +1440,7 @@ func (s *runnerSession) applyBatch(ctx context.Context, ev RuntimeEvent) bool {
 		return true
 	}
 	if budgetExhausted {
-		s.stop = StopToolBudget
-		s.status = RunBudgetExceeded
-		s.errText = fmt.Sprintf("the tool budget of %d is exhausted", s.policy.MaxToolCalls)
-		return true
+		return s.pauseBudget(fmt.Sprintf("the tool budget of %d is exhausted", s.policy.MaxToolCalls))
 	}
 	return false
 }

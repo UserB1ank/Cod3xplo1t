@@ -34,8 +34,8 @@
     }
   ],
   "expect": {
-    "status": "BUDGET_EXCEEDED",
-    "stop_reason": "tool_call_budget_exceeded",
+    "status": "PAUSED",
+    "stop_reason": "budget_paused",
     "tool_calls": 2,
     "rounds": 3,
     "exchanges": 2,

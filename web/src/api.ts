@@ -102,6 +102,7 @@ export class ApiClient {
   path(id: string, signal?: AbortSignal) { return this.get<{ path: AuditPath; events: AuditEvent[] }>(`/paths/${encodeURIComponent(id)}`, signal); }
   finding(id: string, signal?: AbortSignal) { return this.get<FindingDetail>(`/findings/${encodeURIComponent(id)}`, signal); }
   runEvents(id: string, signal?: AbortSignal) { return this.get<{ events: AuditEvent[] }>(`/runs/${encodeURIComponent(id)}/events?limit=100`, signal); }
+  resumeRun(projectID: string, runID: string) { return this.post<{ api_version: string; run: Run }>(`/v1/projects/${encodeURIComponent(projectID)}/runs/${encodeURIComponent(runID)}/resume`, {}); }
   async slice(path: AuditPath, signal?: AbortSignal) {
     const target = [...path.steps].reverse().find(s => s.file);
     if (!target?.file) return [];

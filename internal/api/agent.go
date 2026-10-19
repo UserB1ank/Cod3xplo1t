@@ -333,6 +333,77 @@ func (s *Server) handleGetRun(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, run)
 }
 
+// projectRun loads a run and proves it belongs to the project in the path.
+func (s *Server) projectRun(w http.ResponseWriter, r *http.Request) (*agent.Run, bool) {
+	if s.agentUnavailable(w) {
+		return nil, false
+	}
+	if _, err := s.Store.GetProject(r.Context(), r.PathValue("projectID")); err != nil {
+		writeStorageError(w, err)
+		return nil, false
+	}
+	run, err := s.Agent.Store.GetRun(r.PathValue("runID"))
+	if err != nil {
+		writeAgentError(w, err, r.PathValue("runID"))
+		return nil, false
+	}
+	snapshots, err := s.Store.ListSnapshots(r.Context(), r.PathValue("projectID"))
+	if err != nil {
+		writeStorageError(w, err)
+		return nil, false
+	}
+	for _, snapshot := range snapshots {
+		if snapshot.SnapshotID == run.SnapshotID {
+			return run, true
+		}
+	}
+	writeError(w, http.StatusNotFound, "not_found", errors.New("run does not belong to this project"))
+	return nil, false
+}
+
+// handleRunCheckpoint answers GET /api/v1/projects/{projectID}/runs/{runID}/checkpoint.
+func (s *Server) handleRunCheckpoint(w http.ResponseWriter, r *http.Request) {
+	run, ok := s.projectRun(w, r)
+	if !ok {
+		return
+	}
+	checkpoint, err := s.Agent.Store.GetCheckpoint(run.ID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "checkpoint_unavailable", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, checkpoint)
+}
+
+// handleResumeRun answers POST /api/v1/projects/{projectID}/runs/{runID}/resume.
+func (s *Server) handleResumeRun(w http.ResponseWriter, r *http.Request) {
+	run, ok := s.projectRun(w, r)
+	if !ok {
+		return
+	}
+	resumed, err := s.Agent.Resume(r.Context(), run.ID)
+	if err != nil {
+		writeResumeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"api_version": "codexploit/v1", "run": resumed})
+}
+
+func writeResumeError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, agent.ErrRunNotPaused):
+		writeError(w, http.StatusConflict, "run_not_paused", err)
+	case errors.Is(err, agent.ErrCheckpointUnavailable):
+		writeError(w, http.StatusConflict, "checkpoint_unavailable", err)
+	case errors.Is(err, agent.ErrCheckpointStale):
+		writeError(w, http.StatusConflict, "checkpoint_stale", err)
+	case errors.Is(err, agent.ErrCheckpointUnsupported):
+		writeError(w, http.StatusBadRequest, "unsupported", err)
+	default:
+		writeAgentError(w, err, "")
+	}
+}
+
 // runEventPage is a bounded page of one run's exchange log, with the same
 // resumable cursor convention as the audit event page.
 type runEventPage struct {

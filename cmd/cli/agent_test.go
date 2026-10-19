@@ -36,7 +36,8 @@ func cliAgentAnswer(securityGoal string) string {
   "contradicting_evidence": [],
   "next_action": "request a deeper dataflow slice",
   "finding_candidate": true,
-  "severity_hint": "high"
+  "severity_hint": "high",
+  "falsifier": {"claim": "the value is validated before the query", "checked": false}
 }`, agent.SchemaVersionObligations, securityGoal)
 }
 

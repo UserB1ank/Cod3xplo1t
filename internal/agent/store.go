@@ -26,6 +26,11 @@ type Store interface {
 	// UpdateRun writes a run with optimistic concurrency; expectedVersion 0 skips
 	// the check.
 	UpdateRun(run Run, expectedVersion int64) error
+	// SaveCheckpointAndPause writes the checkpoint, the paused run and its final
+	// events in one transaction: PAUSED is only visible once the checkpoint exists.
+	SaveCheckpointAndPause(run Run, expectedVersion int64, checkpoint Checkpoint, events []Event) error
+	// GetCheckpoint returns the latest checkpoint of a run.
+	GetCheckpoint(runID string) (*Checkpoint, error)
 
 	// AppendRunEvents adds run events. Sequences are per run and must increase.
 	//

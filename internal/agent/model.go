@@ -180,15 +180,23 @@ const (
 	// canonical evidence. It is a converged stop, not an answer: the run has no
 	// conclusion, only a reason.
 	StopNoNewEvidence = "no_new_evidence"
-	StopCancelled     = "cancelled"
-	StopAdapterFailed = "adapter_failed"
-	StopLeaseLost     = "lease_lost"
-	StopPathNotActive = "path_not_active"
+	// StopBudgetPaused is the stop of an attempt that reached a budget boundary
+	// and saved a resumable checkpoint.
+	StopBudgetPaused = "budget_paused"
+	// StopCheckpointUnavailable is a pause that could not persist its checkpoint:
+	// the attempt fails instead of pretending it can be resumed.
+	StopCheckpointUnavailable = "checkpoint_unavailable"
+	StopCancelled             = "cancelled"
+	StopAdapterFailed         = "adapter_failed"
+	StopLeaseLost             = "lease_lost"
+	StopPathNotActive         = "path_not_active"
 )
 
 // Event types of a run. A request and its result share a CallID.
 const (
 	EventRunCreated         = "run_created"
+	EventCheckpointSaved    = "checkpoint_saved"
+	EventRunResumed         = "run_resumed"
 	EventRunStarted         = "run_started"
 	EventTaskDelivered      = "task_delivered"
 	EventToolRequested      = "tool_requested"
@@ -361,8 +369,10 @@ type Task struct {
 	Limitations []string `json:"limitations"`
 	// Obligations is the checklist this task must answer. It is empty for a task
 	// built before the checklist existed; such a task is validated as version 1.
-	Obligations []Obligation `json:"obligations,omitempty"`
-	CreatedAt   string       `json:"created_at"`
+	// Resume, when set, is the context of the paused attempt this run continues.
+	Resume      *ResumeContext `json:"resume,omitempty"`
+	Obligations []Obligation   `json:"obligations,omitempty"`
+	CreatedAt   string         `json:"created_at"`
 }
 
 type PriorFinding struct {
@@ -680,10 +690,14 @@ type Run struct {
 	ToolSchemaDigest string `json:"tool_schema_digest,omitempty"`
 	// Pin records the runtime, model and configuration versions used for the run.
 	// It is nil for a run stored before the field existed.
-	Pin       *RuntimePin `json:"pin,omitempty"`
-	CreatedAt string      `json:"created_at"`
-	UpdatedAt string      `json:"updated_at"`
-	Version   int64       `json:"version"`
+	Pin *RuntimePin `json:"pin,omitempty"`
+	// CheckpointID is the checkpoint a paused attempt left behind.
+	CheckpointID string `json:"checkpoint_id,omitempty"`
+	// ResumeOf names the paused run this attempt continues, when it is a resume.
+	ResumeOf  string `json:"resume_of,omitempty"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+	Version   int64  `json:"version"`
 }
 
 // Event is one append-only entry of a run's exchange log.

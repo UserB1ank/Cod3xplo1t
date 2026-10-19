@@ -19,6 +19,14 @@ const (
 	CheckpointMaxFrontier = 50
 )
 
+// ResumeContext is what a resumed run tells the model about the work it inherits:
+// the open frontier and the obligations that already have a fixed verdict.
+type ResumeContext struct {
+	PreviousRunID string              `json:"previous_run_id"`
+	Frontier      []string            `json:"frontier"`
+	Closed        []ObligationVerdict `json:"closed_obligations,omitempty"`
+}
+
 // Checkpoint is the runtime-independent state a paused attempt leaves behind. It
 // is built by Go from the run's own task, evidence, aliases, pin and usage; it
 // never carries provider messages or hidden reasoning.

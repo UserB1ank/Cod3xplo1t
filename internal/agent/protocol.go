@@ -19,6 +19,14 @@ var (
 	ErrBudgetExhausted = errors.New("agent: budget exhausted")
 	// ErrInvalidCheckpoint is a pause document a reader cannot trust.
 	ErrInvalidCheckpoint = errors.New("agent: invalid checkpoint")
+	// ErrRunNotPaused refuses a resume of an attempt that is not paused.
+	ErrRunNotPaused = errors.New("agent: the run is not paused")
+	// ErrCheckpointUnavailable refuses a resume whose checkpoint is missing.
+	ErrCheckpointUnavailable = errors.New("agent: the checkpoint is unavailable")
+	// ErrCheckpointStale refuses a resume whose fixed inputs are gone.
+	ErrCheckpointStale = errors.New("agent: the checkpoint's fixed inputs are no longer available")
+	// ErrCheckpointUnsupported refuses resume for an adapter that cannot carry one.
+	ErrCheckpointUnsupported = errors.New("agent: this runtime cannot resume a checkpoint")
 	// ErrRuntimeUnavailable is a task's selected runtime missing from the
 	// deployment catalog. It must not fall back to another adapter.
 	ErrRuntimeUnavailable = errors.New("agent: the requested runtime is not available")

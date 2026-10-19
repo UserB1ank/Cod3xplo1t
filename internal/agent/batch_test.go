@@ -82,8 +82,8 @@ func TestBatchReservesBudgetInSourceOrder(t *testing.T) {
 		chatToolCalls(batchCall("call-a", "a"), batchCall("call-b", "b"), batchCall("call-c", "c")),
 		chatAnswer(runnerTestAnswer()),
 	)
-	if run.Status != RunBudgetExceeded || run.StopReason != StopToolBudget {
-		t.Fatalf("run = %s/%s, want BUDGET_EXCEEDED/%s", run.Status, run.StopReason, StopToolBudget)
+	if run.Status != RunPaused || run.StopReason != StopBudgetPaused {
+		t.Fatalf("run = %s/%s, want PAUSED/%s", run.Status, run.StopReason, StopBudgetPaused)
 	}
 	if run.ToolCalls != 2 {
 		t.Fatalf("tool calls = %d, want 2", run.ToolCalls)

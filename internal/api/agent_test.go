@@ -59,6 +59,7 @@ func agentTestAnswer(securityGoal string) agent.Answer {
 		NextAction:       "request a deeper dataflow slice",
 		FindingCandidate: true,
 		SeverityHint:     "high",
+		Falsifier:        &agent.Falsifier{Claim: "the value is validated before the query", Checked: false},
 	}
 }
 

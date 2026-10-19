@@ -5,6 +5,7 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/open-mcp-ai/Codexploit/internal/agent"
 )
@@ -851,6 +852,61 @@ func TestDeleteSnapshotRemovesAgentRuns(t *testing.T) {
 			}
 			if _, total := mustListHypotheses(t, store, agent.HypothesisQuery{SnapshotID: agentStoreOtherSnapID}); total != 1 {
 				t.Errorf("the surviving claims = %d, want 1", total)
+			}
+		})
+	}
+}
+
+// TestAgentCheckpointPauseRoundTrips covers the pause boundary in every store:
+// the checkpoint and the PAUSED run are written together and read back by run id.
+func TestAgentCheckpointPauseRoundTrips(t *testing.T) {
+	for _, tc := range fullStores(t) {
+		t.Run(tc.name, func(t *testing.T) {
+			store := tc.store
+			run := newAgentRunFixture(agentStoreRunID, agentStorePathID, agentStoreAuditID, agentStoreSnapID)
+			if err := store.CreateRun(run); err != nil {
+				t.Fatalf("CreateRun: %v", err)
+			}
+			checkpoint, err := agent.BuildCheckpoint(agent.CheckpointInput{
+				Run: run, Task: run.Task, Reason: "the tool budget is exhausted",
+				Evidence: []string{"ev-1"}, Now: time.Now().UTC(),
+			})
+			if err != nil {
+				t.Fatalf("BuildCheckpoint: %v", err)
+			}
+			paused := run
+			paused.Status = agent.RunPaused
+			paused.StopReason = agent.StopBudgetPaused
+			paused.CheckpointID = checkpoint.ID
+			var seq int64
+			if next, err := store.NextRunEventSeq(run.ID); err == nil {
+				seq = next
+			}
+			if err := store.SaveCheckpointAndPause(paused, run.Version, checkpoint, []agent.Event{{
+				ID: agent.EventID(run.ID, seq+1), RunID: run.ID, PathID: run.PathID, Seq: seq + 1,
+				Type: agent.EventCheckpointSaved, Summary: "checkpoint saved", CreatedAt: checkpoint.CreatedAt,
+			}}); err != nil {
+				t.Fatalf("SaveCheckpointAndPause: %v", err)
+			}
+			stored, err := store.GetCheckpoint(run.ID)
+			if err != nil {
+				t.Fatalf("GetCheckpoint: %v", err)
+			}
+			if stored.ID != checkpoint.ID || stored.Digest != checkpoint.Digest || len(stored.Frontier) == 0 {
+				t.Fatalf("stored checkpoint = %+v", stored)
+			}
+			got := mustGetAgentRun(t, store, run.ID)
+			if got.Status != agent.RunPaused || got.CheckpointID != checkpoint.ID {
+				t.Fatalf("stored run = %s/%q, want PAUSED with the checkpoint", got.Status, got.CheckpointID)
+			}
+			other, err := agent.BuildCheckpoint(agent.CheckpointInput{
+				Run: run, Task: run.Task, Reason: "another pause", Now: time.Now().UTC().Add(time.Second),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := store.SaveCheckpointAndPause(paused, run.Version, other, nil); !errors.Is(err, agent.ErrConflict) {
+				t.Fatalf("stale checkpoint save = %v, want agent.ErrConflict", err)
 			}
 		})
 	}

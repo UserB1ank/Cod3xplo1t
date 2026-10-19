@@ -392,6 +392,27 @@ concurrency and pairing are identical. The reply carries one result per
 `call_id` in source order. The worker's own parallel setting only lets the core
 start the calls; it never owns execution order or budget.
 
+## Pausing at a budget boundary
+
+A run that reaches its token or tool budget ends as `PAUSED`, not `FAILED`. Go
+projects the attempt into a runtime-independent checkpoint before anything is
+published: the pinned task, canonical evidence, the open frontier (obligations and
+unresolved questions), the alias table, the runtime/model/config/tool pin and the
+usage already spent. The document has its own version and digest, and the
+checkpoint, the paused run and its final events are written in one transaction —
+if the checkpoint cannot be saved the attempt fails with
+`checkpoint_unavailable` instead of advertising a resume it cannot honour.
+
+`POST /api/v1/projects/{projectID}/runs/{runID}/resume` (writer) starts a new
+attempt from the checkpoint: a new run id, lease and generation, with the paused
+run's task, evidence and usage carried forward and `resume_of` naming the previous
+attempt. A changed model configuration version, a path that can no longer be
+claimed or a checkpoint from another run is refused (`checkpoint_stale`), and the
+legacy CLI adapter reports `unsupported`. The checkpoint is readable through
+`GET .../runs/{runID}/checkpoint`; readers can inspect the frontier but not
+resume. The task page shows the PAUSED status and offers the resume action to a
+writer.
+
 ## Tool batches
 
 A model turn may contain several tool calls. The adapter submits the whole batch

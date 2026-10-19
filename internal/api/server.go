@@ -235,6 +235,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/reports", s.handleListReports)
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/reports/{reportID}", s.handleGetReport)
 	mux.HandleFunc("GET /healthz", s.handleHealth)
+	mux.HandleFunc("GET /api/v1/projects/{projectID}/runs/{runID}/checkpoint", s.handleRunCheckpoint)
+	mux.HandleFunc("POST /api/v1/projects/{projectID}/runs/{runID}/resume", s.handleResumeRun)
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/workflow-runs/{runID}", s.handleGetWorkflowRun)
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/workflow-runs/{runID}/events", s.handleWorkflowRunEvents)
 	mux.HandleFunc("POST /api/v1/projects/{projectID}/workflow-runs/{runID}/pause", s.handleWorkflowControl("pause"))
