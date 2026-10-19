@@ -1,0 +1,65 @@
+{
+  "name": "safe-no-reachable-sink",
+  "category": "known_safe",
+  "description": "The handler reaches no sensitive operation inside the snapshot.",
+  "tools": {
+    "graph.neighbors": {
+      "result": "callees end at pure helpers",
+      "refs": [
+        "sym-25"
+      ]
+    }
+  },
+  "steps": [
+    {
+      "kind": "tool",
+      "tool": "graph.neighbors",
+      "args": {
+        "symbol_id": "S25",
+        "max_depth": "3"
+      }
+    },
+    {
+      "kind": "answer",
+      "answer": {
+        "schema_version": 1,
+        "security_goal": "sql_injection",
+        "hypothesis": {
+          "statement": "the handler's reachable call set contains no sensitive operation",
+          "status": "refuted",
+          "confidence": "medium"
+        },
+        "supporting_evidence": [],
+        "contradicting_evidence": [
+          {
+            "kind": "source",
+            "ref": "sym-25",
+            "file": "handlers/status.go",
+            "line": 12,
+            "summary": "only pure helpers are reachable"
+          }
+        ],
+        "next_action": "re-check the call site",
+        "finding_candidate": false,
+        "notes": "reachability is bounded by the observed call graph; unresolved calls would be listed"
+      }
+    }
+  ],
+  "expect": {
+    "status": "SUCCEEDED",
+    "stop_reason": "completed",
+    "tool_calls": 1,
+    "rounds": 2,
+    "exchanges": 1,
+    "invalid_calls": 0,
+    "truncations": 0,
+    "novelty": [
+      1
+    ]
+  },
+  "allowed_tools": [
+    "graph.query",
+    "graph.neighbors",
+    "graph.slice"
+  ]
+}

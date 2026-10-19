@@ -18,6 +18,7 @@ var agentRunColumnNames = []string{
 	"task_json", "exploration_json", "budget_json", "tool_calls", "expansions", "input_tokens",
 	"output_tokens", "elapsed_ms", "owner", "started_at", "deadline_at", "heartbeat_at",
 	"finished_at", "exit_code", "stop_reason", "error", "output_json", "created_at", "updated_at", "version", "lease_epoch",
+	"metrics_json",
 }
 
 var agentEventColumnNames = []string{
@@ -62,6 +63,16 @@ func agentRunWriteValues(run agent.Run) ([]any, error) {
 			return nil, err
 		}
 	}
+	// A nil Metrics is "not recorded", not "zero cost": an adapter that never
+	// started produced no observation, and a run stored before the field existed
+	// must stay distinguishable from one that measured zero.
+	metrics := ""
+	if run.Metrics != nil {
+		metrics, err = jsonString(run.Metrics)
+		if err != nil {
+			return nil, err
+		}
+	}
 	var exit any
 	if run.ExitCode != nil {
 		exit = *run.ExitCode
@@ -71,6 +82,7 @@ func agentRunWriteValues(run agent.Run) ([]any, error) {
 		task, exploration, budget, run.ToolCalls, run.Expansions, run.InputTokens, run.OutputTokens,
 		run.ElapsedMS, run.Owner, run.StartedAt, run.DeadlineAt, run.HeartbeatAt, run.FinishedAt, exit,
 		run.StopReason, run.Error, output, run.CreatedAt, run.UpdatedAt, run.Version, run.LeaseEpoch,
+		metrics,
 	}, nil
 }
 
@@ -79,13 +91,14 @@ func scanAgentRunRow(scan func(...any) error) (agent.Run, error) {
 	var (
 		run                                       agent.Run
 		status, task, exploration, budget, output string
+		metrics                                   string
 		exit                                      sql.NullInt64
 	)
 	if err := scan(&run.ID, &run.PathID, &run.AuditID, &run.SnapshotID, &run.Runtime, &run.RuntimeVersion,
 		&status, &task, &exploration, &budget, &run.ToolCalls, &run.Expansions, &run.InputTokens,
 		&run.OutputTokens, &run.ElapsedMS, &run.Owner, &run.StartedAt, &run.DeadlineAt, &run.HeartbeatAt,
 		&run.FinishedAt, &exit, &run.StopReason, &run.Error, &output, &run.CreatedAt, &run.UpdatedAt,
-		&run.Version, &run.LeaseEpoch); err != nil {
+		&run.Version, &run.LeaseEpoch, &metrics); err != nil {
 		return agent.Run{}, err
 	}
 	run.Status = agent.RunStatus(status)
@@ -111,6 +124,13 @@ func scanAgentRunRow(scan func(...any) error) (agent.Run, error) {
 			return agent.Run{}, fmt.Errorf("storage: run %s: %w", run.ID, err)
 		}
 		run.Answer = &answer
+	}
+	if metrics != "" {
+		var recorded agent.RunMetrics
+		if err := decodeJSON(metrics, &recorded); err != nil {
+			return agent.Run{}, fmt.Errorf("storage: run %s: %w", run.ID, err)
+		}
+		run.Metrics = &recorded
 	}
 	return run, nil
 }

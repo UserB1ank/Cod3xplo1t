@@ -1,0 +1,53 @@
+{
+  "name": "boundary-tool-budget",
+  "category": "boundary",
+  "description": "The third request exceeds the tool-call budget and stops the run.",
+  "tools": {
+    "graph.query": {
+      "result": "one fact per call",
+      "refs": [
+        "sym-41"
+      ]
+    }
+  },
+  "steps": [
+    {
+      "kind": "tool",
+      "tool": "graph.query",
+      "args": {
+        "symbol_id": "S41"
+      }
+    },
+    {
+      "kind": "tool",
+      "tool": "graph.query",
+      "args": {
+        "symbol_id": "S42"
+      }
+    },
+    {
+      "kind": "tool",
+      "tool": "graph.query",
+      "args": {
+        "symbol_id": "S43"
+      }
+    }
+  ],
+  "expect": {
+    "status": "BUDGET_EXCEEDED",
+    "stop_reason": "tool_call_budget_exceeded",
+    "tool_calls": 2,
+    "rounds": 3,
+    "exchanges": 2,
+    "invalid_calls": 0,
+    "truncations": 0,
+    "novelty": [
+      1,
+      0
+    ]
+  },
+  "allowed_tools": [
+    "graph.query"
+  ],
+  "max_tool_calls": 2
+}

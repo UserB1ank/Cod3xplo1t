@@ -1,0 +1,79 @@
+{
+  "name": "vuln-ssrf",
+  "category": "seeded_vuln",
+  "description": "User supplied URL handed to the outbound HTTP client, with one repeated query.",
+  "tools": {
+    "graph.query": {
+      "result": "url parameter reaches http.Get",
+      "refs": [
+        "sym-11"
+      ]
+    },
+    "graph.neighbors": {
+      "result": "same edge reported again",
+      "refs": [
+        "sym-11"
+      ]
+    }
+  },
+  "steps": [
+    {
+      "kind": "tool",
+      "tool": "graph.query",
+      "args": {
+        "symbol_id": "S10"
+      }
+    },
+    {
+      "kind": "tool",
+      "tool": "graph.neighbors",
+      "args": {
+        "symbol_id": "S10"
+      }
+    },
+    {
+      "kind": "answer",
+      "answer": {
+        "schema_version": 1,
+        "security_goal": "sql_injection",
+        "hypothesis": {
+          "statement": "the callback URL is fetched without an allowlist",
+          "status": "candidate",
+          "confidence": "medium"
+        },
+        "supporting_evidence": [
+          {
+            "kind": "sink",
+            "ref": "sym-11",
+            "file": "handlers/callback.go",
+            "line": 31,
+            "summary": "http.Get(callback)"
+          }
+        ],
+        "contradicting_evidence": [],
+        "next_action": "re-check the call site",
+        "finding_candidate": true,
+        "severity_hint": "medium",
+        "notes": "repeating the neighbourhood added no new fact"
+      }
+    }
+  ],
+  "expect": {
+    "status": "SUCCEEDED",
+    "stop_reason": "completed",
+    "tool_calls": 2,
+    "rounds": 3,
+    "exchanges": 2,
+    "invalid_calls": 0,
+    "truncations": 0,
+    "novelty": [
+      1,
+      0
+    ]
+  },
+  "allowed_tools": [
+    "graph.query",
+    "graph.neighbors",
+    "graph.slice"
+  ]
+}

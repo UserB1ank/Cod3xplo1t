@@ -154,6 +154,24 @@ Deleting a snapshot deletes its runs, events and hypotheses. The audit and run l
 use different method names (`AppendEvents` versus `AppendRunEvents`) because Go has
 no overloading and because a reader should never have to guess which log they hold.
 
+## Run metrics
+
+Every run records what it cost as the orchestrator observed it, not as the adapter
+claimed it (`agent.RunMetrics`, stored in `agent_runs.metrics_json`):
+
+| Field | Meaning |
+|---|---|
+| `rounds` | adapter turns; today one tool call per turn, so `exchanges + 1` (the turn that answered) |
+| `exchanges` | tool calls actually executed; a denied request is not an exchange |
+| `novelty` | per exchange, how many evidence ids were reported that no earlier exchange had reported |
+| `invalid_calls` | executions where the tool answered with an error (`OK=false`) |
+| `truncations` | results the protocol limit cut before they reached the adapter |
+
+`metrics` is `null` for a run whose adapter never started and for rows stored
+before the column existed; it is never a zero-valued record pretending to be a
+measurement. The stop-quality baseline built on these counters is
+[`agent-baseline.md`](agent-baseline.md); regenerate it with `make bench-agent`.
+
 ## What P5 does not do
 
 - **No verification.** A hypothesis is a claim with evidence, not a finding.

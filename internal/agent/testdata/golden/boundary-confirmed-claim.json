@@ -1,0 +1,44 @@
+{
+  "name": "boundary-confirmed-claim",
+  "category": "boundary",
+  "description": "A run that claims confirmation is rejected: only verification may confirm.",
+  "tools": {
+    "graph.query": {
+      "result": "unused",
+      "refs": []
+    }
+  },
+  "steps": [
+    {
+      "kind": "answer",
+      "answer": {
+        "schema_version": 1,
+        "security_goal": "sql_injection",
+        "hypothesis": {
+          "statement": "this is a confirmed SQL injection",
+          "status": "confirmed",
+          "confidence": "high"
+        },
+        "supporting_evidence": [],
+        "contradicting_evidence": [],
+        "next_action": "none",
+        "finding_candidate": false
+      }
+    }
+  ],
+  "expect": {
+    "status": "INVALID_OUTPUT",
+    "stop_reason": "invalid_output",
+    "tool_calls": 0,
+    "rounds": 1,
+    "exchanges": 0,
+    "invalid_calls": 0,
+    "truncations": 0,
+    "novelty": []
+  },
+  "allowed_tools": [
+    "graph.query",
+    "graph.neighbors",
+    "graph.slice"
+  ]
+}

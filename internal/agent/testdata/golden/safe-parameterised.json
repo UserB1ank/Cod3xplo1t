@@ -1,0 +1,64 @@
+{
+  "name": "safe-parameterised",
+  "category": "known_safe",
+  "description": "The statement is parameterised, so the input cannot change its shape.",
+  "tools": {
+    "graph.query": {
+      "result": "db.QueryRow(\"SELECT ... WHERE id = ?\", id)",
+      "refs": [
+        "sym-20"
+      ]
+    }
+  },
+  "steps": [
+    {
+      "kind": "tool",
+      "tool": "graph.query",
+      "args": {
+        "symbol_id": "S20"
+      }
+    },
+    {
+      "kind": "answer",
+      "answer": {
+        "schema_version": 1,
+        "security_goal": "sql_injection",
+        "hypothesis": {
+          "statement": "the id parameter is bound, not concatenated: the statement shape is fixed",
+          "status": "refuted",
+          "confidence": "high"
+        },
+        "supporting_evidence": [],
+        "contradicting_evidence": [
+          {
+            "kind": "sink",
+            "ref": "sym-20",
+            "file": "store/user.go",
+            "line": 64,
+            "summary": "the placeholder is bound with a typed argument"
+          }
+        ],
+        "next_action": "re-check the call site",
+        "finding_candidate": false,
+        "notes": "no string formatting appears on the path"
+      }
+    }
+  ],
+  "expect": {
+    "status": "SUCCEEDED",
+    "stop_reason": "completed",
+    "tool_calls": 1,
+    "rounds": 2,
+    "exchanges": 1,
+    "invalid_calls": 0,
+    "truncations": 0,
+    "novelty": [
+      1
+    ]
+  },
+  "allowed_tools": [
+    "graph.query",
+    "graph.neighbors",
+    "graph.slice"
+  ]
+}

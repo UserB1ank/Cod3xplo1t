@@ -57,6 +57,8 @@
 
 - 2026-10-19 — #25 浏览器选择电脑目录上传固定源码：创建项目与代码源共用目录选择器，逐文件有界计算摘要，传输前排除敏感类型和生成目录并展示数量 / 大小 / 排除记录；multipart 清单由服务端核对全部路径、文件数、大小和 SHA-256，拒绝缺失、额外、变化、越界、重名及超限文件。规范清单摘要保证重试不受 multipart boundary 影响，内部子目录与中文 / 空格路径保留；上传后修改需重新选择，旧任务输入保持不变。扫描器打包升至 1.0.2 并保留旧版本记录。已通过公开 HTTP / 客户端边界 TDD red/green、Memory / SQLite / 真实 PostgreSQL 认证 / Scope / 幂等 / 重建验证、完整乱序竞态、三轮 make test-stress、make lint、契约、前端测试 / 构建与 Docker 构建；正式页面验收目录筛选、上传、真实图谱和任务，文件修改及容器重建后四个来源 / 快照 / 任务 / 产物文档一致且摘要正确，中途断连不发布来源且暂存清理。18085 服务已更新，原数据 / 加密配置 / 会话保持一致。详见 docs/source-imports.md。按交付流程提交并关闭；未 push。
 
+- 2026-10-19 — #37 记录 Agent 停止质量基线并固定脚本黄金集：`agent.Run` 新增 `RunMetrics`（rounds / exchanges / 每轮 novelty / invalid_calls / truncations），全部由编排器自身观测，结束时与 run 同事务落库（`agent_runs.metrics_json`，SQLite `0025` / PostgreSQL `0007`），旧记录与未启动适配器的 run 保持 `nil` 而非零值。`ScriptedRuntime` 回放的 20 条黄金场景覆盖播种漏洞、已知安全、真不可判定与边界四类（各 5 条），同一脚本两次运行的事件序列、计数与答案逐字节一致；`make bench-agent` 输出停止原因、轮数、调用数与 novelty 曲线，并写出机器可读汇总，`docs/agent-baseline.md` 记录首版数字。已通过 TDD red/green、Memory / SQLite 往返与 `nil` 兼容、`internal/agent` / `internal/storage` / `internal/api` 乱序竞态回归、gofmt / vet / staticcheck 与 20 条确定性校验；`internal/app` 因工作区存在未跟踪的进行中测试文件未纳入本轮运行，前端无改动故未跑前端构建。按交付流程提交并关闭；未 push。
+
 ## Agent skills
 
 ### Issue tracker

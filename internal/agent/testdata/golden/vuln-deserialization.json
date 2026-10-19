@@ -1,0 +1,101 @@
+{
+  "name": "vuln-deserialization",
+  "category": "seeded_vuln",
+  "description": "Body decoded with gob into an interface value.",
+  "tools": {
+    "graph.query": {
+      "result": "decoder reads the request body",
+      "refs": [
+        "sym-12"
+      ]
+    },
+    "graph.slice": {
+      "result": "gob.NewDecoder(body).Decode(&target)",
+      "refs": [
+        "sym-13"
+      ]
+    },
+    "graph.neighbors": {
+      "result": "target reaches a sensitive operation",
+      "refs": [
+        "sym-14"
+      ]
+    }
+  },
+  "steps": [
+    {
+      "kind": "tool",
+      "tool": "graph.query",
+      "args": {
+        "symbol_id": "S12"
+      }
+    },
+    {
+      "kind": "tool",
+      "tool": "graph.slice",
+      "args": {
+        "symbol_id": "S13"
+      }
+    },
+    {
+      "kind": "tool",
+      "tool": "graph.neighbors",
+      "args": {
+        "symbol_id": "S13",
+        "direction": "callees"
+      }
+    },
+    {
+      "kind": "answer",
+      "answer": {
+        "schema_version": 1,
+        "security_goal": "sql_injection",
+        "hypothesis": {
+          "statement": "an attacker supplied body is gob decoded and the decoded value reaches a sensitive call",
+          "status": "candidate",
+          "confidence": "medium"
+        },
+        "supporting_evidence": [
+          {
+            "kind": "source",
+            "ref": "sym-12",
+            "file": "handlers/import.go",
+            "line": 19,
+            "summary": "request body is read"
+          },
+          {
+            "kind": "sink",
+            "ref": "sym-14",
+            "file": "internal/restore.go",
+            "line": 73,
+            "summary": "decoded value is applied"
+          }
+        ],
+        "contradicting_evidence": [],
+        "next_action": "re-check the call site",
+        "finding_candidate": true,
+        "severity_hint": "medium",
+        "notes": "the gob type registry decides whether a gadget is available"
+      }
+    }
+  ],
+  "expect": {
+    "status": "SUCCEEDED",
+    "stop_reason": "completed",
+    "tool_calls": 3,
+    "rounds": 4,
+    "exchanges": 3,
+    "invalid_calls": 0,
+    "truncations": 0,
+    "novelty": [
+      1,
+      1,
+      1
+    ]
+  },
+  "allowed_tools": [
+    "graph.query",
+    "graph.neighbors",
+    "graph.slice"
+  ]
+}

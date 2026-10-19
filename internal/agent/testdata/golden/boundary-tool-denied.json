@@ -1,0 +1,65 @@
+{
+  "name": "boundary-tool-denied",
+  "category": "boundary",
+  "description": "A tool outside the allowlist is denied and the run continues.",
+  "tools": {
+    "graph.query": {
+      "result": "allowed result",
+      "refs": [
+        "sym-40"
+      ]
+    },
+    "shell.exec": {
+      "result": "this must never run",
+      "refs": []
+    }
+  },
+  "steps": [
+    {
+      "kind": "tool",
+      "tool": "shell.exec",
+      "args": {
+        "command": "id"
+      }
+    },
+    {
+      "kind": "tool",
+      "tool": "graph.query",
+      "args": {
+        "symbol_id": "S40"
+      }
+    },
+    {
+      "kind": "answer",
+      "answer": {
+        "schema_version": 1,
+        "security_goal": "sql_injection",
+        "hypothesis": {
+          "statement": "the allowlisted query answered; the denied request did not end the run",
+          "status": "inconclusive",
+          "confidence": "low"
+        },
+        "supporting_evidence": [],
+        "contradicting_evidence": [],
+        "next_action": "re-check the call site",
+        "finding_candidate": false,
+        "notes": "one request was denied by the allowlist before execution"
+      }
+    }
+  ],
+  "expect": {
+    "status": "SUCCEEDED",
+    "stop_reason": "completed",
+    "tool_calls": 1,
+    "rounds": 2,
+    "exchanges": 1,
+    "invalid_calls": 0,
+    "truncations": 0,
+    "novelty": [
+      1
+    ]
+  },
+  "allowed_tools": [
+    "graph.query"
+  ]
+}

@@ -1,0 +1,64 @@
+{
+  "name": "safe-auth-middleware",
+  "category": "known_safe",
+  "description": "Authentication middleware is registered before the route and covers it.",
+  "tools": {
+    "graph.query": {
+      "result": "r.Use(auth.Required) before r.GET",
+      "refs": [
+        "sym-24"
+      ]
+    }
+  },
+  "steps": [
+    {
+      "kind": "tool",
+      "tool": "graph.query",
+      "args": {
+        "symbol_id": "S24"
+      }
+    },
+    {
+      "kind": "answer",
+      "answer": {
+        "schema_version": 1,
+        "security_goal": "sql_injection",
+        "hypothesis": {
+          "statement": "the route sits behind authentication middleware registered on the same router",
+          "status": "refuted",
+          "confidence": "medium"
+        },
+        "supporting_evidence": [],
+        "contradicting_evidence": [
+          {
+            "kind": "source",
+            "ref": "sym-24",
+            "file": "main.go",
+            "line": 28,
+            "summary": "auth.Required is registered before the route"
+          }
+        ],
+        "next_action": "a control-effectiveness review is a separate path",
+        "finding_candidate": false,
+        "notes": "middleware presence is observed; its effectiveness is not assessed by this run"
+      }
+    }
+  ],
+  "expect": {
+    "status": "SUCCEEDED",
+    "stop_reason": "completed",
+    "tool_calls": 1,
+    "rounds": 2,
+    "exchanges": 1,
+    "invalid_calls": 0,
+    "truncations": 0,
+    "novelty": [
+      1
+    ]
+  },
+  "allowed_tools": [
+    "graph.query",
+    "graph.neighbors",
+    "graph.slice"
+  ]
+}

@@ -464,6 +464,7 @@ func (r *Runner) finish(ctx context.Context, p *path.Path, owner string, session
 	run.Expansions = session.expansions
 	run.ElapsedMS = r.now().Sub(session.startedAt).Milliseconds()
 	run.FinishedAt = NowString(r.now())
+	run.Metrics = session.metrics()
 	if session.exitCode != nil {
 		run.ExitCode = session.exitCode
 	}
@@ -483,6 +484,8 @@ func (r *Runner) finish(ctx context.Context, p *path.Path, owner string, session
 			"status": string(session.status), "stop_reason": session.stop,
 			"tool_calls": fmt.Sprint(session.toolCalls), "expansions": fmt.Sprint(session.expansions),
 			"input_tokens": fmt.Sprint(run.InputTokens), "output_tokens": fmt.Sprint(run.OutputTokens),
+			"rounds": fmt.Sprint(run.Metrics.Rounds), "exchanges": fmt.Sprint(run.Metrics.Exchanges),
+			"invalid_calls": fmt.Sprint(run.Metrics.InvalidCalls), "truncations": fmt.Sprint(run.Metrics.Truncations),
 		},
 	})
 	if err := r.record(run, events...); err != nil {
@@ -537,6 +540,15 @@ type runnerSession struct {
 	expansions int
 	branches   int
 
+	// What the run cost, counted as the orchestrator sees it. seenRefs is the
+	// evidence already reported, so novelty counts ids no earlier exchange
+	// reported rather than calls made.
+	seenRefs     map[string]struct{}
+	novelty      []int
+	exchanges    int
+	invalidCalls int
+	truncations  int
+
 	answer     *Answer
 	stop       string
 	status     RunStatus
@@ -544,6 +556,40 @@ type runnerSession struct {
 	exitCode   *int
 	leaseLost  bool
 	persistErr error
+}
+
+// observeExchange records one executed tool exchange and how much new evidence it
+// reported. A repeated ref is not novelty: asking the same question twice must not
+// read as progress.
+func (s *runnerSession) observeExchange(refs []string) {
+	if s.seenRefs == nil {
+		s.seenRefs = map[string]struct{}{}
+	}
+	fresh := 0
+	for _, ref := range refs {
+		ref = strings.TrimSpace(ref)
+		if ref == "" {
+			continue
+		}
+		if _, seen := s.seenRefs[ref]; seen {
+			continue
+		}
+		s.seenRefs[ref] = struct{}{}
+		fresh++
+	}
+	s.novelty = append(s.novelty, fresh)
+}
+
+// metrics renders the session's counters. It is called once, when the run is
+// finished, and the slice is copied so a later mutation cannot rewrite history.
+func (s *runnerSession) metrics() *RunMetrics {
+	return &RunMetrics{
+		Rounds:       s.exchanges + 1,
+		Exchanges:    s.exchanges,
+		Novelty:      append([]int(nil), s.novelty...),
+		InvalidCalls: s.invalidCalls,
+		Truncations:  s.truncations,
+	}
 }
 
 // consume reads the adapter's stream until it ends or the orchestrator decides to
@@ -727,14 +773,28 @@ func (s *runnerSession) applyTool(ctx context.Context, ev RuntimeEvent) bool {
 	result, callErr := executor.Call(ctx, req.Args)
 	elapsed := s.runner.now().Sub(started).Milliseconds()
 	s.toolCalls++
+	s.exchanges++
 	s.run.ToolCalls = s.toolCalls
 	reply.ElapsedMS = elapsed
+	payload, truncated := "", false
 	if callErr == nil {
 		reply.OK, reply.Error, reply.Refs = result.OK, result.Error, result.Refs
-		reply.Result, _ = TruncateToolResult(result.Result)
+		payload, truncated = TruncateToolResult(result.Result)
+		reply.Result = payload
+		if truncated {
+			s.truncations++
+		}
+		if !result.OK {
+			// The model asked a well-formed question and the tool could not answer
+			// it. That is the invalid-call signal, distinct from a denied request.
+			s.invalidCalls++
+		}
 	} else {
 		reply.Error = callErr.Error()
 	}
+	// One exchange, one novelty sample — including an exchange that failed, which
+	// produced no evidence and must read as zero rather than as missing data.
+	s.observeExchange(result.Refs)
 
 	allowed := Event{
 		Type: EventToolAllowed, Actor: runnerActorOrchestrator,
@@ -758,7 +818,6 @@ func (s *runnerSession) applyTool(ctx context.Context, ev RuntimeEvent) bool {
 			resultEvent.Detail["error"] = result.Error
 		}
 	default:
-		payload, truncated := TruncateToolResult(result.Result)
 		resultEvent.Summary = "tool returned a result for " + req.Tool
 		resultEvent.Detail["ok"] = "true"
 		resultEvent.Detail["result"] = payload

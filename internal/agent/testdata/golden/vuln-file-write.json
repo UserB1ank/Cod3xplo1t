@@ -1,0 +1,70 @@
+{
+  "name": "vuln-file-write",
+  "category": "seeded_vuln",
+  "description": "Path parameter used as an output file name without normalisation.",
+  "tools": {
+    "graph.slice": {
+      "result": "os.WriteFile(filepath.Join(base, name))",
+      "refs": [
+        "sym-9"
+      ]
+    }
+  },
+  "steps": [
+    {
+      "kind": "note",
+      "summary": "slice only, no call-graph walk needed"
+    },
+    {
+      "kind": "tool",
+      "tool": "graph.slice",
+      "args": {
+        "symbol_id": "S7",
+        "include": "declaration"
+      }
+    },
+    {
+      "kind": "answer",
+      "answer": {
+        "schema_version": 1,
+        "security_goal": "sql_injection",
+        "hypothesis": {
+          "statement": "the path parameter is joined to a base directory and written without normalisation",
+          "status": "candidate",
+          "confidence": "medium"
+        },
+        "supporting_evidence": [
+          {
+            "kind": "sink",
+            "ref": "sym-9",
+            "file": "handlers/export.go",
+            "line": 57,
+            "summary": "os.WriteFile with the raw path parameter"
+          }
+        ],
+        "contradicting_evidence": [],
+        "next_action": "re-check the call site",
+        "finding_candidate": true,
+        "severity_hint": "medium",
+        "notes": "traversal requires ../ in the parameter; validation was not observed on the path"
+      }
+    }
+  ],
+  "expect": {
+    "status": "SUCCEEDED",
+    "stop_reason": "completed",
+    "tool_calls": 1,
+    "rounds": 2,
+    "exchanges": 1,
+    "invalid_calls": 0,
+    "truncations": 0,
+    "novelty": [
+      1
+    ]
+  },
+  "allowed_tools": [
+    "graph.query",
+    "graph.neighbors",
+    "graph.slice"
+  ]
+}

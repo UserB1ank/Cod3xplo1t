@@ -73,6 +73,9 @@ func newAgentRunFixture(runID, pathID, auditID, snapshotID string) agent.Run {
 		Owner: "worker-1", StartedAt: "2024-05-01T12:00:01Z", DeadlineAt: "2024-05-01T12:05:01Z",
 		HeartbeatAt: "2024-05-01T12:04:00Z", FinishedAt: "2024-05-01T12:04:30Z",
 		ExitCode: &exit, StopReason: agent.StopCompleted,
+		Metrics: &agent.RunMetrics{
+			Rounds: 5, Exchanges: 4, Novelty: []int{2, 1, 0, 1}, InvalidCalls: 1, Truncations: 2,
+		},
 		Answer: &agent.Answer{
 			SchemaVersion: agent.SchemaVersion,
 			SecurityGoal:  task.SecurityGoal,
@@ -237,6 +240,27 @@ func TestAgentRunRoundTrip(t *testing.T) {
 			absent := newAgentRunFixture(agentStoreAbsentRunID, agentStorePathID, agentStoreAuditID, agentStoreSnapID)
 			if err := store.UpdateRun(absent, 0); !errors.Is(err, agent.ErrNotFound) {
 				t.Errorf("UpdateRun(absent) = %v, want agent.ErrNotFound", err)
+			}
+		})
+	}
+}
+
+// TestAgentRunWithoutMetricsRoundTrips keeps "not recorded" distinguishable from
+// "measured zero": a run stored before metrics existed, or one whose adapter never
+// started, must come back with a nil Metrics, not a zero-valued one.
+func TestAgentRunWithoutMetricsRoundTrips(t *testing.T) {
+	for _, tc := range fullStores(t) {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			store := tc.store
+			run := newAgentRunFixture(agentStoreRunID, agentStorePathID, agentStoreAuditID, agentStoreSnapID)
+			run.Metrics = nil
+			if err := store.CreateRun(run); err != nil {
+				t.Fatalf("CreateRun: %v", err)
+			}
+			got := mustGetAgentRun(t, store, agentStoreRunID)
+			if got.Metrics != nil {
+				t.Errorf("Metrics = %+v, want nil for a run with no recorded metrics", got.Metrics)
 			}
 		})
 	}

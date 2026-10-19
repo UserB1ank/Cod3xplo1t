@@ -1,0 +1,77 @@
+{
+  "name": "vuln-sql-concat",
+  "category": "seeded_vuln",
+  "description": "Unquoted query parameter concatenated into a SQL statement.",
+  "tools": {
+    "graph.query": {
+      "result": "store/user.go:61 db.Query(...)",
+      "refs": [
+        "sym-2",
+        "sym-3"
+      ]
+    }
+  },
+  "steps": [
+    {
+      "kind": "note",
+      "summary": "read the handler slice"
+    },
+    {
+      "kind": "tool",
+      "tool": "graph.query",
+      "args": {
+        "symbol_id": "S1"
+      }
+    },
+    {
+      "kind": "answer",
+      "answer": {
+        "schema_version": 1,
+        "security_goal": "sql_injection",
+        "hypothesis": {
+          "statement": "the id query parameter is concatenated into the SQL string and reaches db.Query",
+          "status": "candidate",
+          "confidence": "high"
+        },
+        "supporting_evidence": [
+          {
+            "kind": "source",
+            "ref": "sym-2",
+            "file": "handlers/user.go",
+            "line": 41,
+            "summary": "c.Query(\"id\") is read without validation"
+          },
+          {
+            "kind": "sink",
+            "ref": "sym-3",
+            "file": "store/user.go",
+            "line": 61,
+            "summary": "db.Query builds the statement with + id"
+          }
+        ],
+        "contradicting_evidence": [],
+        "next_action": "re-check the call site",
+        "finding_candidate": true,
+        "severity_hint": "high",
+        "notes": "the sink call site is observed; parameterisation was not found on the path"
+      }
+    }
+  ],
+  "expect": {
+    "status": "SUCCEEDED",
+    "stop_reason": "completed",
+    "tool_calls": 1,
+    "rounds": 2,
+    "exchanges": 1,
+    "invalid_calls": 0,
+    "truncations": 0,
+    "novelty": [
+      2
+    ]
+  },
+  "allowed_tools": [
+    "graph.query",
+    "graph.neighbors",
+    "graph.slice"
+  ]
+}

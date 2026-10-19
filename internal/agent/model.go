@@ -339,6 +339,28 @@ type ToolResult struct {
 	ElapsedMS int64    `json:"elapsed_ms"`
 }
 
+// RunMetrics is what a run cost and what it produced, in numbers a benchmark can
+// compare across builds.
+//
+// Every counter is the orchestrator's own observation, never the adapter's claim:
+// an exchange is one executed tool call, an invalid call is a tool that answered
+// with an error, and a truncation is a result the orchestrator cut before handing
+// it back. Novelty is recorded per exchange: how many evidence ids that exchange
+// reported that no earlier exchange of the run had reported, which is what makes
+// "the run stopped learning" measurable instead of a feeling.
+//
+// Rounds is the documented turn count. Today's protocol allows one tool call per
+// adapter turn, so a run takes one turn per exchange plus the turn that answered;
+// an adapter that batches calls under one turn will report a smaller number once
+// the protocol carries turn boundaries.
+type RunMetrics struct {
+	Rounds       int   `json:"rounds"`
+	Exchanges    int   `json:"exchanges"`
+	Novelty      []int `json:"novelty,omitempty"`
+	InvalidCalls int   `json:"invalid_calls"`
+	Truncations  int   `json:"truncations"`
+}
+
 // Run is one execution of a runtime over one path.
 type Run struct {
 	ID             string            `json:"run_id"`
@@ -366,9 +388,12 @@ type Run struct {
 	StopReason     string            `json:"stop_reason,omitempty"`
 	Error          string            `json:"error,omitempty"`
 	Answer         *Answer           `json:"answer,omitempty"`
-	CreatedAt      string            `json:"created_at"`
-	UpdatedAt      string            `json:"updated_at"`
-	Version        int64             `json:"version"`
+	// Metrics is nil for a run that never started an adapter, and absent for a
+	// record stored before the field existed.
+	Metrics   *RunMetrics `json:"metrics,omitempty"`
+	CreatedAt string      `json:"created_at"`
+	UpdatedAt string      `json:"updated_at"`
+	Version   int64       `json:"version"`
 }
 
 // Event is one append-only entry of a run's exchange log.

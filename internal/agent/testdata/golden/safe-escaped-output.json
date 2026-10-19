@@ -1,0 +1,78 @@
+{
+  "name": "safe-escaped-output",
+  "category": "known_safe",
+  "description": "The value is HTML escaped before it is written.",
+  "tools": {
+    "graph.query": {
+      "result": "template.HTMLEscapeString(value)",
+      "refs": [
+        "sym-22"
+      ]
+    },
+    "graph.slice": {
+      "result": "the escaped value is written to the response",
+      "refs": [
+        "sym-23"
+      ]
+    }
+  },
+  "steps": [
+    {
+      "kind": "tool",
+      "tool": "graph.query",
+      "args": {
+        "symbol_id": "S22"
+      }
+    },
+    {
+      "kind": "tool",
+      "tool": "graph.slice",
+      "args": {
+        "symbol_id": "S23"
+      }
+    },
+    {
+      "kind": "answer",
+      "answer": {
+        "schema_version": 1,
+        "security_goal": "sql_injection",
+        "hypothesis": {
+          "statement": "the value is escaped before output, so the path does not produce script injection",
+          "status": "refuted",
+          "confidence": "high"
+        },
+        "supporting_evidence": [],
+        "contradicting_evidence": [
+          {
+            "kind": "sink",
+            "ref": "sym-23",
+            "file": "handlers/render.go",
+            "line": 51,
+            "summary": "only the escaped value is written"
+          }
+        ],
+        "next_action": "re-check the call site",
+        "finding_candidate": false,
+        "notes": "the escaping call is on the same path and observed"
+      }
+    }
+  ],
+  "expect": {
+    "status": "SUCCEEDED",
+    "stop_reason": "completed",
+    "tool_calls": 2,
+    "rounds": 3,
+    "exchanges": 2,
+    "invalid_calls": 0,
+    "truncations": 0,
+    "novelty": [
+      1,
+      1
+    ]
+  },
+  "allowed_tools": [
+    "graph.query",
+    "graph.neighbors",
+    "graph.slice"
+  ]
+}

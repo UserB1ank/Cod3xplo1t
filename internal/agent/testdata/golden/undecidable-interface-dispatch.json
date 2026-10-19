@@ -1,0 +1,56 @@
+{
+  "name": "undecidable-interface-dispatch",
+  "category": "undecidable",
+  "description": "The sink is called through an interface, so no static edge exists.",
+  "tools": {
+    "graph.query": {
+      "result": "store is an interface value",
+      "refs": [
+        "sym-30"
+      ]
+    }
+  },
+  "steps": [
+    {
+      "kind": "tool",
+      "tool": "graph.query",
+      "args": {
+        "symbol_id": "S30"
+      }
+    },
+    {
+      "kind": "answer",
+      "answer": {
+        "schema_version": 1,
+        "security_goal": "sql_injection",
+        "hypothesis": {
+          "statement": "the store field is an interface; the concrete implementation is not visible in this snapshot",
+          "status": "inconclusive",
+          "confidence": "low"
+        },
+        "supporting_evidence": [],
+        "contradicting_evidence": [],
+        "next_action": "re-check the call site",
+        "finding_candidate": false,
+        "notes": "unresolved_dynamic: the method set of the interface value is unknown here"
+      }
+    }
+  ],
+  "expect": {
+    "status": "SUCCEEDED",
+    "stop_reason": "completed",
+    "tool_calls": 1,
+    "rounds": 2,
+    "exchanges": 1,
+    "invalid_calls": 0,
+    "truncations": 0,
+    "novelty": [
+      1
+    ]
+  },
+  "allowed_tools": [
+    "graph.query",
+    "graph.neighbors",
+    "graph.slice"
+  ]
+}

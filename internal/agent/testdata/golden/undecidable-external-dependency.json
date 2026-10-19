@@ -1,0 +1,68 @@
+{
+  "name": "undecidable-external-dependency",
+  "category": "undecidable",
+  "description": "The call chain leaves the snapshot into a dependency.",
+  "tools": {
+    "graph.query": {
+      "result": "the helper is imported from another module",
+      "refs": [
+        "sym-31"
+      ]
+    },
+    "graph.neighbors": {
+      "result": "resolution stops at the module boundary",
+      "refs": []
+    }
+  },
+  "steps": [
+    {
+      "kind": "tool",
+      "tool": "graph.query",
+      "args": {
+        "symbol_id": "S31"
+      }
+    },
+    {
+      "kind": "tool",
+      "tool": "graph.neighbors",
+      "args": {
+        "symbol_id": "S31"
+      }
+    },
+    {
+      "kind": "answer",
+      "answer": {
+        "schema_version": 1,
+        "security_goal": "sql_injection",
+        "hypothesis": {
+          "statement": "the reaching call is external to the snapshot and its behaviour is unmodelled",
+          "status": "inconclusive",
+          "confidence": "low"
+        },
+        "supporting_evidence": [],
+        "contradicting_evidence": [],
+        "next_action": "re-check the call site",
+        "finding_candidate": false,
+        "notes": "unresolved_external: out of scope for this snapshot"
+      }
+    }
+  ],
+  "expect": {
+    "status": "SUCCEEDED",
+    "stop_reason": "completed",
+    "tool_calls": 2,
+    "rounds": 3,
+    "exchanges": 2,
+    "invalid_calls": 0,
+    "truncations": 0,
+    "novelty": [
+      1,
+      0
+    ]
+  },
+  "allowed_tools": [
+    "graph.query",
+    "graph.neighbors",
+    "graph.slice"
+  ]
+}
