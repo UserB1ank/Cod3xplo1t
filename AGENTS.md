@@ -89,7 +89,7 @@
 
 - 2026-10-20 — #41 让结论带上可核验的反证：schema 2 的 candidate / refuted 答案新增 `falsifier{claim, checked, how}`，`claim` 必填；`checked=true` 时 `how` 必须解析到本 run **成功**的调用结果或该任务携带的输入证据（canonical id），仅出现 call id、被拒绝 / 失败的调用、他人 run 的证据均不通过；别名由 Go 在 `ResolveAnswer` 中解析，存储保持 canonical。不可解析的 `how` 走宿主既有修复预算（2 次，≤300 字节），耗尽 INVALID_OUTPUT；inconclusive 不强制已检查 falsifier，开放义务仍需既有 blocker；不新增 confirmed 提升路径。模型提示词加入 falsifier 约定。已通过结构校验（缺字段 / checked 无 how / refuted / inconclusive）、输入证据与别名解析、他人 run 引用修复后接受、修复耗尽 INVALID_OUTPUT、失败 / 拒绝调用与未知引用拒绝、既有 agent 全量测试与竞态、staticcheck。按交付流程提交并关闭；未 push。
 
-- 2026-10-20 — #60 让 Pi 与 llm 共用同一轮批次、预算与收敛规则：worker 不再一调用一请求。Pi agent core 的 parallel 只负责让同一 assistant turn 的所有工具 execute 启动，worker 短暂收集后提交一个 `tool_batch`（calls: call_id/tool/args）；Go 桥把它转成与 llm 相同的宿主 `ToolBatch`，复用 #43 的源序预算预留、配对拒绝、并发执行与 provider 源序配对；回执 `tool_batch_result` 按源顺序每个 call 一条结果。协议、公共 worker Schema 与能力位 `BatchTools` 同步。`falsifier` 与 novelty 仍由宿主统一校验，Pi 无独立 validator。已通过 worker 测试（批量回执）、Go 桥 `TestPiRuntimeSubmitsOneTurnAsABatch`（2 调用 1 次许可、2 次交换、源序配对）、既有 Pi 全量测试与竞态、staticcheck、契约检查。按交付流程提交并关闭；未 push。
+- 2026-10-20 — #60 让 Pi 与 llm 共用同一轮批次、预算与收敛规则：worker 不再一调用一请求。Pi agent core 的 parallel 只负责让同一 assistant turn 的所有工具 execute 启动，worker 短暂收集后提交一个 `tool_batch`（calls: call_id/tool/args）；Go 桥把它转成与 llm 相同的宿主 `ToolBatch`，复用 #43 的源序预算预留、配对拒绝、并发执行与 provider 源序配对；回执 `tool_batch_result` 按源顺序每个 call 一条结果。协议、公共 worker Schema 与能力位 `BatchTools` 同步。`falsifier` 与 novelty 仍由宿主统一校验，Pi 无独立 validator。已通过 worker 测试（批量回执）、Go 桥 `TestPiRuntimeSubmitsOneTurnAsABatch`（2 调用 1 次许可、2 次交换、源序配对）与 `TestPiBatchReservesBudgetInSourceOrder`（3 调用仅 2 额度，第 3 个仅拒绝、run 停 BUDGET_EXCEEDED）、既有 Pi 全量测试与竞态、staticcheck、契约检查。按交付流程提交并关闭；未 push。
 
 ## Agent skills
 

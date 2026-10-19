@@ -84,16 +84,23 @@ func TestPiWorkerHelper(t *testing.T) {
 	if permit["decision"] != "continue" {
 		os.Exit(2)
 	}
-	if mode == "batch" {
+	if mode == "batch" || mode == "batch-budget" {
+		calls := []any{
+			map[string]any{"call_id": "call-1", "tool": "get_code_slice", "args": map[string]any{"symbol_id": "S1"}},
+			map[string]any{"call_id": "call-2", "tool": "get_code_slice", "args": map[string]any{"symbol_id": "S1"}},
+		}
+		if mode == "batch-budget" {
+			calls = append(calls, map[string]any{"call_id": "call-3", "tool": "get_code_slice", "args": map[string]any{"symbol_id": "S1"}})
+		}
 		write(map[string]any{"type": "tool_batch", "run_id": runID, "generation": generation, "seq": next(),
-			"request_id": "b1", "round_id": "round-1", "calls": []any{
-				map[string]any{"call_id": "call-1", "tool": "get_code_slice", "args": map[string]any{"symbol_id": "S1"}},
-				map[string]any{"call_id": "call-2", "tool": "get_code_slice", "args": map[string]any{"symbol_id": "S1"}},
-			}})
+			"request_id": "b1", "round_id": "round-1", "calls": calls})
 		batchReply := read()
 		if path := os.Getenv("CODEXPLOIT_PI_RESULT_FILE"); path != "" {
 			encoded, _ := json.Marshal(batchReply["results"])
 			_ = os.WriteFile(path, encoded, 0o600)
+		}
+		if mode == "batch-budget" {
+			os.Exit(0)
 		}
 	} else {
 		write(map[string]any{"type": "tool_request", "run_id": runID, "generation": generation, "seq": next(),
@@ -141,6 +148,9 @@ func runPiScenario(t *testing.T, mode string) (*Run, *runnerTestTool, string) {
 	t.Helper()
 	fixture := aliasFixtureTask()
 	fixture.Exploration.AllowedTools = []string{"get_code_slice"}
+	if mode == "batch-budget" {
+		fixture.Exploration.MaxToolCalls = 2
+	}
 	resultFile := t.TempDir() + "/result.txt"
 	config := piTestConfig(mode)
 	config.Env = append(config.Env, "CODEXPLOIT_PI_RESULT_FILE="+resultFile)
@@ -226,12 +236,22 @@ func TestPiRuntimeSubmitsOneTurnAsABatch(t *testing.T) {
 		OK     bool   `json:"ok"`
 	}
 	if err := json.Unmarshal([]byte(batchReply), &results); err != nil {
-		t.Fatalf("batch reply: %v (%s)", err, batchReply)
+		t.Fatalf("batch reply: %v (%q) status=%s error=%q", err, batchReply, run.Status, run.Error)
 	}
 	if len(results) != 2 || results[0].CallID != "call-1" || results[1].CallID != "call-2" || !results[0].OK || !results[1].OK {
 		t.Fatalf("batch results = %+v, want two paired successes in source order", results)
 	}
 	if run.Metrics == nil || run.Metrics.ModelRequests != 1 || run.Metrics.Exchanges != 2 {
 		t.Fatalf("metrics = %+v, want one model request and two exchanges", run.Metrics)
+	}
+}
+
+func TestPiBatchReservesBudgetInSourceOrder(t *testing.T) {
+	run, tool, _ := runPiScenario(t, "batch-budget")
+	if run.Status != RunBudgetExceeded || run.StopReason != StopToolBudget {
+		t.Fatalf("run = %s/%s (%q), want BUDGET_EXCEEDED", run.Status, run.StopReason, run.Error)
+	}
+	if tool.calls != 2 {
+		t.Fatalf("tool calls = %d, want 2: the third call of the batch is denied, not executed", tool.calls)
 	}
 }
