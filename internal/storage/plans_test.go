@@ -3,6 +3,8 @@ package storage
 import (
 	"context"
 	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -56,6 +58,48 @@ func TestPlanRepositoryStoresLifecycleWithVersionCAS(t *testing.T) {
 			empty, total, err := repo.ListPlans(ctx, "proj-1", string(verify.PlanPending), 10, 0)
 			if err != nil || total != 0 || len(empty) != 0 {
 				t.Fatalf("state filter: %v %d %v", empty, total, err)
+			}
+		})
+	}
+}
+
+func TestPlanRepositoryConcurrentUpdateHasOneWinner(t *testing.T) {
+	for _, tc := range fullStores(t) {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			repo, ok := tc.store.(verify.PlanRepository)
+			if !ok {
+				t.Fatalf("%s does not implement verify.PlanRepository", tc.name)
+			}
+			record, err := verify.NewPlanRecord(verify.ExecutionPlan{
+				SchemaVersion: verify.ExecutionPlanSchemaVersion, ID: "plan-concurrent", ProjectID: "proj-1",
+				HypothesisID: "hyp-1", PathID: "path-1", AuditID: "audit-1", SnapshotID: "snap-1",
+				SecurityGoal: "sql_injection", Claim: "claim",
+			}, time.Now().UTC())
+			if err != nil {
+				t.Fatal(err)
+			}
+			created, err := repo.PutPlan(ctx, record, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			updated := created
+			updated.State = verify.PlanApproved
+			var wg sync.WaitGroup
+			var winners int32
+			for i := 0; i < 2; i++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					if _, err := repo.PutPlan(ctx, updated, created.Version); err == nil {
+						atomic.AddInt32(&winners, 1)
+					}
+				}()
+			}
+			wg.Wait()
+			if winners != 1 {
+				t.Fatalf("winners = %d, want exactly one", winners)
 			}
 		})
 	}
