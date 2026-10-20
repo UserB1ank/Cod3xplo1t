@@ -103,7 +103,16 @@ go run ./cmd/bench-runtime --samples /tmp/bench-samples.json --allow-real \
 
 `expected_runs` in the samples file is **per runtime** (tasks × repetitions).
 The corpus must be mounted into the deployment container at the path the
-dataset's `source` fields use (default `/corpus`). `bench-eval` creates one
+dataset's `source` fields use (default `/corpus`).
+
+`--per-group N` selects the first N tasks of each group, `--concurrency 4`
+evaluates several samples in parallel and rewrites the samples file after every
+completed sample (an interrupted run keeps its progress), and
+`--grant-tokens N` raises each task's audit ceiling before its run (a multi-path
+task otherwise pauses at the default 60k). `bench-eval` pauses each new task and
+runs exactly one path through `POST /api/paths/{id}/runs`, so the resident
+scheduler cannot spend budget on the other paths and each sample is one task, one
+path, one run. `bench-eval` creates one
 project and one snapshot per task, then one task per runtime and repetition; it
 waits for the first terminal run of that runtime and records the run's metrics
 and answer. A task whose paths finish without a run of the runtime is recorded

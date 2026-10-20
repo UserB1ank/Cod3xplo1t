@@ -316,6 +316,9 @@ func (m *Manager) loadRepository() (Config, int64, error) {
 	if err := json.Unmarshal(plain, &cfg); err != nil {
 		return Config{}, 0, ErrDecrypt
 	}
+	if normalized, err := normalize(cfg); err == nil {
+		cfg = normalized
+	}
 	return cfg, version, nil
 }
 
@@ -359,6 +362,14 @@ func (m *Manager) Current() (Config, error) {
 
 func normalize(c Config) (Config, error) {
 	c.BaseURL, c.Model = strings.TrimRight(strings.TrimSpace(c.BaseURL), "/"), strings.TrimSpace(c.Model)
+	// A pasted provider endpoint (…/chat/completions or …/responses) is the URL the
+	// client would call, not the base it appends to. Accept it as the base instead
+	// of sending the suffix twice.
+	for _, endpoint := range []string{"/chat/completions", "/responses"} {
+		if strings.HasSuffix(c.BaseURL, endpoint) {
+			c.BaseURL = strings.TrimRight(strings.TrimSuffix(c.BaseURL, endpoint), "/")
+		}
+	}
 	if c.Protocol != "chat-completions" && c.Protocol != "responses" {
 		return c, errors.New("protocol 必须为 chat-completions 或 responses")
 	}

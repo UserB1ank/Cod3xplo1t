@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/open-mcp-ai/Codexploit/internal/bench"
@@ -68,6 +69,9 @@ func main() {
 	out := flag.String("out", "bench-samples.json", "samples output path")
 	runs := flag.Int("runs", 3, "repetitions per task and runtime")
 	limit := flag.Int("limit", 0, "only the first N tasks (0 means all)")
+	grantTokens := flag.Int("grant-tokens", 0, "raise each task's audit budget by this many tokens (0 leaves the 60k default)")
+	perGroup := flag.Int("per-group", 0, "only the first N tasks of each group (0 means all)")
+	concurrency := flag.Int("concurrency", 4, "runs evaluated in parallel")
 	allowReal := flag.Bool("allow-real", false, "explicitly spend provider budget")
 	flag.Parse()
 	if !*allowReal {
@@ -90,43 +94,89 @@ func main() {
 	if *limit > 0 && *limit < len(set.Tasks) {
 		set.Tasks = set.Tasks[:*limit]
 	}
+	if *perGroup > 0 {
+		counts := map[string]int{}
+		selected := make([]task, 0, len(set.Tasks))
+		for _, item := range set.Tasks {
+			if counts[item.Group] >= *perGroup {
+				continue
+			}
+			counts[item.Group]++
+			selected = append(selected, item)
+		}
+		set.Tasks = selected
+	}
 	api := &client{base: strings.TrimRight(*base, "/"), token: *token, http: &http.Client{Timeout: 60 * time.Second}}
+	runClient := &client{base: api.base, token: api.token, http: &http.Client{Timeout: 30 * time.Minute}}
 	for index := range set.Tasks {
 		if err := setupTask(api, &set.Tasks[index]); err != nil {
 			fail("setup %s: %v", set.Tasks[index].ID, err)
 		}
 	}
+	_ = grantTokens
 	runtimes := set.Runtimes
 	if len(runtimes) == 0 {
 		runtimes = []string{"llm", "pi"}
 	}
 	var samples []bench.Sample
+	var mu sync.Mutex
+	type work struct {
+		runtime string
+		item    task
+	}
+	jobs := make(chan work)
+	var wg sync.WaitGroup
+	expected := len(set.Tasks) * *runs
+	write := func() {
+		encoded, err := json.MarshalIndent(map[string]any{
+			"dataset": set.Name, "expected_runs": expected, "runtimes": runtimes, "real": samples,
+		}, "", "  ")
+		if err != nil {
+			return
+		}
+		encoded = append(encoded, '\n')
+		temp := *out + ".tmp"
+		if err := os.WriteFile(temp, encoded, 0o600); err != nil {
+			return
+		}
+		_ = os.Rename(temp, *out)
+	}
+	workers := *concurrency
+	if workers < 1 {
+		workers = 1
+	}
+	for worker := 0; worker < workers; worker++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for job := range jobs {
+				sample, err := evaluate(api, runClient, job.item, job.runtime, *grantTokens)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "evaluate %s/%s: %v\n", job.item.ID, job.runtime, err)
+					sample = bench.Sample{Runtime: job.runtime, TaskID: job.item.ID, Group: job.item.Group, Label: job.item.Label, Status: "FAILED"}
+				}
+				mu.Lock()
+				samples = append(samples, sample)
+				write()
+				mu.Unlock()
+				fmt.Printf("%s %s -> %s\n", job.item.ID, job.runtime, sample.Predicted)
+			}
+		}()
+	}
 	for _, runtime := range runtimes {
 		for repetition := 0; repetition < *runs; repetition++ {
 			for _, item := range set.Tasks {
-				sample, err := evaluate(api, item, runtime)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "evaluate %s/%s: %v\n", item.ID, runtime, err)
-					samples = append(samples, bench.Sample{Runtime: runtime, TaskID: item.ID, Group: item.Group, Label: item.Label, Status: "FAILED", Predicted: ""})
-					continue
-				}
-				samples = append(samples, sample)
-				fmt.Printf("%s %s -> %s\n", item.ID, runtime, sample.Predicted)
+				jobs <- work{runtime: runtime, item: item}
 			}
 		}
 	}
-	encoded, err := json.MarshalIndent(map[string]any{
-		"dataset": set.Name, "expected_runs": len(set.Tasks) * *runs,
-		"runtimes": runtimes, "real": samples,
-	}, "", "  ")
-	if err != nil {
-		fail("encode samples: %v", err)
-	}
-	encoded = append(encoded, '\n')
-	if err := os.WriteFile(*out, encoded, 0o600); err != nil {
-		fail("write samples: %v", err)
-	}
+	close(jobs)
+	wg.Wait()
+	mu.Lock()
 	fmt.Printf("wrote %d samples to %s\n", len(samples), *out)
+	mu.Unlock()
+	return
+
 }
 
 func setupTask(api *client, item *task) error {
@@ -157,7 +207,7 @@ func setupTask(api *client, item *task) error {
 	return nil
 }
 
-func evaluate(api *client, item task, runtime string) (bench.Sample, error) {
+func evaluate(api, runClient *client, item task, runtime string, grantTokens int) (bench.Sample, error) {
 	var created struct {
 		Task struct {
 			AuditID string `json:"audit_id"`
@@ -170,42 +220,51 @@ func evaluate(api *client, item task, runtime string) (bench.Sample, error) {
 		return bench.Sample{}, err
 	}
 	auditID := created.Task.AuditID
-	deadline := time.Now().Add(10 * time.Minute)
-	for time.Now().Before(deadline) {
-		var runs struct {
-			Runs []runView `json:"runs"`
-		}
-		if err := api.get("/api/runs?audit_id="+auditID+"&limit=20", &runs); err != nil {
+	if grantTokens > 0 {
+		if err := grantAudit(api, item.ProjectID, auditID, grantTokens); err != nil {
 			return bench.Sample{}, err
 		}
-		for _, run := range runs.Runs {
-			if run.Runtime != runtime || !terminal(run.Status) {
-				continue
-			}
-			return sampleFrom(item, run), nil
-		}
-		var paths struct {
-			Paths []struct {
-				Status string `json:"status"`
-			} `json:"paths"`
-		}
-		_ = api.get("/api/audits/"+auditID+"/paths?limit=50", &paths)
-		allDone := len(paths.Paths) > 0
-		for _, path := range paths.Paths {
-			switch path.Status {
-			case "QUEUED", "ANALYZING", "HYPOTHESIS_FORMED", "PAUSED":
-			default:
-				continue
-			}
-			allDone = false
-		}
-		if allDone {
-			// Paths finished without a run of this runtime: record it as failed.
-			return bench.Sample{Runtime: runtime, TaskID: item.ID, Group: item.Group, Label: item.Label, Status: "FAILED"}, nil
-		}
-		time.Sleep(2 * time.Second)
 	}
-	return bench.Sample{}, fmt.Errorf("no terminal run within the deadline")
+	// Pause the audit so the resident scheduler cannot run the other paths; the
+	// benchmark executes exactly one path per task and sample.
+	_ = api.post("/api/tasks/"+auditID+"/pause", map[string]any{}, nil)
+	var paths struct {
+		Paths []struct {
+			ID string `json:"path_id"`
+		} `json:"paths"`
+	}
+	if err := api.get("/api/audits/"+auditID+"/paths?limit=50", &paths); err != nil {
+		return bench.Sample{}, err
+	}
+	if len(paths.Paths) == 0 {
+		return bench.Sample{Runtime: runtime, TaskID: item.ID, Group: item.Group, Label: item.Label, Status: "FAILED"}, nil
+	}
+	var batch struct {
+		Runs []runView `json:"runs"`
+	}
+	if err := runClient.post("/api/paths/"+paths.Paths[0].ID+"/runs", map[string]any{"max_runs": 1}, &batch); err != nil {
+		return bench.Sample{}, err
+	}
+	if len(batch.Runs) == 0 {
+		return bench.Sample{Runtime: runtime, TaskID: item.ID, Group: item.Group, Label: item.Label, Status: "FAILED"}, nil
+	}
+	return sampleFrom(item, batch.Runs[0]), nil
+}
+
+// grantAudit raises the task's audit ledger so a multi-path benchmark task is not
+// paused by the 60k default. The grant is recorded in the deployment's ledger.
+func grantAudit(api *client, projectID, auditID string, tokens int) error {
+	var ledger struct {
+		Budget struct {
+			Version int64 `json:"version"`
+		} `json:"budget"`
+	}
+	if err := api.get("/api/v1/projects/"+projectID+"/tasks/"+auditID+"/budget", &ledger); err != nil {
+		return err
+	}
+	return api.post("/api/v1/projects/"+projectID+"/tasks/"+auditID+"/budget/grants", map[string]any{
+		"tokens": tokens, "reason": "benchmark evaluation budget", "expected_version": ledger.Budget.Version,
+	}, nil)
 }
 
 func sampleFrom(item task, run runView) bench.Sample {
