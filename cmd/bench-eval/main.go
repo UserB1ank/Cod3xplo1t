@@ -301,14 +301,6 @@ func runtimeName(run runView) string {
 	return run.Runtime
 }
 
-func terminal(status string) bool {
-	switch status {
-	case "SUCCEEDED", "FAILED", "CANCELLED", "TIMED_OUT", "INVALID_OUTPUT", "BUDGET_EXCEEDED", "PAUSED":
-		return true
-	}
-	return false
-}
-
 type client struct {
 	base  string
 	token string
