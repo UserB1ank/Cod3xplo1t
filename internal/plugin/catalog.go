@@ -110,9 +110,13 @@ func resolveConfig(raw json.RawMessage) (*jsonschema.Resolved, error) {
 // build produced it, and an invocation keeps the digest it actually ran with.
 // An installed process package is a supply-chain artifact and stays strict.
 func RebuiltBuiltin(prior, next Record) bool {
-	return prior.ManifestDigest == next.ManifestDigest &&
-		prior.PackageDigest != next.PackageDigest &&
-		strings.HasPrefix(prior.Source, "compiled ")
+	if prior.ManifestDigest != next.ManifestDigest || prior.PackageDigest == next.PackageDigest {
+		return false
+	}
+	// A compiled adapter (a builtin or a package bundled into this host) may be
+	// rebuilt with the host. The manifest stays immutable; a package installed
+	// from an untrusted local directory keeps the strict check.
+	return strings.HasPrefix(prior.Source, "compiled ") || strings.HasPrefix(next.Source, "compiled ")
 }
 
 func (c *Catalog) Register(ctx context.Context, raw json.RawMessage, packageDigest, source string) (Record, error) {

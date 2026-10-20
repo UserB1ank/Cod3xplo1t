@@ -33,7 +33,7 @@ func Executors(root string) ([]plugin.Executor, error) {
 			Manifest:       pkg.RawManifest,
 			PackageDigest:  pkg.PackageDigest,
 			ManifestDigest: pkg.ManifestDigest,
-			Source:         "local package " + pkg.Manifest.ID + "@" + pkg.Manifest.Version,
+			Source:         "compiled package " + pkg.Manifest.ID + "@" + pkg.Manifest.Version,
 			InputSchemas:   []string{"codexploit/source-tar/v1"},
 			InputPlugins:   []string{""},
 			Run:            adapter.Run,

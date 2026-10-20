@@ -89,3 +89,37 @@ type pluginStore interface {
 	PutPlugin(context.Context, plugin.Record) error
 	GetPlugin(context.Context, string, string) (plugin.Record, error)
 }
+
+// The scanner has been bundled with this host since it was first installed as a
+// local package; the upgrade must replace the package digest, not refuse to boot.
+func TestPutPluginAcceptsABundledPackageUpgrade(t *testing.T) {
+	for _, tc := range fullStores(t) {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			store, ok := tc.store.(pluginStore)
+			if !ok {
+				t.Fatalf("%s does not implement the plugin store", tc.name)
+			}
+			first := pluginFixtureRecord("local package codexploit.static-patterns@1.0.6", "a", "m1")
+			if err := store.PutPlugin(ctx, first); err != nil {
+				t.Fatalf("first register: %v", err)
+			}
+			rebuild := pluginFixtureRecord("compiled package codexploit.static-patterns@1.0.6", "b", "m1")
+			if err := store.PutPlugin(ctx, rebuild); err != nil {
+				t.Fatalf("a bundled package upgrade was refused: %v", err)
+			}
+			got, err := store.GetPlugin(ctx, first.Manifest.ID, first.Manifest.Version)
+			if err != nil {
+				t.Fatalf("GetPlugin: %v", err)
+			}
+			if got.PackageDigest != "b" {
+				t.Fatalf("package digest = %q", got.PackageDigest)
+			}
+			changed := pluginFixtureRecord("compiled package codexploit.static-patterns@1.0.6", "c", "m2")
+			if err := store.PutPlugin(ctx, changed); !errors.Is(err, plugin.ErrConflict) {
+				t.Fatalf("a changed manifest = %v, want plugin.ErrConflict", err)
+			}
+		})
+	}
+}

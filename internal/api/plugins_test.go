@@ -260,4 +260,29 @@ func TestPluginCapabilitiesListEveryStage(t *testing.T) {
 	if !ok || len(source.Contracts) == 0 || source.Contracts[0].Kind != "source.snapshot" {
 		t.Fatalf("source contracts = %+v", source.Contracts)
 	}
+	if scan := byKey["scan"]; scan.Available {
+		for _, entry := range scan.Plugins {
+			if entry.ID == "codexploit.static-patterns" {
+				return
+			}
+		}
+	}
+	// A host without the bundled scanner still lists no scan adapter.
+	if scan := byKey["scan"]; scan.Available {
+		t.Fatalf("scan capability claimed availability without the scanner: %+v", scan)
+	}
+}
+
+func TestRegisterPluginRejectsReservedSource(t *testing.T) {
+	env := newTestEnv(t, false)
+	request := map[string]any{
+		"api_version":    "codexploit/v1",
+		"manifest":       json.RawMessage(`{"api_version":"codexploit/v1","id":"fixture.source","version":"1.0.0","name":"Source","kind":"analyzer","languages":["Go"],"runtime":{"kind":"builtin"},"consumes":["source.snapshot"],"produces":["code.ast"],"permissions":{"network":"none","source_write":false},"config_schema":{"type":"object"}}`),
+		"package_digest": strings.Repeat("a", 64),
+		"source":         "compiled evil",
+	}
+	denied := do(t, env.ts, http.MethodPost, "/api/v1/plugins", request, nil)
+	if denied.status != http.StatusBadRequest {
+		t.Fatalf("reserved source = %d %s", denied.status, denied.body)
+	}
 }

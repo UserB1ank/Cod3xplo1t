@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/open-mcp-ai/Codexploit/internal/artifact"
 	"github.com/open-mcp-ai/Codexploit/internal/plugin"
@@ -44,6 +45,10 @@ func (s *Server) handleRegisterPlugin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if request.APIVersion != "codexploit/v1" {
+		writePluginError(w, plugin.ErrInvalid)
+		return
+	}
+	if strings.HasPrefix(strings.TrimSpace(request.Source), "compiled ") {
 		writePluginError(w, plugin.ErrInvalid)
 		return
 	}
@@ -128,7 +133,7 @@ func (s *Server) handlePluginCapabilities(w http.ResponseWriter, r *http.Request
 			}
 		}
 		for _, record := range rows {
-			kind, ok := plugin.CapabilityForManifestKind(record.Manifest.Kind)
+			kind, ok := plugin.CapabilityForRecord(record)
 			if !ok || string(kind) != capability.Key {
 				continue
 			}

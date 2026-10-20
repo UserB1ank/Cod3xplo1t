@@ -105,6 +105,27 @@ func CapabilityForManifestKind(kind string) (Capability, bool) {
 	return capability, ok
 }
 
+// knownPluginCapabilities pins the primary capability of the plugins bundled with
+// the host. Several legacy analyzers share kind "analyzer" while implementing
+// different stages, so the deployment-owned registry resolves their ID first; a
+// future manifest field can make this explicit without changing old plans.
+var knownPluginCapabilities = map[string]Capability{
+	"builtin.go-parser":          CapabilityParse,
+	"builtin.security-semantics": CapabilitySemantic,
+	"builtin.discovery-paths":    CapabilityPath,
+	"builtin.reporter":           CapabilityReport,
+	"codexploit.static-patterns": CapabilityScan,
+}
+
+// CapabilityForRecord returns the primary capability a record declares. It
+// prefers the deployment registry over the manifest kind when the two differ.
+func CapabilityForRecord(record Record) (Capability, bool) {
+	if capability, ok := knownPluginCapabilities[record.Manifest.ID]; ok {
+		return capability, true
+	}
+	return CapabilityForManifestKind(record.Manifest.Kind)
+}
+
 // LookupContract resolves a declared artifact kind against the local registry.
 // It never performs network resolution.
 func LookupContract(kind string) (Contract, bool) {
