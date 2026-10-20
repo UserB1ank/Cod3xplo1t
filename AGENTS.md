@@ -120,6 +120,13 @@ a `release/vX.Y.Z` head branch or `release: vX.Y.Z` title, run
 `make prepare-release RELEASE_VERSION=vX.Y.Z`, and review the generated
 changelog and `server.json` changes. CI checks both files before merge.
 
+### Storage profiles
+
+PostgreSQL is the only maintained storage profile. SQLite code, migrations and
+tests stay in the tree so existing databases remain readable, but the standalone
+SQLite deployment is retired and no SQLite-only feature, fix or CI gate should be
+added. New persistence work targets PostgreSQL.
+
 ### Tests run in CI on three OSes
 
 Whenever you write or modify a test, remember it must pass in

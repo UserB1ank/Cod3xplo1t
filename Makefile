@@ -4,7 +4,7 @@ TEST_FLAGS := -count=1 -shuffle=on -race -timeout 240s
 # Staticcheck is pinned: a new release may add checks and turn a green tree red.
 STATICCHECK_VERSION ?= v0.8.2
 
-.PHONY: help run standalone down logs build build-web build-scanner build-backend test-web check-contracts docker-build docker-up postgres-up postgres-down postgres-status postgres-logs test test-stress bench-agent bench-corpus bench-eval bench-runtime lint fmt-check vet staticcheck fmt tidy clean run-server run-cli run-mcp
+.PHONY: help run down logs build build-web build-scanner build-backend test-web check-contracts docker-build docker-up postgres-up postgres-down postgres-status postgres-logs test test-stress bench-agent bench-corpus bench-eval bench-runtime lint fmt-check vet staticcheck fmt tidy clean run-server run-cli run-mcp
 
 help:
 	@echo "make build        # build Web UI into bin/server, bin/cli, bin/mcp and the scanner package"
@@ -13,7 +13,6 @@ help:
 	@echo "make test-web     # frontend domain and API tests"
 	@echo "make check-contracts # validate offline interface schemas and examples"
 	@echo "make run          # default deployment: application + PostgreSQL at http://127.0.0.1:18085"
-	@echo "make standalone   # single container with SQLite, same address"
 	@echo "make down         # stop whichever stack is running"
 	@echo "make logs         # follow the default deployment logs"
 	@echo "make docker-up    # build and launch the persistent single-container service"
@@ -64,15 +63,8 @@ run:
 	docker compose up -d --build --wait
 	@echo "Codexploit (PostgreSQL) is running at http://127.0.0.1:$${CODEXPLOIT_PORT:-18085}"
 
-# Standalone deployment: one container with SQLite. Do not run it alongside the
-# default deployment; both bind the same address.
-standalone:
-	docker compose -f compose.standalone.yaml up -d --build --wait
-	@echo "Codexploit (SQLite) is running at http://127.0.0.1:$${CODEXPLOIT_PORT:-18085}"
-
 down:
 	-docker compose down
-	-docker compose -f compose.standalone.yaml down
 
 logs:
 	docker compose logs -f

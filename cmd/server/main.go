@@ -52,8 +52,8 @@ func run() error {
 	var (
 		addr            = flag.String("addr", ":8080", "listen address")
 		workspace       = flag.String("workspace", ".codexploit", "workspace directory for snapshots")
-		dbPath          = flag.String("db", "", "SQLite database file (default <workspace>/codexploit.db, \"memory\" for an in-process store)")
-		storageDriver   = flag.String("storage", "sqlite", "storage profile: sqlite or postgres")
+		dbPath          = flag.String("db", "", "legacy SQLite database file (default <workspace>/codexploit.db, \"memory\" for an in-process store)")
+		storageDriver   = flag.String("storage", "sqlite", "storage profile: postgres (maintained) or sqlite (legacy, unmaintained)")
 		postgresDSNFile = flag.String("postgres-dsn-file", "", "runtime PostgreSQL credential file; never put a DSN in arguments")
 		settingsKeyFile = flag.String("settings-key-file", "", "independent installation key for encrypted PostgreSQL model settings")
 		allowNetwork    = flag.Bool("allow-network", false, "permit cloning remote git URLs")

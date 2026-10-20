@@ -56,8 +56,10 @@ go build -trimpath -tags embedui -o bin/server ./cmd/server
 go build -trimpath -o bin/mcp ./cmd/mcp
 ```
 
-SQLite is provided by `modernc.org/sqlite`, a pure-Go driver: there is no cgo
-and the binaries behave identically on Linux, macOS and Windows.
+The supported storage profile is PostgreSQL. SQLite (`modernc.org/sqlite`, pure
+Go, no cgo) remains in the tree so existing databases stay readable, but it is
+**legacy and unmaintained**: new features, fixes and CI gates target PostgreSQL
+only, and the standalone SQLite deployment has been retired.
 
 ### Web UI and Docker
 
@@ -77,15 +79,6 @@ into a private Docker volume (`pg-secrets`); nothing secret is written to the
 repository, to Compose or to the environment. Data lives in `codexploit_pg-data`
 and `codexploit_pg-workspace`. `make down` stops the stack, `docker compose down -v`
 also deletes the data and the secrets.
-
-The single-container SQLite deployment is:
-
-```bash
-make standalone     # compose.standalone.yaml
-```
-
-It keeps its own volume and address. Run one stack at a time: both bind
-`127.0.0.1:18085`.
 
 Open `http://localhost:18085`, create the administrator account on first startup,
 and sign in with its username and password. Then open
@@ -446,7 +439,7 @@ may themselves contain `:`.
 | `--addr` | `:8080` | listen address |
 | `--workspace` | `.codexploit` | workspace directory for snapshots |
 | `--db` | `<workspace>/codexploit.db` | SQLite file; `memory` uses an in-process store |
-| `--storage` | `sqlite` | `sqlite` (complete) or `postgres` (shared execution profile) |
+| `--storage` | `sqlite` | `postgres` (maintained, shared execution profile) or `sqlite` (legacy, unmaintained) |
 | `--postgres-dsn-file` | — | runtime PostgreSQL credential file; never pass a DSN in arguments |
 | `--settings-key-file` | — | independent installation key for encrypted PostgreSQL model settings |
 | `--api-token` | — | `name:role:secret`, repeatable; role is `reader`, `writer` or `admin` |

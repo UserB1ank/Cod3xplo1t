@@ -41,7 +41,7 @@ make down         # 停止；docker compose down -v 连数据与密钥一起删�
 ```
 
 数据在 `codexploit_pg-data` 与 `codexploit_pg-workspace`，页面同样是
-`http://127.0.0.1:18085`。只用 SQLite 时改跑 `make standalone`，两者不要同时启动。
+`http://127.0.0.1:18085`。SQLite 仅作为遗留代码保留，standalone 部署已退役；新功能与修复只针对 PostgreSQL。
 
 ### 密钥文件方式：`make postgres-up`
 

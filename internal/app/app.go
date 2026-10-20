@@ -53,8 +53,9 @@ type Config struct {
 	Workspace string
 	// DBPath is a SQLite file, or "" / "memory" for an in-process store.
 	DBPath string
-	// StorageDriver selects the complete sqlite mode (default) or the durable
-	// postgres execution profile. PostgreSQL credentials are read from a file.
+	// StorageDriver selects the durable postgres execution profile or the legacy
+	// sqlite mode (default for direct runs, unmaintained). PostgreSQL credentials
+	// are read from a file.
 	StorageDriver   string
 	PostgresDSNFile string
 	// AllowNetwork permits cloning remote git URLs.

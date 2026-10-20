@@ -124,6 +124,9 @@ lexicographic order by `internal/storage`. One line per table:
 | `0006_audit_paths.sql` | `audits`, `audit_paths`, `path_features`, `path_events` | P4 audits, their paths (steps, signature, cluster, evidence, score, lease), append-only score snapshots and the audit-scoped event log |
 | created by the runner | `schema_migrations` | applied migration versions, so a rerun is a no-op |
 
+> SQLite is legacy and unmaintained: the code and migrations below stay so
+> existing databases remain readable, but new work targets PostgreSQL only.
+
 These are the complete SQLite migrations. PostgreSQL uses its own execution-profile
 set under `migrations/postgres/`, with transaction-level migration and snapshot
 locks. Business documents retain UTC timestamp strings; PostgreSQL worker lease

@@ -42,7 +42,7 @@ func TestPostgresStatusUsesUnifiedWebPort(t *testing.T) {
 // CODEXPLOIT_ALLOW_NETWORK=false. The flag has to be spelled out in every stack,
 // otherwise a new stack silently falls back to the binary's conservative default.
 func TestComposeDefaultsToPiWithLlmFallback(t *testing.T) {
-	for _, file := range []string{"../compose.yaml", "../compose.standalone.yaml", "../compose.postgres.yaml"} {
+	for _, file := range []string{"../compose.yaml", "../compose.postgres.yaml"} {
 		raw, err := os.ReadFile(file)
 		if err != nil {
 			t.Fatalf("read %s: %v", file, err)
@@ -61,7 +61,7 @@ func TestComposeDefaultsToPiWithLlmFallback(t *testing.T) {
 }
 
 func TestComposeEnablesRemoteGitByDefault(t *testing.T) {
-	for _, file := range []string{"../compose.yaml", "../compose.standalone.yaml", "../compose.postgres.yaml"} {
+	for _, file := range []string{"../compose.yaml", "../compose.postgres.yaml"} {
 		raw, err := os.ReadFile(file)
 		if err != nil {
 			t.Fatalf("read %s: %v", file, err)

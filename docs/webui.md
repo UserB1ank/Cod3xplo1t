@@ -105,9 +105,8 @@ The first start writes the database password, its DSN and the installation key i
 the private `pg-secrets` volume; later starts reuse them. `make down` stops the
 stack and `docker compose down -v` removes the data with the secrets.
 
-The single-container SQLite stack is `make standalone`
-(`compose.standalone.yaml`); it keeps its own `codexploit-data` volume. Run one
-stack at a time — both bind `127.0.0.1:18085`.
+The standalone SQLite deployment has been retired; PostgreSQL is the supported
+storage profile. The legacy SQLite code remains for existing databases.
 
 Open `http://localhost:18085`. On first startup, create an administrator account
 in the application, then sign in with its username and password. There is no
@@ -214,9 +213,6 @@ For a local repository, mount it read-only:
 export CODEXPLOIT_REPO_DIR=/absolute/path/to/repository
 docker compose -f compose.yaml -f compose.local.yaml up -d --build
 ```
-
-The same override works for the SQLite stack:
-`docker compose -f compose.standalone.yaml -f compose.local.yaml up -d --build`.
 
 Enter `/repos/source` as the repository path in the UI. The directory and its
 files must be readable by the runtime user. The container runs as uid/gid 10001,
