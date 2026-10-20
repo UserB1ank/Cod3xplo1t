@@ -138,6 +138,9 @@ func (c *Catalog) Register(ctx context.Context, raw json.RawMessage, packageDige
 	if _, err := resolveConfig(manifest.ConfigSchema); err != nil {
 		return Record{}, err
 	}
+	if err := ValidateManifestContracts(manifest); err != nil {
+		return Record{}, err
+	}
 	if len(packageDigest) != 64 || len(source) == 0 || len(source) > 200 {
 		return Record{}, ErrInvalid
 	}
@@ -169,6 +172,27 @@ func (c *Catalog) availability(record Record) Record {
 		record.Reason = "Manifest registered; this package has no installed execution adapter"
 	}
 	return record
+}
+
+// All lists every registered plugin, following the repository cursor. The
+// capability view needs the complete set; a partial page would hide an
+// unsupported stage.
+func (c *Catalog) All(ctx context.Context) ([]Record, error) {
+	rows := []Record{}
+	cursor := ""
+	for len(rows) < 1000 {
+		page, err := c.List(ctx, cursor, 100)
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, page...)
+		if len(page) < 100 {
+			break
+		}
+		last := page[len(page)-1].Manifest
+		cursor = last.ID + "@" + last.Version
+	}
+	return rows, nil
 }
 
 func (c *Catalog) Get(ctx context.Context, id, version string) (Record, error) {

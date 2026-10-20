@@ -99,6 +99,14 @@ func (c *Compiler) Validate(ctx context.Context, raw json.RawMessage) (Validatio
 		if !record.Executable {
 			add(fmt.Sprintf("/nodes/%d/plugin_version", i), "plugin_unavailable", "Plugin package has no installed execution adapter")
 		}
+		if _, ok := plugin.CapabilityForManifestKind(record.Manifest.Kind); !ok {
+			add(fmt.Sprintf("/nodes/%d/plugin_version", i), "capability", "Plugin manifest declares an unknown capability")
+		}
+		for _, kind := range append(append([]string{}, record.Manifest.Consumes...), record.Manifest.Produces...) {
+			if _, ok := plugin.LookupContract(kind); !ok {
+				add(fmt.Sprintf("/nodes/%d/needs", i), "unknown_contract", "Unknown artifact contract "+kind)
+			}
+		}
 		schema, resolved, err := offlineSchema(record.Manifest.ConfigSchema)
 		if err != nil {
 			add(fmt.Sprintf("/nodes/%d/config", i), "config_schema", "Plugin parameter schema cannot be resolved offline")

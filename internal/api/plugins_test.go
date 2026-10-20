@@ -220,3 +220,44 @@ func TestPluginCatalogListsTheInstalledGoParser(t *testing.T) {
 		t.Fatalf("installed catalog: %d %s", read.status, read.body)
 	}
 }
+
+func TestPluginCapabilitiesListEveryStage(t *testing.T) {
+	env := newTestEnv(t, false)
+	read := do(t, env.ts, http.MethodGet, "/api/v1/plugins/capabilities", nil, nil)
+	if read.status != http.StatusOK {
+		t.Fatalf("capabilities: %d %s", read.status, read.body)
+	}
+	var page struct {
+		APIVersion   string                 `json:"api_version"`
+		Capabilities []pluginCapabilityView `json:"capabilities"`
+	}
+	read.decode(t, &page)
+	if page.APIVersion != "codexploit/v1" || len(page.Capabilities) != 9 {
+		t.Fatalf("page = %+v", page)
+	}
+	byKey := map[string]pluginCapabilityView{}
+	for _, capability := range page.Capabilities {
+		byKey[capability.Key] = capability
+	}
+	parse, ok := byKey["parse"]
+	if !ok || !parse.Available {
+		t.Fatalf("parse capability = %+v", parse)
+	}
+	found := false
+	for _, entry := range parse.Plugins {
+		if entry.ID == plugin.BuiltinID && entry.Executable {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("builtin parser missing from %+v", parse.Plugins)
+	}
+	environment, ok := byKey["environment"]
+	if !ok || environment.Available || environment.Reason == "" {
+		t.Fatalf("environment capability = %+v", environment)
+	}
+	source, ok := byKey["source"]
+	if !ok || len(source.Contracts) == 0 || source.Contracts[0].Kind != "source.snapshot" {
+		t.Fatalf("source contracts = %+v", source.Contracts)
+	}
+}

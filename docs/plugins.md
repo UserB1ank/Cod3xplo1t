@@ -83,3 +83,16 @@ Issue #7 已接通内置语义和路径分析、Normalizer、AnalysisResult 与�
 ## 验收
 
 按已确认的 PluginCatalog / PluginHost 和认证 HTTP API 边界使用真实解析器、Memory / SQLite 与本地产物服务，覆盖清单校验、固定包冲突、参数、作用域、真实输出、包含边界的节点预算、取消的迟到输出、启动幂等、未知语言、重启记录和活动快照删除保护。进程执行器另覆盖包摘要/入口安全、握手、双向宿主读取、事件序号、消息/报告限额、环境隔离、取消迟到结果和真实扫描器发布；页面另在独立 Docker 合成项目验收。
+
+## 能力与类型契约
+
+插件清单的 `kind` 声明其主要能力，`consumes` / `produces` 声明它读写的类型化产物。宿主在注册与安装时用本地注册表 `contracts/v1/artifact-contracts.json` 核验这些声明，未知能力或未知产物类型直接拒绝（`plugin: invalid manifest...`），不做任何网络解析：
+
+- 九个能力阶段：`source`、`parse`、`semantic`、`scan`、`path`、`agent`、`environment`、`verification`、`report`。
+- 清单 `kind` 映射：`source`→source、`parser`→parse、`analyzer`/`normalizer`→semantic、`scanner`→scan、`graph`→path、`agent`→agent、`environment`→environment、`verification`→verification、`reporter`→report。
+- 注册表同时列出每种产物的允许 Schema 版本（如 `source.snapshot` → `codexploit/source-tar/v1`、`codexploit/source-files/v1`），旧记录和旧计划保持可读；新增类型必须进入该文件并经过评审。
+- 工作流编译在运行前检查节点插件的未知能力/未知产物契约（诊断代码 `capability`、`unknown_contract`），以及既有的输入 Schema、直接 producer 与包可用性检查。
+
+认证 API `GET /api/v1/plugins/capabilities`（reader）返回全部九个阶段：每个阶段的标签、是否可用、不可用原因、声明该能力的插件（id/version/name/runtime/source/installed/executable/reason）以及该阶段的产物契约。环境供应与验证目前没有适配器，会如实显示为不可用，而不是从目录里消失。
+
+说明：清单 Schema 不能凭字段声明授予权限；有效权限仍是清单、安装授权、任务策略与实际可执行能力的交集。插件页的展示与交互由前端单独演进，本接口是它的数据来源。

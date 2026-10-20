@@ -7,5 +7,5 @@ import "embed"
 // Files is the offline source of truth shared by contract tests and consumers.
 // No schema reference needs network retrieval.
 //
-//go:embed *.schema.json examples.json examples/*.json
+//go:embed *.schema.json artifact-contracts.json examples.json examples/*.json
 var Files embed.FS

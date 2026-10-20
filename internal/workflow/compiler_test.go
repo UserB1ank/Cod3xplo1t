@@ -131,3 +131,48 @@ func TestCompilerDistinguishesRootInputsFromANodeNamedRoot(t *testing.T) {
 		t.Fatalf("root identity collision: %+v", inputs)
 	}
 }
+
+type staticCatalog struct{ record plugin.Record }
+
+func (s staticCatalog) Get(context.Context, string, string) (plugin.Record, error) {
+	return s.record, nil
+}
+
+func TestCompilerRejectsUnknownCapabilityAndContract(t *testing.T) {
+	record := plugin.Record{Manifest: plugin.Manifest{
+		APIVersion: "codexploit/v1", ID: "fixture.unknown", Version: "1.0.0", Name: "Unknown",
+		Kind: "analyzer", Consumes: []string{"source.snapshot"}, Produces: []string{"unknown.thing"},
+		ConfigSchema: json.RawMessage(`{"type":"object"}`),
+	}, Executable: true}
+	c := &workflow.Compiler{Plugins: staticCatalog{record: record}}
+	spec := workflow.Spec{APIVersion: "codexploit/v1", ID: "unknown", Version: "1.0.0", Name: "Unknown", Description: "x",
+		Inputs: []string{"source.snapshot"}, Nodes: []workflow.Node{{
+			ID: "node", PluginID: "fixture.unknown", PluginVersion: "1.0.0", Needs: []string{}, Config: json.RawMessage(`{}`), TimeoutSeconds: 30,
+		}}}
+	raw, _ := json.Marshal(spec)
+	result, err := c.Validate(context.Background(), raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Valid || !hasDiagnostic(result, "unknown_contract") {
+		t.Fatalf("unknown contract result: %+v", result)
+	}
+	record.Manifest.Kind = "mystery"
+	c = &workflow.Compiler{Plugins: staticCatalog{record: record}}
+	result, err = c.Validate(context.Background(), raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Valid || !hasDiagnostic(result, "capability") {
+		t.Fatalf("unknown capability result: %+v", result)
+	}
+}
+
+func hasDiagnostic(result workflow.Validation, code string) bool {
+	for _, diagnostic := range result.Diagnostics {
+		if diagnostic.Code == code {
+			return true
+		}
+	}
+	return false
+}

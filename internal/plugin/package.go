@@ -76,6 +76,9 @@ func LoadPackage(directory string) (Package, error) {
 	if _, err := resolveConfig(manifest.ConfigSchema); err != nil {
 		return Package{}, err
 	}
+	if err := ValidateManifestContracts(manifest); err != nil {
+		return Package{}, err
+	}
 	if manifest.Runtime.Kind != "process" {
 		return Package{}, ErrUnsupported
 	}

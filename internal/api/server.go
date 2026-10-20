@@ -256,6 +256,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/findings", s.handleV1ProjectFindings)
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/findings/{findingID}", s.handleV1Finding)
 	mux.HandleFunc("PATCH /api/v1/projects/{projectID}/findings/{findingID}/severity", s.handleV1GradeFinding)
+	mux.HandleFunc("GET /api/v1/plugins/capabilities", s.handlePluginCapabilities)
 	mux.HandleFunc("GET /api/v1/plugins", s.handleListPlugins)
 	mux.HandleFunc("POST /api/v1/projects/{projectID}/snapshots/{snapshotID}/plugin-invocations", s.withIdempotency(s.handleExecutePlugin))
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/snapshots/{snapshotID}/plugin-invocations", s.handleListInvocations)

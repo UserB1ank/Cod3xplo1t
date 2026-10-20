@@ -83,3 +83,68 @@ func (s *Server) handleListPlugins(w http.ResponseWriter, r *http.Request) {
 	}
 	writePluginJSON(w, 200, map[string]any{"api_version": "codexploit/v1", "plugins": rows, "next_cursor": next})
 }
+
+type pluginCapabilityView struct {
+	Key       string                  `json:"key"`
+	Label     string                  `json:"label"`
+	Available bool                    `json:"available"`
+	Reason    string                  `json:"reason,omitempty"`
+	Plugins   []pluginCapabilityEntry `json:"plugins"`
+	Contracts []plugin.Contract       `json:"contracts"`
+}
+
+type pluginCapabilityEntry struct {
+	ID         string `json:"id"`
+	Version    string `json:"version"`
+	Name       string `json:"name"`
+	Runtime    string `json:"runtime"`
+	Source     string `json:"source"`
+	Installed  bool   `json:"installed"`
+	Executable bool   `json:"executable"`
+	Reason     string `json:"reason,omitempty"`
+}
+
+// handlePluginCapabilities answers GET /api/v1/plugins/capabilities. The plugin
+// page uses it to show every pipeline stage, the plugins that declare it and
+// whether this host can execute it; a stage without an adapter is explicit
+// instead of silently absent.
+func (s *Server) handlePluginCapabilities(w http.ResponseWriter, r *http.Request) {
+	if s.PluginCatalog == nil {
+		writeError(w, 501, "plugins_unavailable", errors.New("plugin catalog is unavailable"))
+		return
+	}
+	rows, err := s.PluginCatalog.All(r.Context())
+	if err != nil {
+		writeError(w, 503, "plugins_unavailable", errors.New("plugin catalog is unavailable"))
+		return
+	}
+	contracts := plugin.Contracts()
+	views := make([]pluginCapabilityView, 0, len(plugin.Capabilities()))
+	for _, capability := range plugin.Capabilities() {
+		view := pluginCapabilityView{Key: capability.Key, Label: capability.Label, Plugins: []pluginCapabilityEntry{}, Contracts: []plugin.Contract{}}
+		for _, contract := range contracts {
+			if contract.Capability == capability.Key {
+				view.Contracts = append(view.Contracts, contract)
+			}
+		}
+		for _, record := range rows {
+			kind, ok := plugin.CapabilityForManifestKind(record.Manifest.Kind)
+			if !ok || string(kind) != capability.Key {
+				continue
+			}
+			view.Plugins = append(view.Plugins, pluginCapabilityEntry{
+				ID: record.Manifest.ID, Version: record.Manifest.Version, Name: record.Manifest.Name,
+				Runtime: record.Manifest.Runtime.Kind, Source: record.Source, Installed: record.Installed,
+				Executable: record.Executable, Reason: record.Reason,
+			})
+			if record.Executable {
+				view.Available = true
+			}
+		}
+		if !view.Available {
+			view.Reason = "尚无已安装的可执行适配器"
+		}
+		views = append(views, view)
+	}
+	writeJSON(w, 200, map[string]any{"api_version": "codexploit/v1", "capabilities": views})
+}

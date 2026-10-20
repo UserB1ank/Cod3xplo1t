@@ -25,11 +25,15 @@
     },
     "kind": {
       "enum": [
+        "source",
         "parser",
         "analyzer",
         "normalizer",
         "graph",
         "agent",
+        "scanner",
+        "environment",
+        "verification",
         "reporter"
       ]
     },
