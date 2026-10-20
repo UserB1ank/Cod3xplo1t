@@ -29,10 +29,10 @@ import {
   Search,
   Settings2,
   ShieldCheck,
-  TriangleAlert,
   Workflow,
 } from "lucide-react";
 import { ApiClient } from "./api";
+import { EventFeed } from "./EventFeed";
 import { importArchive, validateArchive } from "./source-import";
 import { ArchivePicker } from "./ArchivePicker";
 import { DirectoryPicker } from "./DirectoryPicker";
@@ -52,14 +52,14 @@ import {
   Badge,
   CodeBlock,
   EmptyState,
+  Failure,
   Hint,
   Modal,
   Panel,
   PathTable,
 } from "./components";
-import { countFormat, dateLabel, eventNames, findingStatus, shortId } from "./domain";
+import { countFormat, dateLabel, findingStatus, shortId } from "./domain";
 import type {
-  AuditEvent,
   AuditPath,
   Evidence,
   GraphSummary,
@@ -82,6 +82,7 @@ import {
   type ProjectFinding,
   type Route,
   type Task,
+  liveStage,
 } from "./workbench";
 
 type Resource<T> = { data?: T; error?: string; loading: boolean };
@@ -124,14 +125,6 @@ function Loading() {
     <div className="loading" role="status">
       <Loader2 className="spin" size={20} />
       正在读取工作区…
-    </div>
-  );
-}
-function Failure({ message }: { message: string }) {
-  return (
-    <div className="error-message" role="alert">
-      <TriangleAlert size={16} />
-      {message}
     </div>
   );
 }
@@ -1390,6 +1383,10 @@ function TaskWorkbench({
   if (!current && task.loading) return <Loading />;
   if (task.error) return <Failure message={task.error} />;
   if (!current) return null;
+  const stage =
+    identity.features.agent
+      ? liveStage(current, runs.data?.runs || [], paths.data?.paths || [])
+      : undefined;
   const resumeRun = (runID: string) => {
     const project = route.project;
     if (!project) return;
@@ -1430,6 +1427,9 @@ function TaskWorkbench({
                       : undefined
               }
             />
+            {stage && (
+              <span className={`stage-pill ${stage.code}`}>{stage.label}</span>
+            )}
           </div>
           <p>{current.objective || "从攻击面出发，挖掘并验证代码漏洞。"}</p>
           <div className="task-meta">
@@ -1727,82 +1727,6 @@ function TaskWorkbench({
             调度优先级用于安排探索顺序。漏洞严重度由影响评估独立分为高、中、低。
           </Hint>
         </>
-      )}
-    </>
-  );
-}
-
-function EventFeed({ api, endpoint }: { api: ApiClient; endpoint: string }) {
-  const [events, setEvents] = useState<AuditEvent[]>([]);
-  const [error, setError] = useState("");
-  const cursor = useRef(0);
-  useEffect(() => {
-    const controller = new AbortController();
-    let pending = false;
-    cursor.current = 0;
-    setEvents([]);
-    setError("");
-    async function poll() {
-      if (pending || document.hidden) return;
-      pending = true;
-      try {
-        const page = await api.get<{
-          events: AuditEvent[];
-          next_after_seq: number;
-        }>(
-          `${endpoint}?after_seq=${cursor.current}&limit=100`,
-          controller.signal,
-        );
-        if (!controller.signal.aborted) {
-          const incoming = page.events || [];
-          cursor.current = Math.max(cursor.current, page.next_after_seq || 0);
-          setEvents((old) => {
-            const ids = new Set(old.map((e) => e.event_id));
-            return [
-              ...old,
-              ...incoming.filter((e) => !ids.has(e.event_id)),
-            ].slice(-500);
-          });
-          setError("");
-        }
-      } catch (error) {
-        if (!controller.signal.aborted) setError(errorText(error));
-      } finally {
-        pending = false;
-      }
-    }
-    void poll();
-    const timer = setInterval(() => void poll(), 3000);
-    return () => {
-      clearInterval(timer);
-      controller.abort();
-    };
-  }, [api, endpoint]);
-  return (
-    <>
-      {error && <Failure message={error} />}
-      {events.length ? (
-        <div className="event-feed">
-          {events.map((event) => (
-            <details key={event.event_id}>
-              <summary>
-                <span className="event-marker" />
-                <strong>{eventNames[event.type] || event.type}</strong>
-                <span>
-                  {event.reason ||
-                    event.summary ||
-                    shortId(event.path_id || event.run_id)}
-                </span>
-                <time>{dateLabel(event.created_at)}</time>
-              </summary>
-              <pre>{JSON.stringify(event, null, 2)}</pre>
-            </details>
-          ))}
-        </div>
-      ) : (
-        <EmptyState title="等待运行事件">
-          事件按游标增量读取，自动保留最近 500 条。
-        </EmptyState>
       )}
     </>
   );

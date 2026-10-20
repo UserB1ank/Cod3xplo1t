@@ -1,11 +1,20 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { ArrowRight, Box, ChevronRight, CircleDashed, Code2, Database, FileCode2, Focus, Info, Minus, Plus, Shield, X } from 'lucide-react';
+import { ArrowRight, Box, ChevronRight, CircleDashed, Code2, Database, FileCode2, Focus, Info, Minus, Plus, Shield, TriangleAlert, X } from 'lucide-react';
 import type { AuditPath, FindingStatus } from './types';
 import { ACTIVE, ATTENTION, findingStatus, pathStatus, shortId } from './domain';
 
 export function Badge({ status, label }: { status: string; label?: string }) {
   const tone = status === 'confirmed' ? 'danger' : status === 'candidate' || status === 'inconclusive' || status === 'blocked' || ATTENTION.has(status) ? 'warning' : ACTIVE.has(status) || status === 'RUNNING' ? 'active' : 'neutral';
   return <span className={`badge ${tone}`}><span className="status-dot" />{label || findingStatus[status as FindingStatus] || pathStatus[status] || ({ RUNNING: '运行中', SUCCEEDED: '已完成', TIMED_OUT: '已超时', CREATED: '待启动', READY: '就绪' } as Record<string, string>)[status] || status}</span>;
+}
+
+export function Failure({ message }: { message: string }) {
+  return (
+    <div className="error-message" role="alert">
+      <TriangleAlert size={16} />
+      {message}
+    </div>
+  );
 }
 
 export function Panel({ title, eyebrow, action, children, className = '' }: { title?: ReactNode; eyebrow?: string; action?: ReactNode; children: ReactNode; className?: string }) {

@@ -2613,3 +2613,48 @@ pre {
   .sidebar-tools { padding-top: 8px; }
   .sidebar-note { display: none; }
 }
+
+/* Live task stage and the project activity panel. */
+.stage-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid rgba(130, 213, 185, 0.45);
+  color: var(--accent);
+  background: rgba(130, 213, 185, 0.1);
+}
+.stage-pill::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.stage-pill.verifying {
+  color: #f2c66d;
+  border-color: rgba(242, 198, 109, 0.45);
+  background: rgba(242, 198, 109, 0.1);
+}
+.stage-pill.paused {
+  color: var(--muted);
+  border-color: rgba(154, 166, 163, 0.35);
+  background: rgba(154, 166, 163, 0.08);
+}
+.stage-pill.queued {
+  color: var(--muted);
+  border-color: rgba(154, 166, 163, 0.25);
+  background: transparent;
+}
+.activity-panel {
+  margin-bottom: 18px;
+}
+.activity-panel .panel-heading .subtle-label {
+  white-space: nowrap;
+}
+.activity-table td {
+  vertical-align: middle;
+}

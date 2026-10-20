@@ -1,4 +1,4 @@
-import type { Audit, Finding, Snapshot } from "./types.ts";
+import type { Audit, AuditPath, Finding, Run, Snapshot } from "./types.ts";
 
 export type Grade = "high" | "medium" | "low";
 export const gradeNames: Record<Grade, string> = {
@@ -139,6 +139,29 @@ export function routeHash(route: Route): string {
     ? `#/projects/${project}/tasks/${encodeURIComponent(route.task)}/${route.view}`
     : `#/projects/${project}/${route.view}${route.view === "artifacts" && route.snapshot ? `/${encodeURIComponent(route.snapshot)}` : ""}`;
 }
+// liveStage describes what the task is doing now, from data the page already
+// polls. It is deliberately derived, not stored: runs and path statuses stay the
+// source of truth.
+export function liveStage(
+  task: Task,
+  runs: Run[],
+  paths: AuditPath[],
+): { code: string; label: string } | undefined {
+  if (task.archived) return undefined;
+  if (runs.some((run) => run.status === "RUNNING")) {
+    return paths.some((path) => path.status === "VERIFYING")
+      ? { code: "verifying", label: "验证中" }
+      : { code: "analyzing", label: "分析中" };
+  }
+  if (paths.some((path) => path.status === "VERIFYING"))
+    return { code: "verifying", label: "验证中" };
+  if (runs.some((run) => run.status === "PAUSED"))
+    return { code: "paused", label: "已暂停" };
+  if (!task.paused && (task.counts_by_status?.QUEUED || 0) > 0)
+    return { code: "queued", label: "等待调度" };
+  return undefined;
+}
+
 export function taskState(task: Task) {
   if (task.archived) return "ARCHIVED";
   if (task.workflow_status)

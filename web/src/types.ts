@@ -82,3 +82,23 @@ export interface BudgetGrant {
   requested_by: string;
   created_at: string;
 }
+
+export interface ActivityEntry {
+  task_id: string;
+  task_name: string;
+  run_id?: string;
+  path_id?: string;
+  runtime?: string;
+  status?: string;
+  stage: 'analyzing' | 'verifying' | 'workflow' | 'paused' | string;
+  started_at?: string;
+  updated_at?: string;
+  elapsed_ms: number;
+  queued: number;
+}
+
+export interface ProjectActivity {
+  project_id: string;
+  active: ActivityEntry[];
+  counts: { running: number; paused: number; queued: number; tasks: number };
+}

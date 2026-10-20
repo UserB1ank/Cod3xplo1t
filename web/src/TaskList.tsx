@@ -14,6 +14,7 @@ import {
 import { ApiClient, ApiError } from "./api";
 import { Badge, EmptyState, Hint, Modal, Panel } from "./components";
 import { flowStatus } from "./WorkflowRun";
+import { ProjectActivity } from "./Activity";
 import { dateLabel, shortId } from "./domain";
 import {
   gradeNames,
@@ -52,6 +53,7 @@ export function ProjectTasks({
   onCreate,
   canWrite,
   onChanged,
+  agentEnabled = false,
 }: {
   api: ApiClient;
   projectID: string;
@@ -62,6 +64,7 @@ export function ProjectTasks({
   onCreate: () => void;
   canWrite: boolean;
   onChanged: () => void;
+  agentEnabled?: boolean;
 }) {
   const [query, setQuery] = useState("");
   const [state, setState] = useState("");
@@ -197,6 +200,9 @@ export function ProjectTasks({
         <div role="status" className="success-message">
           {notice}
         </div>
+      )}
+      {!archived && agentEnabled && (
+        <ProjectActivity api={api} projectID={projectID} onOpenTask={onOpen} />
       )}
       <Panel
         title="挖掘任务"

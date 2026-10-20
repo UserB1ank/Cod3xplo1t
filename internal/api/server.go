@@ -291,6 +291,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/settings/llm", s.handleLLMSettings)
 	mux.HandleFunc("PUT /api/settings/llm", s.handleSaveLLMSettings)
 	mux.HandleFunc("POST /api/settings/llm/test", s.handleTestLLMSettings)
+	mux.HandleFunc("GET /api/projects/{id}/activity", s.handleProjectActivity)
 	mux.HandleFunc("GET /api/projects/{id}/tasks", s.handleListTasks)
 	mux.HandleFunc("POST /api/projects/{id}/tasks", s.withIdempotency(s.handleCreateTask))
 	mux.HandleFunc("PATCH /api/projects/{id}/tasks/{taskID}", s.handleOrganizeTask)
