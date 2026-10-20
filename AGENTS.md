@@ -97,6 +97,8 @@
 
 - 2026-10-20 — #61 Pi 从真实检查点销毁 worker 后继续：Pi 的每次 attempt 拥有一个 worker 进程，暂停即结束该进程；续跑创建新 run / generation / 租约与**全新 worker**，worker 收到带 `RESUMED FROM` 与 open frontier 的渲染任务，检查点证据与用量随行；旧进程与管道已关闭，迟到帧无法写入新 run，检查点由首次 resume 消费。新增 render 的 RESUME 段、真实 Node worker 端到端测试（一轮 2 调用仅 1 额度 → PAUSED；关闭 PiRuntime、构建新 runtime、Resume → SUCCEEDED、`resume_of`、用量延续、fresh worker 收到 resume 任务），以及 SQLite 重启后的检查点 + resume lineage 断言；PG 侧的检查点持久化与单次消费由三仓储测试覆盖。已通过 agent/storage 全量、排除他人 WIP `internal/app` 的全量、受影响包竞态、真实 PG、staticcheck、契约检查。说明：PG 与 Pi 合并的双应用杀进程测试未单独运行，PG 持久化与 Pi 进程重建分别验证。按交付流程提交并关闭；未 push。
 
+- 2026-10-20 — #62 真实模型对照评测与默认切换：新增 `cmd/bench-corpus`（固定四组、每组 20 个合成任务：播种 SQLi / 参数化安全 / 动态不可判定 / 带校验边界，ground truth 由构造可知）与 `cmd/bench-eval`（API 驱动：每任务建项目与 ASG 快照、暂停任务、经 `POST /api/paths/{id}/runs` 只跑一条路径、按 runtime × 重复次数采集回答/usage/请求/工具/修复/novelty/义务，`--allow-real` 才消耗预算，`--grant-tokens` 提升审计额度，`--concurrency` 并行且逐条增量写样本）。用 DeepSeek `deepseek-chat` 完成 480 次真实运行（80 任务 × 2 runtime × 3 次，约 484 万 tokens），报告见 `docs/bench-runtime-report.md`：Pi 召回 0.92 / 误报 0.65 / tokens p50 2624，llm 召回 0.90 / 误报 0.71 / tokens p50 13399，成功率 0.97 / 0.98；语料为合成集、验证执行器未启用，成本/确认发现为 N/A，报告不自称真实世界胜出。按维护者决定把三个 Compose 部署的默认 runtime 从 llm 切到 pi（`CODEXPLOIT_AGENT_RUNTIME=llm` 回退，`--agent-runtimes=llm,pi` 仍允许逐任务选择，旧 run 保留 pin），并新增部署默认断言。此前还完成 SQLite 与 PostgreSQL 栈的页面级暂停/续跑/预算验收（含两次 PG 专有修复：先写检查点再释放路径、PAUSED 对租约恢复为终态），修复设置端点被误粘贴完整 `/chat/completions` 导致的 404（规范化并加载时纠正）。已知限制：评测产生的暂停任务会留下排队路径（无项目删除 API，需手工取消），合成语料的高误报需要真实世界标注集复评；真实 PG 页面登录使用隔离库+匿名管理验收，主部署账号密码未知。已通过 llm/bench/scripts 测试、staticcheck、真实评测与页面验收；按交付流程提交并关闭；未 push。
+
 ## Agent skills
 
 ### Issue tracker

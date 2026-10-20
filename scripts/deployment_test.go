@@ -41,6 +41,25 @@ func TestPostgresStatusUsesUnifiedWebPort(t *testing.T) {
 // deployments enable it, and a deployment that does not want egress sets
 // CODEXPLOIT_ALLOW_NETWORK=false. The flag has to be spelled out in every stack,
 // otherwise a new stack silently falls back to the binary's conservative default.
+func TestComposeDefaultsToPiWithLlmFallback(t *testing.T) {
+	for _, file := range []string{"../compose.yaml", "../compose.standalone.yaml", "../compose.postgres.yaml"} {
+		raw, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatalf("read %s: %v", file, err)
+		}
+		body := string(raw)
+		if !strings.Contains(body, "--agent-runtime=${CODEXPLOIT_AGENT_RUNTIME:-pi}") {
+			t.Errorf("%s does not default to the Pi runtime", file)
+		}
+		if !strings.Contains(body, "--agent-runtimes=${CODEXPLOIT_AGENT_RUNTIMES:-llm,pi}") {
+			t.Errorf("%s does not offer both runtimes", file)
+		}
+		if !strings.Contains(body, "--pi-worker=/app/pi-worker/dist/main.js") {
+			t.Errorf("%s does not point at the worker", file)
+		}
+	}
+}
+
 func TestComposeEnablesRemoteGitByDefault(t *testing.T) {
 	for _, file := range []string{"../compose.yaml", "../compose.standalone.yaml", "../compose.postgres.yaml"} {
 		raw, err := os.ReadFile(file)

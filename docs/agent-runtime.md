@@ -215,7 +215,9 @@ no overloading and because a reader should never have to guess which log they ho
 The deployment owns the catalog: `--agent-runtimes=llm,pi` lists what a task may
 choose, and `--agent-runtime` names the default. The shipped Compose deployments set
 `--agent-runtimes=${CODEXPLOIT_AGENT_RUNTIMES:-llm,pi}` with `--pi-worker`, so both
-runtimes are selectable on the page while the default stays `llm`. A client never supplies an
+runtimes are selectable on the page. The deployment default is `pi`
+(`CODEXPLOIT_AGENT_RUNTIME=llm` falls back); the binary's own flag default stays
+`llm` for direct runs without a deployment profile. A client never supplies an
 executable, environment or module path. `GET /api/agent/runtimes` reports each
 entry's readiness, capabilities and secret-free versions; a runtime that is not
 ready is refused at task creation instead of falling back to another adapter.
@@ -242,8 +244,9 @@ credentials.
 `--agent-runtime=pi` selects the worker; `--pi-worker` points at its entrypoint
 (default `/app/pi-worker/dist/main.js`) and `--pi-node` at the Node binary
 (default `node`). The runtime image contains a locked Node 22 and the worker
-build; the three Compose deployments accept `CODEXPLOIT_AGENT_RUNTIME=pi` and
-keep their existing ports, volumes and secrets. The default stays `llm`.
+build; the three Compose deployments default to `pi` and keep their existing
+ports, volumes and secrets. `CODEXPLOIT_AGENT_RUNTIME=llm` falls back to the
+native adapter for new tasks.
 
 The worker reads the model endpoint and credentials from the encrypted settings
 through the private init frame. It never reads a user `pi` login, model catalog,
@@ -262,9 +265,9 @@ a separate concern.
 `GET /api/agent/runtimes` and the configuration page report each runtime's
 readiness and a short reason. A deployment without Node or the worker build
 reports `pi` as unavailable and keeps `llm` usable; a task that asks for `pi` is
-refused with `runtime_unavailable` instead of silently running elsewhere. To fall
-back, set `CODEXPLOIT_AGENT_RUNTIME=llm` (or create the new task with `runtime=llm`)
-and leave `--agent-runtimes` as is. Existing tasks keep the runtime they stored and
+refused with `runtime_unavailable` instead of silently running elsewhere. The deployment default is `pi`; to fall back, set
+`CODEXPLOIT_AGENT_RUNTIME=llm` (or create the new task with `runtime=llm`) and
+leave `--agent-runtimes` as is. Existing tasks keep the runtime they stored and
 old runs keep their pin; nothing rewrites history. If a Pi attempt fails before a
 permit, check the worker entrypoint, `node --version`, the encrypted settings and
 the worker's bounded stderr in the container logs; the host reports
@@ -551,8 +554,9 @@ measurement. The stop-quality baseline built on these counters is
 
 ## Native HTTP model adapter
 
-The Docker deployment uses `--agent-runtime llm` with administrator settings
-in the Web UI. Both OpenAI-compatible Chat Completions and Responses protocols
+The Docker deployment defaults to the Pi runtime; the native llm adapter is
+selected with `CODEXPLOIT_AGENT_RUNTIME=llm`, using the same administrator
+settings in the Web UI. Both OpenAI-compatible Chat Completions and Responses protocols
 support the existing read-only graph tool loop, reported token usage and the
 same structured-answer validation as other adapters. Configuration is captured
 once per run; later saves apply to subsequent runs. The adapter exposes no

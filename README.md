@@ -355,7 +355,7 @@ evidence. See [`docs/agent-runtime.md`](docs/agent-runtime.md).
 built-in tools, extensions or sessions: every provider request waits for a host
 permit and every tool is executed by the host. The container image includes the
 worker, and the Compose deployments select it with
-`CODEXPLOIT_AGENT_RUNTIME=pi` (default remains `llm`).
+`--agent-runtime` defaults to `pi` in the Compose deployments; set `CODEXPLOIT_AGENT_RUNTIME=llm` to fall back to the native adapter.
 
 ### Verification and findings (P6)
 

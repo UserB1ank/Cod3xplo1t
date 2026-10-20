@@ -1,5 +1,7 @@
 # Runtime comparison report — seeded corpus
 
+Maintainer decision (2026-10-20): the deployment default runtime was switched to `pi`; `llm` remains available for per-task selection and as the `CODEXPLOIT_AGENT_RUNTIME=llm` fallback. Existing runs keep their pinned runtime.
+
 Provider: `deepseek-chat` at `https://api.deepseek.com`.  Corpus: `seeded-go-v1` (80 synthetic tasks, 20 per group; one path per task; 3 repetitions per runtime; 480 real runs total).  Verification is disabled in this deployment, so confirmed findings and cost per confirmed finding are N/A.
 
 

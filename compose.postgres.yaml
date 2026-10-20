@@ -37,7 +37,7 @@ services:
       - --postgres-dsn-file=/run/secrets/postgres_dsn
       - --settings-key-file=/run/secrets/settings_key
       - --web-auth
-      - --agent-runtime=${CODEXPLOIT_AGENT_RUNTIME:-llm}
+      - --agent-runtime=${CODEXPLOIT_AGENT_RUNTIME:-pi}
       - --agent-runtimes=${CODEXPLOIT_AGENT_RUNTIMES:-llm,pi}
       - --pi-worker=/app/pi-worker/dist/main.js
       - --scheduler
