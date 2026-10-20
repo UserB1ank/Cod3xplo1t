@@ -184,3 +184,41 @@ The verdict table, the evidence rules and the isolation boundaries are the parts
 reviewer must be able to check against the code. If any of them change, change this
 document in the same commit — a verification layer whose documentation overstates it
 is worse than one with no documentation at all.
+
+## Versioned execution plans (v2, in progress)
+
+Issue #30 adds a fixed, reviewable plan that is approved before dynamic execution.
+The v2 `ExecutionPlan` (schema version 2) records the hypothesis/finding/path/audit
+and snapshot, the knowledge pin, the claim and security goal, the verifier adapter
+and version, the steps, structured assertions (expectation, contradiction,
+required, evidence refs), a budget, limitations and an expiry.
+
+The plan embeds a `PlanEnvironment` instead of only the runtime limits:
+
+- OS/arch and the **provider** (name, version, capabilities), kept separate from
+  the plugin runtime;
+- a template reference and input digests;
+- one entry per service role, with its template, dependencies and readiness
+  probes;
+- network mode (`none` or `allowlist`), allowed hosts and rules;
+- read-only source, scratch size, TTL, required permissions, resources and
+  credential **references** (never secrets).
+
+`DecodeExecutionPlan` uses strict JSON decoding, so an unsupported environment or
+assertion field is rejected instead of being silently ignored. `ValidateExecutionPlan`
+also rejects a network allowance the scope does not grant, a scope snapshot that
+differs from the plan, missing assertions and an already-expired plan.
+
+The plan digest covers every execution-relevant field (identity, claim, verifier,
+steps, assertions, environment, scope, budget, knowledge pin, expiry) and excludes
+only record metadata (`plan_id`, `created_at`). An `PlanApproval` binds that digest,
+the decision, a trusted actor and role, the granted permissions and the approval
+expiry; `ApplyApproval` rejects a stale plan digest, an expired approval and any
+permission the plan did not request. The state machine is monotonic:
+`pending → approved | rejected | unsupported`, and only `invalidated` follows an
+approval or rejection. v1 plans and runs remain readable; v2 plans use their own
+schema version and hash.
+
+The persistence surface (Memory/SQLite/PostgreSQL) and the authenticated plan and
+approval API are the next step of #30; this document does not claim that dynamic
+verification already runs under the v2 plan.
