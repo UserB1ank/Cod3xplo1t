@@ -175,8 +175,6 @@ func main() {
 	mu.Lock()
 	fmt.Printf("wrote %d samples to %s\n", len(samples), *out)
 	mu.Unlock()
-	return
-
 }
 
 func setupTask(api *client, item *task) error {
