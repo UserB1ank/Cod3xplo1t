@@ -40,6 +40,7 @@ type Memory struct {
 	workflows         map[string][]byte
 	workflowHeads     map[string]workflowHead
 	plugins           map[string][]byte
+	plans             map[string]verify.PlanRecord
 	pluginInvocations map[string][]byte
 	snapshots         map[string]memorySnapshot
 	manifests         map[string][]byte
@@ -111,6 +112,7 @@ func NewMemory() *Memory {
 		budgetGrants:           map[string][]agent.BudgetGrant{},
 		agentHypotheses:        map[string]agent.Hypothesis{},
 		verificationRuns:       map[string]verify.Run{},
+		plans:                  map[string]verify.PlanRecord{},
 		evidence:               map[string]verify.Evidence{},
 		findings:               map[string]verify.Finding{},
 		findingObservations:    map[string]findings.Observation{},

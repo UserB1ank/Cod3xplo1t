@@ -219,6 +219,10 @@ permission the plan did not request. The state machine is monotonic:
 approval or rejection. v1 plans and runs remain readable; v2 plans use their own
 schema version and hash.
 
-The persistence surface (Memory/SQLite/PostgreSQL) and the authenticated plan and
-approval API are the next step of #30; this document does not claim that dynamic
-verification already runs under the v2 plan.
+The plan lifecycle is persisted through `verify.PlanRepository` with a version
+CAS: Memory and SQL (SQLite migration `0033`, PostgreSQL `0015`) store the fixed
+plan, its state and the optional approval; a restart keeps the pending/approved
+state, a stale version is a conflict, another project cannot read the plan and the
+list filters by state. The authenticated plan/approval API and the page are the
+next step of #30; this document does not claim that dynamic verification already
+runs under the v2 plan.
