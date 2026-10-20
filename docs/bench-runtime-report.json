@@ -1,0 +1,68 @@
+{
+  "version": 1,
+  "generated_at": "2026-10-20T02:36:58Z",
+  "dataset": "seeded-go-v1",
+  "expected_runs": 240,
+  "real": [
+    {
+      "runtime": "llm",
+      "samples": 240,
+      "available": 240,
+      "unavailable": 0,
+      "missing": 0,
+      "success_rate": 0.9791666666666666,
+      "recall": 0.9,
+      "false_positive_rate": 0.7055555555555556,
+      "obligation_closure_ratio": 0.89375,
+      "inconclusive": 54,
+      "stop_reasons": {
+        "completed": 235,
+        "invalid_output": 2,
+        "no_new_evidence": 3
+      },
+      "token_p50": 13399,
+      "token_p95": 40282,
+      "elapsed_p50_ms": 7144,
+      "model_requests": 856,
+      "tool_calls": 710,
+      "repairs": 85,
+      "evidence_valid_rate": 0.9791666666666666,
+      "notes": [
+        "cost per confirmed finding is N/A: no verifier-confirmed finding"
+      ]
+    },
+    {
+      "runtime": "pi",
+      "samples": 240,
+      "available": 240,
+      "unavailable": 0,
+      "missing": 0,
+      "success_rate": 0.975,
+      "recall": 0.9166666666666666,
+      "false_positive_rate": 0.65,
+      "obligation_closure_ratio": 0.86875,
+      "inconclusive": 62,
+      "stop_reasons": {
+        "completed": 234,
+        "invalid_output": 1,
+        "no_new_evidence": 5
+      },
+      "token_p50": 2624,
+      "token_p95": 5709,
+      "elapsed_p50_ms": 6375,
+      "model_requests": 694,
+      "tool_calls": 529,
+      "repairs": 56,
+      "evidence_valid_rate": 0.975,
+      "notes": [
+        "cost per confirmed finding is N/A: no verifier-confirmed finding"
+      ]
+    }
+  ],
+  "verdict": "comparable",
+  "notes": [
+    "numbers are raw per-runtime measurements; choosing a default runtime is a human decision"
+  ],
+  "provider": "deepseek-chat @ https://api.deepseek.com",
+  "note": "synthetic seeded corpus (20 tasks per group, one path per task, 3 repetitions); verification executor unsupported, so confirmed findings and cost per confirmed finding are N/A; failures are included in the success rate."
+}
