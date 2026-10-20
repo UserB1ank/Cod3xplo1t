@@ -78,3 +78,40 @@ were supplied), so the report is `real_run_pending` and the default runtime stay
 samples, run the command, review recall / false positives / obligations /
 unavailable counts and the raw cost, then decide whether to change the default in
 a separate change. Existing runs keep the runtime they pinned.
+
+## Running a real evaluation
+
+Two commands produce the samples and the report:
+
+```sh
+# 1. Write a fixed, seeded corpus: 20 tasks per group (seeded, safe,
+#    undecidable, edge), with the ground-truth label in the dataset.
+go run ./cmd/bench-corpus --out /tmp/bench-corpus --per-group 20
+
+# 2. Run the corpus through the deployment. --allow-real is the explicit
+#    opt-in; the deployment needs the model configured in its encrypted
+#    settings and a writer/admin API token.
+go run ./cmd/bench-eval \
+  --base http://127.0.0.1:18085 --token "$CODEXPLOIT_API_TOKEN" \
+  --dataset /tmp/bench-corpus/dataset.json \
+  --runs 3 --allow-real --out /tmp/bench-samples.json
+
+# 3. Aggregate the samples into the machine-readable and Markdown report.
+go run ./cmd/bench-runtime --samples /tmp/bench-samples.json --allow-real \
+  --out /tmp/bench-report.json --markdown /tmp/bench-report.md
+```
+
+`expected_runs` in the samples file is **per runtime** (tasks × repetitions).
+The corpus must be mounted into the deployment container at the path the
+dataset's `source` fields use (default `/corpus`). `bench-eval` creates one
+project and one snapshot per task, then one task per runtime and repetition; it
+waits for the first terminal run of that runtime and records the run's metrics
+and answer. A task whose paths finish without a run of the runtime is recorded
+as failed, not as a zero-cost success.
+
+The corpus is seeded and synthetic. Its ground truth is known by construction,
+which makes the recall and false-positive numbers reproducible, but it is not a
+substitute for a curated real-world set; the report's verdict stays
+`insufficient_evidence` until a runtime reaches 20 available samples with no
+unavailable sample or missing run. The cost fields remain N/A while the
+verification executor is unsupported (no verifier-confirmed finding).
