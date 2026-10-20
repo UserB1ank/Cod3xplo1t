@@ -91,6 +91,7 @@ Issue #7 已接通内置语义和路径分析、Normalizer、AnalysisResult 与�
 - 九个能力阶段：`source`、`parse`、`semantic`、`scan`、`path`、`agent`、`environment`、`verification`、`report`。
 - 清单 `kind` 映射：`source`→source、`parser`→parse、`analyzer`/`normalizer`→semantic、`scanner`→scan、`graph`→path、`agent`→agent、`environment`→environment、`verification`→verification、`reporter`→report。
 - 注册表同时列出每种产物的允许 Schema 版本（如 `source.snapshot` → `codexploit/source-tar/v1`、`codexploit/source-files/v1`），旧记录和旧计划保持可读；新增类型必须进入该文件并经过评审。
+- 内置插件的宿主注册表优先于清单 `kind`：历史上 `builtin.discovery-paths` 与扫描器都声明为 `analyzer`，但分别属于 path 与 scan；部署注册表按插件 ID 固定主能力，第三方插件仍按 `kind` 映射，后续清单可用显式能力字段取代。
 - 工作流编译在运行前检查节点插件的未知能力/未知产物契约（诊断代码 `capability`、`unknown_contract`），以及既有的输入 Schema、直接 producer 与包可用性检查。
 
 认证 API `GET /api/v1/plugins/capabilities`（reader）返回全部九个阶段：每个阶段的标签、是否可用、不可用原因、声明该能力的插件（id/version/name/runtime/source/installed/executable/reason）以及该阶段的产物契约。环境供应与验证目前没有适配器，会如实显示为不可用，而不是从目录里消失。
