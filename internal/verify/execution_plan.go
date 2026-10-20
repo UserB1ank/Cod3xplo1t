@@ -349,3 +349,17 @@ func PlanPermissionsEqual(a, b []string) bool {
 	}
 	return strings.Join(normalise(a), "\x00") == strings.Join(normalise(b), "\x00")
 }
+
+// NeedsApproval reports whether the v2 plan includes a dynamic or explicitly
+// approval-gated step, or a scope that requires human approval.
+func (p ExecutionPlan) NeedsApproval() bool {
+	if p.Scope.RequiresHumanApproval {
+		return true
+	}
+	for _, step := range p.Steps {
+		if step.RequiresApproval || step.Kind == StepDynamicProof {
+			return true
+		}
+	}
+	return false
+}
