@@ -332,6 +332,9 @@ type Path struct {
 	Budget      Budget   `json:"budget"`
 	Features    Features `json:"features"`
 	Score       Score    `json:"score"`
+	// Selection is set by the deterministic four-stage enhancement. Old paths
+	// and custom workflows without that stage leave it nil.
+	Selection *PathSelection `json:"selection,omitempty"`
 
 	// ScoreSeq counts the score snapshots stored for this path, so a recomputation
 	// appends rather than overwrites.
@@ -385,9 +388,12 @@ type Audit struct {
 	CountsByPathStatus map[string]int `json:"counts_by_path_status"`
 	Coverage           Coverage       `json:"coverage"`
 	Limitations        []string       `json:"limitations"`
-	CreatedAt          string         `json:"created_at"`
-	UpdatedAt          string         `json:"updated_at"`
-	Version            int64          `json:"version"`
+	// Enhancement records both retained and filtered candidates when the
+	// deterministic enhancement stage ran. It is nil for older tasks.
+	Enhancement *EnhancementSummary `json:"enhancement,omitempty"`
+	CreatedAt   string              `json:"created_at"`
+	UpdatedAt   string              `json:"updated_at"`
+	Version     int64               `json:"version"`
 }
 
 // Audit statuses.

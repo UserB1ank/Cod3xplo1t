@@ -6,6 +6,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/agent"
 	"github.com/open-mcp-ai/Codexploit/internal/app"
 	"github.com/open-mcp-ai/Codexploit/internal/llm"
+	"github.com/open-mcp-ai/Codexploit/internal/path"
 	"github.com/open-mcp-ai/Codexploit/internal/plugin"
 	"github.com/open-mcp-ai/Codexploit/internal/workflow"
 	"net/http"
@@ -593,5 +594,104 @@ func TestWorkflowKeepsCapturedModelAfterApplicationSettingsChange(t *testing.T) 
 			}
 			return
 		}
+	}
+}
+
+func TestWorkflowPinsSelectedPathEnhancementForTaskAndPublication(t *testing.T) {
+	env := newTestEnv(t, false)
+	p := createProject(t, env.ts, asgFixtureSource(t)).Project
+	captured := do(t, env.ts, http.MethodPost, "/api/projects/"+p.ID+"/snapshots", map[string]any{"skip_analysis": true}, nil)
+	var snapshot snapshotResponse
+	captured.decode(t, &snapshot)
+	prefix := "/api/v1/projects/" + p.ID
+	registered := do(t, env.ts, http.MethodPost, prefix+"/snapshots/"+snapshot.Snapshot.SnapshotID+"/artifacts", nil, nil)
+	var page struct {
+		Artifacts []artifact.Ref `json:"artifacts"`
+	}
+	registered.decode(t, &page)
+	root := ""
+	for _, ref := range page.Artifacts {
+		if ref.SchemaID == "codexploit/source-tar/v1" {
+			root = ref.ID
+		}
+	}
+	spec := workflowSpecFixture()
+	spec["nodes"] = append(spec["nodes"].([]any),
+		map[string]any{"id": "semantic", "plugin_id": plugin.SemanticID, "plugin_version": "1.2.0", "needs": []string{"parse"}, "config": map[string]any{}, "timeout_seconds": 60},
+		map[string]any{"id": "paths", "plugin_id": "builtin.discovery-paths", "plugin_version": "1.2.0", "needs": []string{"semantic"}, "config": map[string]any{}, "timeout_seconds": 60},
+		map[string]any{"id": "enhance", "plugin_id": "builtin.path-enhancer", "plugin_version": "1.0.0", "needs": []string{"paths"}, "config": map[string]any{"max_paths": 1, "min_priority": 0}, "timeout_seconds": 60},
+	)
+	if saved := do(t, env.ts, http.MethodPost, prefix+"/workflows", map[string]any{"api_version": "codexploit/v1", "spec": spec}, nil); saved.status != 201 {
+		t.Fatalf("save workflow: %d %s", saved.status, saved.body)
+	}
+	compiled := do(t, env.ts, http.MethodPost, prefix+"/workflows/workflow-discovery/versions/1.0.0/compile", map[string]any{"api_version": "codexploit/v1", "snapshot_id": snapshot.Snapshot.SnapshotID, "inputs": []string{root}, "language": "Go"}, nil)
+	var plan struct {
+		Plan workflow.Plan `json:"plan"`
+	}
+	compiled.decode(t, &plan)
+	if compiled.status != 201 || plan.Plan.PathSourceNodeID != "enhance" {
+		t.Fatalf("compiled plan did not pin the enhancer: %d %s", compiled.status, compiled.body)
+	}
+	created := do(t, env.ts, http.MethodPost, "/api/projects/"+p.ID+"/tasks", map[string]any{
+		"name": "Enhanced discovery", "objective": "Review the selected path", "snapshot_id": snapshot.Snapshot.SnapshotID,
+		"workflow_plan_id": plan.Plan.ID, "analyze_candidates": false, "accept_partial_nodes": []string{"enhance"},
+	}, nil)
+	if created.status != 201 {
+		t.Fatalf("create task: %d %s", created.status, created.body)
+	}
+	var receipt struct {
+		Run workflow.Run `json:"workflow_run"`
+	}
+	created.decode(t, &receipt)
+	deadline := time.Now().Add(20 * time.Second)
+	var run workflow.Run
+	for {
+		response := doAs(t, env.ts, readerSecret, http.MethodGet, prefix+"/workflow-runs/"+receipt.Run.ID, nil, nil)
+		var value struct {
+			Run workflow.Run `json:"run"`
+		}
+		response.decode(t, &value)
+		run = value.Run
+		if workflow.RunTerminal(run.Status) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("enhanced workflow timed out")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if run.Status != "PARTIAL" {
+		t.Fatalf("enhanced workflow = %s: %+v", run.Status, run.Nodes)
+	}
+	taskResponse := doAs(t, env.ts, readerSecret, http.MethodGet, "/api/tasks/"+run.TaskID, nil, nil)
+	var task struct {
+		PathCount   int                      `json:"path_count"`
+		Enhancement *path.EnhancementSummary `json:"enhancement"`
+	}
+	taskResponse.decode(t, &task)
+	if taskResponse.status != 200 || task.PathCount != 1 || task.Enhancement == nil || len(task.Enhancement.Selected) != 1 || len(task.Enhancement.Filtered) == 0 {
+		t.Fatalf("task enhancement = %d %s", taskResponse.status, taskResponse.body)
+	}
+	for _, filtered := range task.Enhancement.Filtered {
+		if filtered.Selection.FilterCode == "" || filtered.Selection.Reason == "" {
+			t.Fatalf("filtered path has no explanation: %+v", filtered)
+		}
+	}
+	pathsResponse := doAs(t, env.ts, readerSecret, http.MethodGet, "/api/audits/"+run.TaskID+"/paths?limit=10", nil, nil)
+	var paths struct {
+		Paths []path.Path `json:"paths"`
+	}
+	pathsResponse.decode(t, &paths)
+	if len(paths.Paths) != 1 || paths.Paths[0].Selection == nil || paths.Paths[0].Selection.Selection != "selected" {
+		t.Fatalf("selected path was not persisted: %s", pathsResponse.body)
+	}
+	detail := doAs(t, env.ts, readerSecret, http.MethodGet, "/api/paths/"+paths.Paths[0].ID, nil, nil)
+	if detail.status != 200 || !strings.Contains(string(detail.body), `"reason"`) || !strings.Contains(string(detail.body), `"weights_digest"`) {
+		t.Fatalf("path detail missing selection: %d %s", detail.status, detail.body)
+	}
+	// The upstream paths report must not republish its unselected set.
+	revisions := doAs(t, env.ts, readerSecret, http.MethodGet, prefix+"/knowledge/revisions?snapshot_id="+snapshot.Snapshot.SnapshotID, nil, nil)
+	if revisions.status != 200 {
+		t.Fatalf("revisions: %d %s", revisions.status, revisions.body)
 	}
 }

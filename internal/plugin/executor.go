@@ -84,7 +84,7 @@ func (h *Host) validateInputs(ctx context.Context, request Request) error {
 			if request.PluginID == "builtin.security-semantics" && (len(origin.Request.Inputs) != 1 || origin.Request.Inputs[0] != request.Inputs[0]) {
 				return ErrInvalid
 			}
-			if request.PluginID == "builtin.discovery-paths" {
+			if request.PluginID == "builtin.discovery-paths" || request.PluginID == "builtin.path-enhancer" {
 				if previous != "" && previous != origin.ID {
 					return ErrInvalid
 				}

@@ -203,3 +203,31 @@ func TestCompilerRejectsCapabilityWithoutItsOwnProducedContract(t *testing.T) {
 		t.Fatalf("capability mismatch diagnostics = %+v", result.Diagnostics)
 	}
 }
+
+func TestCompilerPinsOnePathEnhancementSource(t *testing.T) {
+	c := compiler(t)
+	spec := fixture()
+	spec.Nodes = append(spec.Nodes, workflow.Node{ID: "enhance", PluginID: "builtin.path-enhancer", PluginVersion: "1.0.0", Needs: []string{"paths"}, Config: json.RawMessage(`{}`), TimeoutSeconds: 60})
+	raw, _ := json.Marshal(spec)
+	result, err := c.Validate(context.Background(), raw)
+	if err != nil || !result.Valid || result.PathSourceNodeID != "enhance" {
+		t.Fatalf("enhancement source = %q valid=%v diagnostics=%+v err=%v", result.PathSourceNodeID, result.Valid, result.Diagnostics, err)
+	}
+	// Two consumers/producers of discovery.paths are ambiguous; the compiler
+	// must never choose a latest branch by itself.
+	spec.Nodes = append(spec.Nodes, workflow.Node{ID: "enhance2", PluginID: "builtin.path-enhancer", PluginVersion: "1.0.0", Needs: []string{"paths"}, Config: json.RawMessage(`{}`), TimeoutSeconds: 60})
+	raw, _ = json.Marshal(spec)
+	result, err = c.Validate(context.Background(), raw)
+	if err != nil || result.Valid {
+		t.Fatalf("ambiguous enhancement accepted: %+v %v", result, err)
+	}
+	found := false
+	for _, diagnostic := range result.Diagnostics {
+		if diagnostic.Code == "ambiguous_path_source" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("missing ambiguous_path_source diagnostic: %+v", result.Diagnostics)
+	}
+}

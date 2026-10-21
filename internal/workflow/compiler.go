@@ -35,6 +35,11 @@ type Validation struct {
 	Valid       bool           `json:"valid"`
 	Diagnostics []Diagnostic   `json:"diagnostics"`
 	Nodes       []CompiledNode `json:"nodes"`
+	// PathSourceNodeID names the one node whose discovery.paths output is the
+	// authoritative candidate set for $publish/$analyze. It is set only when an
+	// enhancement node consumes and produces discovery.paths; old plans leave it
+	// empty and keep their previous behavior.
+	PathSourceNodeID string `json:"path_source_node_id,omitempty"`
 }
 type PluginCatalog interface {
 	Get(context.Context, string, string) (plugin.Record, error)
@@ -215,9 +220,34 @@ func (c *Compiler) Validate(ctx context.Context, raw json.RawMessage) (Validatio
 		}
 		result.Nodes = append(result.Nodes, compiled)
 	}
+	pathSources := []string{}
+	for _, node := range result.Nodes {
+		consumesPaths, producesPaths := false, false
+		for _, kind := range node.Plugin.Manifest.Consumes {
+			if kind == "discovery.paths" {
+				consumesPaths = true
+			}
+		}
+		for _, kind := range node.Plugin.Manifest.Produces {
+			if kind == "discovery.paths" {
+				producesPaths = true
+			}
+		}
+		if consumesPaths && producesPaths {
+			pathSources = append(pathSources, node.ID)
+		}
+	}
+	switch len(pathSources) {
+	case 0:
+	case 1:
+		result.PathSourceNodeID = pathSources[0]
+	default:
+		add("/nodes", "ambiguous_path_source", "More than one node consumes and produces discovery.paths; select one enhancement node")
+	}
 	result.Valid = len(result.Diagnostics) == 0
 	if !result.Valid {
 		result.Nodes = []CompiledNode{}
+		result.PathSourceNodeID = ""
 	}
 	return result, nil
 }

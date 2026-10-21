@@ -34,6 +34,9 @@ type PlanBody struct {
 	Knowledge       KnowledgePin   `json:"knowledge"`
 	MaxInputBytes   int64          `json:"max_input_bytes"`
 	Nodes           []CompiledNode `json:"nodes"`
+	// PathSourceNodeID pins the enhancement node whose selected paths feed
+	// publication and candidate analysis. It is empty for old plans.
+	PathSourceNodeID string `json:"path_source_node_id,omitempty"`
 }
 type Plan struct {
 	PlanBody
@@ -174,7 +177,7 @@ func (c *Compiler) Compile(ctx context.Context, project, id, version string, req
 		}
 		pin.Digest = doc.Revision.Digest
 	}
-	body := PlanBody{APIVersion: "codexploit/v1", CompilerVersion: CompilerVersion, Scope: scope, Workflow: record, Inputs: inputs, Language: req.Language, Knowledge: pin, MaxInputBytes: req.MaxInputBytes, Nodes: validation.Nodes}
+	body := PlanBody{APIVersion: "codexploit/v1", CompilerVersion: CompilerVersion, Scope: scope, Workflow: record, Inputs: inputs, Language: req.Language, Knowledge: pin, MaxInputBytes: req.MaxInputBytes, Nodes: validation.Nodes, PathSourceNodeID: validation.PathSourceNodeID}
 	canonical, err := json.Marshal(body)
 	if err != nil {
 		return Plan{}, err

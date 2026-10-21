@@ -476,6 +476,12 @@ lifecycle verbs change scheduling state, and everything else is a read.
 | `POST /api/audits/{id}/reclaim-expired` | `writer` | recover paths whose lease expired |
 | `POST /api/audits/{id}/rescore` | `writer` | replay the ranking from the stored feature snapshots |
 | `GET /api/paths/{id}` | `reader` | one path with its feature history and its events |
+
+Paths produced by the deterministic enhancement stage also carry `selection`
+(selected/filtered, reason, filter code, score version, weights digest and source
+path); the task document carries `enhancement.selected` / `enhancement.filtered`.
+Old paths and tasks omit these fields. Filtering is a scheduling decision, not a
+severity estimate or proof that a filtered path is safe.
 | `POST /api/audits/{id}/claim` | `writer` | lease the audit queue's next pick to an owner (canonical) |
 | `POST /api/paths/{id}/claim` | `writer` | same operation reached through a path id (alias) |
 | `POST /api/paths/{id}/heartbeat` | `writer` | extend a lease the owner still holds |

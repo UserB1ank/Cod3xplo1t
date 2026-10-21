@@ -8,16 +8,34 @@ export interface ProjectInput { project_id: string; state: ProjectInputState; so
 export interface ProjectDirectoryEntry { project: Project; audit_input?: ProjectInput }
 export interface Snapshot { snapshot_id: string; project_id: string; commit: string; vcs: string; created_at: string; manifest_present: boolean; source_id?: string; source_version?: number }
 export interface Step { layer: string; from: string; to: string; kind: string; subject?: string; file?: string; line?: number; evidence?: string; confidence?: string }
+export interface PathSelection {
+  schema_version: string; selection: 'selected' | 'filtered'; reason: string; filter_code?: string;
+  score_version: number; weights_digest: string; source_path_id: string; source_artifact_id?: string;
+  producer_plugin?: string; producer_version?: string; invocation_id?: string;
+}
+export interface EnhancementPath {
+  path_id: string; entry_subject: string; target_subject: string; entry_node_id: string; target_node_id: string;
+  path_status: string; priority: number; risk: number; support: number; utility: number;
+  score_version: number; selection: PathSelection; limitations?: string[];
+}
+export interface EnhancementSummary {
+  schema_version: string; producer_plugin?: string; producer_version?: string; invocation_id?: string;
+  config_digest?: string; input_artifact_ids?: string[]; score_version: number; weights_digest: string;
+  selected: EnhancementPath[]; filtered: EnhancementPath[]; limitations: string[];
+}
 export interface AuditPath {
   path_id: string; audit_id: string; snapshot_id: string; entry_subject: string; target_subject: string; target_kind: string;
   path_kind: string; path_status: string; status: string; steps: Step[]; objectives: string[]; controls: string[];
-  limitations: string[]; open_questions: string[]; scg_refs: string[]; score: { priority: number; support: number; risk: number; utility: number };
+  limitations: string[]; open_questions: string[]; scg_refs: string[]; score: { priority: number; support: number; risk: number; utility: number; score_version?: number; weights?: Record<string, number> };
+  features?: { reasons?: Record<string, string>; [key: string]: unknown };
+  selection?: PathSelection;
   budget: { max_depth: number; max_branches: number; max_tool_calls: number }; attempts: number; version: number;
 }
 export interface Audit {
   audit_id: string; snapshot_id: string; status: string; path_count: number; created_at: string;
   counts_by_status: Record<string, number>; limits: { max_active_leases: number; exploration_fraction: number };
   coverage: { entry_points_examined: number; chains_resolved: number; chains_unresolved: number; truncated: boolean; truncation_reasons?: string[] };
+  enhancement?: EnhancementSummary;
 }
 export interface Finding {
   finding_id: string; hypothesis_id: string; path_id: string; audit_id: string; snapshot_id: string; title: string;

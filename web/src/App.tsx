@@ -1841,6 +1841,45 @@ function TaskWorkbench({
               </div>
             </>
           )}
+          {(route.view === "overview" || route.view === "exploration") && current.enhancement && (
+            <Panel title="路径筛选记录" eyebrow="DETERMINISTIC ENHANCEMENT">
+              <p className="panel-copy">
+                已保留 {current.enhancement.selected.length} 条、过滤{" "}
+                {current.enhancement.filtered.length} 条候选路径。筛选与排序只决定审查顺序，
+                不表示被过滤的路径安全，也不提升为漏洞结论。
+              </p>
+              <dl className="enhancement-meta">
+                <dt>评分版本</dt>
+                <dd>{current.enhancement.score_version}</dd>
+                <dt>权重摘要</dt>
+                <dd className="mono">{shortId(current.enhancement.weights_digest)}</dd>
+                <dt>增强来源</dt>
+                <dd className="mono">
+                  {current.enhancement.producer_plugin || "未记录"} ·{" "}
+                  {shortId(current.enhancement.invocation_id || "")}
+                </dd>
+              </dl>
+              {current.enhancement.filtered.length > 0 && (
+                <div className="enhancement-list">
+                  {current.enhancement.filtered.map((filtered) => (
+                    <div key={filtered.path_id}>
+                      <span className="mono">{shortId(filtered.path_id)}</span>
+                      <span>
+                        {filtered.entry_subject} → {filtered.target_subject}
+                      </span>
+                      <span className="enhancement-code">
+                        {filtered.selection.filter_code || "filtered"}
+                      </span>
+                      <small>{filtered.selection.reason}</small>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {current.enhancement.limitations.length > 0 && (
+                <Hint>{current.enhancement.limitations.join(" ")}</Hint>
+              )}
+            </Panel>
+          )}
           <Panel
             title={
               route.view === "exploration" ? "探索路径" : "待探索的代码路径"
@@ -2397,6 +2436,61 @@ function PathInspector({
           {path.entry_subject} <ArrowRight size={17} /> {path.target_subject}
         </h2>
       </div>
+      <details className="path-selection" open>
+        <summary>筛选与评分</summary>
+        {path.selection ? (
+          <>
+            <dl className="enhancement-meta">
+              <dt>选择</dt>
+              <dd>{path.selection.selection === "selected" ? "已保留" : "已过滤"}</dd>
+              <dt>原因</dt>
+              <dd>{path.selection.reason}</dd>
+              <dt>过滤代码</dt>
+              <dd>{path.selection.filter_code || "—"}</dd>
+              <dt>评分版本</dt>
+              <dd>{path.selection.score_version}</dd>
+              <dt>权重摘要</dt>
+              <dd className="mono">{shortId(path.selection.weights_digest)}</dd>
+              <dt>来源路径</dt>
+              <dd className="mono">{shortId(path.selection.source_path_id)}</dd>
+              <dt>增强调用</dt>
+              <dd className="mono">
+                {path.selection.producer_plugin || "—"} ·{" "}
+                {shortId(path.selection.invocation_id || "")}
+              </dd>
+            </dl>
+            <p className="muted">
+              优先级 {path.score.priority} · 风险 {path.score.risk} · 支持{" "}
+              {path.score.support} · 效用 {path.score.utility}
+            </p>
+            {path.features?.reasons && (
+              <ul className="reason-list">
+                {Object.entries(path.features.reasons)
+                  .sort(([left], [right]) => left.localeCompare(right))
+                  .map(([key, value]) => (
+                    <li key={key}>
+                      <code>{key}</code> {value}
+                    </li>
+                  ))}
+              </ul>
+            )}
+            {path.limitations.length > 0 && (
+              <details className="limitations">
+                <summary>局限与未决</summary>
+                <ul>
+                  {path.limitations.map((item, index) => (
+                    <li key={index}>{item}</li>
+                  ))}
+                </ul>
+              </details>
+            )}
+          </>
+        ) : (
+          <p className="muted">
+            旧记录没有记录确定性筛选来源；评分仍来自固定版本路径引擎。
+          </p>
+        )}
+      </details>
       {(error || current.error || code.error) && (
         <Failure message={error || current.error || code.error || ""} />
       )}

@@ -20,7 +20,7 @@ var auditColumnNames = []string{
 	"score_version", "config_hash", "path_count", "counts_by_status_json", "counts_by_path_status_json",
 	"coverage_json", "limitations_json", "created_at", "updated_at", "version",
 	"task_name", "objective", "scope_json", "paused",
-	"task_pinned", "task_archived", "task_category", "runtime",
+	"task_pinned", "task_archived", "task_category", "runtime", "enhancement_json",
 }
 
 var pathColumnNames = []string{
@@ -31,7 +31,7 @@ var pathColumnNames = []string{
 	"risk", "support", "utility", "priority", "score_version", "weights_json", "score_seq", "lease_owner",
 	"lease_until", "heartbeat_at", "attempts", "max_attempts", "last_error", "next_attempt_at",
 	"created_at", "updated_at", "version",
-	"entry_kind", "entry_subject", "target_subject", "target_kind", "lease_epoch",
+	"entry_kind", "entry_subject", "target_subject", "target_kind", "lease_epoch", "selection_json",
 }
 
 var featureColumnNames = []string{
@@ -151,12 +151,16 @@ func auditWriteValues(audit path.Audit) ([]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	enhancement, err := jsonString(audit.Enhancement)
+	if err != nil {
+		return nil, err
+	}
 	return []any{
 		audit.ID, audit.SnapshotID, audit.SCGVersion, audit.ASGVersion, audit.Status, budget, limits,
 		audit.ScoreVersion, audit.ConfigHash, audit.PathCount, counts, countsByPath, coverage, limitations,
 		audit.CreatedAt, audit.UpdatedAt, audit.Version,
 		audit.Name, audit.Objective, scope, boolToInt(audit.Paused),
-		boolToInt(audit.Pinned), boolToInt(audit.Archived), audit.Category, audit.Runtime,
+		boolToInt(audit.Pinned), boolToInt(audit.Archived), audit.Category, audit.Runtime, enhancement,
 	}, nil
 }
 
@@ -165,12 +169,12 @@ func scanAuditRow(scan func(...any) error) (path.Audit, error) {
 	var (
 		audit                                                       path.Audit
 		budget, limits, counts, countsByPath, coverage, limitations string
-		scope                                                       string
+		scope, enhancement                                          string
 	)
 	if err := scan(&audit.ID, &audit.SnapshotID, &audit.SCGVersion, &audit.ASGVersion, &audit.Status, &budget,
 		&limits, &audit.ScoreVersion, &audit.ConfigHash, &audit.PathCount, &counts, &countsByPath, &coverage,
 		&limitations, &audit.CreatedAt, &audit.UpdatedAt, &audit.Version,
-		&audit.Name, &audit.Objective, &scope, &audit.Paused, &audit.Pinned, &audit.Archived, &audit.Category, &audit.Runtime); err != nil {
+		&audit.Name, &audit.Objective, &scope, &audit.Paused, &audit.Pinned, &audit.Archived, &audit.Category, &audit.Runtime, &enhancement); err != nil {
 		return path.Audit{}, err
 	}
 	for _, column := range []struct {
@@ -184,6 +188,7 @@ func scanAuditRow(scan func(...any) error) (path.Audit, error) {
 		{coverage, &audit.Coverage},
 		{limitations, &audit.Limitations},
 		{scope, &audit.Scope},
+		{enhancement, &audit.Enhancement},
 	} {
 		if err := decodeJSON(column.raw, column.target); err != nil {
 			return path.Audit{}, fmt.Errorf("storage: audit %s: %w", audit.ID, err)
@@ -250,6 +255,10 @@ func pathWriteValues(p path.Path) ([]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	selection, err := jsonString(p.Selection)
+	if err != nil {
+		return nil, err
+	}
 	return []any{
 		p.ID, p.AuditID, p.SnapshotID, p.SCGVersion, p.ASGVersion, p.EntryNodeID, p.TargetNodeID, p.PathKind,
 		string(p.PathStatus), string(p.Status), steps, p.Signature, cluster, scgRefs, asgRefs, objectives,
@@ -257,7 +266,7 @@ func pathWriteValues(p path.Path) ([]any, error) {
 		features, p.Score.Risk, p.Score.Support, p.Score.Utility, p.Score.Priority, p.Score.ScoreVersion,
 		weights, p.ScoreSeq, p.LeaseOwner, p.LeaseUntil, p.HeartbeatAt, p.Attempts, p.MaxAttempts, p.LastError,
 		p.NextAttemptAt, p.CreatedAt, p.UpdatedAt, p.Version,
-		p.EntryKind, p.EntrySubject, p.TargetSubject, p.TargetKind, p.LeaseEpoch,
+		p.EntryKind, p.EntrySubject, p.TargetSubject, p.TargetKind, p.LeaseEpoch, selection,
 	}, nil
 }
 
@@ -267,7 +276,7 @@ func scanPathRow(scan func(...any) error) (path.Path, error) {
 		p                                                                                  path.Path
 		pathStatus, status                                                                 string
 		steps, cluster, scgRefs, asgRefs, objectives, boundaries, controls, inputs, assets string
-		openQuestions, limitations, budget, features, weights                              string
+		openQuestions, limitations, budget, features, weights, selection                   string
 	)
 	if err := scan(&p.ID, &p.AuditID, &p.SnapshotID, &p.SCGVersion, &p.ASGVersion, &p.EntryNodeID,
 		&p.TargetNodeID, &p.PathKind, &pathStatus, &status, &steps, &p.Signature, &cluster, &scgRefs,
@@ -275,7 +284,7 @@ func scanPathRow(scan func(...any) error) (path.Path, error) {
 		&p.Depth, &p.BranchCount, &budget, &features, &p.Score.Risk, &p.Score.Support, &p.Score.Utility,
 		&p.Score.Priority, &p.Score.ScoreVersion, &weights, &p.ScoreSeq, &p.LeaseOwner, &p.LeaseUntil,
 		&p.HeartbeatAt, &p.Attempts, &p.MaxAttempts, &p.LastError, &p.NextAttemptAt, &p.CreatedAt, &p.UpdatedAt,
-		&p.Version, &p.EntryKind, &p.EntrySubject, &p.TargetSubject, &p.TargetKind, &p.LeaseEpoch); err != nil {
+		&p.Version, &p.EntryKind, &p.EntrySubject, &p.TargetSubject, &p.TargetKind, &p.LeaseEpoch, &selection); err != nil {
 		return path.Path{}, err
 	}
 	p.PathStatus = path.PathStatus(pathStatus)
@@ -299,6 +308,7 @@ func scanPathRow(scan func(...any) error) (path.Path, error) {
 		{budget, &p.Budget},
 		{features, &p.Features},
 		{weights, &score},
+		{selection, &p.Selection},
 	} {
 		if err := decodeJSON(column.raw, column.target); err != nil {
 			return path.Path{}, fmt.Errorf("storage: path %s: %w", p.ID, err)

@@ -22,6 +22,10 @@ type NativeReport struct {
 	Coverage    Coverage             `json:"coverage"`
 	Limitations []string             `json:"limitations"`
 	Paths       *path.GenerateResult `json:"paths,omitempty"`
+	// Enhancement is the deterministic selection ledger emitted by the
+	// path-enhancement adapter. It is evidence for the operator, not a new
+	// vulnerability claim.
+	Enhancement *path.EnhancementSummary `json:"enhancement,omitempty"`
 }
 
 type DiscoveryPath struct {

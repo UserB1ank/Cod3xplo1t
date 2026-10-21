@@ -188,7 +188,7 @@ func TestRegisteredPluginVersionsSurviveRestartWithoutBecomingInstalled(t *testi
 		} `json:"plugins"`
 	}
 	r.decode(t, &page)
-	if r.status != 200 || len(page.Plugins) != 5 {
+	if r.status != 200 || len(page.Plugins) != 6 {
 		t.Fatalf("persisted catalog: %d %s", r.status, r.body)
 	}
 	for _, entry := range page.Plugins {
@@ -211,13 +211,19 @@ func TestPluginCatalogListsTheInstalledGoParser(t *testing.T) {
 		} `json:"plugins"`
 	}
 	read.decode(t, &page)
-	var installed bool
+	var installed, enhancer bool
 	for _, entry := range page.Plugins {
 		if entry.Manifest.ID == plugin.BuiltinID && entry.Manifest.Version == plugin.BuiltinVersion && entry.Executable && len(entry.PackageDigest) == 64 {
 			installed = true
 		}
+		if entry.Manifest.ID == "builtin.path-enhancer" && entry.Executable {
+			enhancer = true
+		}
 	}
-	if read.status != 200 || len(page.Plugins) != 4 || !installed {
+	if !enhancer {
+		t.Fatalf("path enhancer missing from %s", read.body)
+	}
+	if read.status != 200 || len(page.Plugins) != 5 || !installed {
 		t.Fatalf("installed catalog: %d %s", read.status, read.body)
 	}
 }

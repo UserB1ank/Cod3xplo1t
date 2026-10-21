@@ -58,6 +58,8 @@ language 是操作者声明的分析语言，必须被所有插件支持。编�
 
 计划摘要是 PlanBody（不含 plan_id、digest、created_at）的 JSON 编码 SHA-256；plan_id 使用摘要前 32 个十六进制字符。相同固定输入重编译返回首次保存的计划时间。内置插件源代码摘要规则保持兼容。
 
+当工作流包含唯一一个同时消费和产出 `discovery.paths` 的增强节点（例如 `builtin.path-enhancer`）时，计划固定 `path_source_node_id`，`$publish` / `$analyze` 只消费该节点的输出；上游生成器未选中的路径不会重新进入发布。多个此类节点产生 `ambiguous_path_source` 编译诊断，不会默认选择 latest 或任一分支。旧计划没有该字段，保持原行为。
+
 ## 错误与持久化
 
 | HTTP | code | 含义 |

@@ -24,17 +24,20 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/storage"
 )
 
-//go:embed semantic.go paths.go
+//go:embed semantic.go paths.go enhance.go
 var source embed.FS
 
 func Executors() []plugin.Executor {
 	raw, _ := source.ReadFile("semantic.go")
 	pathRaw, _ := source.ReadFile("paths.go")
 	raw = append(raw, pathRaw...)
+	enhanceRaw, _ := source.ReadFile("enhance.go")
+	raw = append(raw, enhanceRaw...)
 	packageDigest := fmt.Sprintf("%x", sha256.Sum256(append(raw, []byte(plugin.BuiltinPackageDigest()+scg.ImplementationDigest()+asg.ImplementationDigest()+path.ImplementationDigest()+graph.ImplementationDigest()+runtime.Version())...)))
 	return []plugin.Executor{
 		{Manifest: json.RawMessage(`{"api_version":"codexploit/v1","id":"builtin.security-semantics","version":"1.2.0","name":"Security semantics","description":"Read-only ASG rules over fixed Go parser inputs; no taint analysis.","kind":"analyzer","languages":["Go"],"runtime":{"kind":"builtin"},"consumes":["source.snapshot","code.facts"],"produces":["report.document","security.facts"],"permissions":{"network":"none","source_write":false},"config_schema":{"type":"object","properties":{},"additionalProperties":false}}`), PackageDigest: packageDigest, InputSchemas: []string{"codexploit/source-tar/v1", "codexploit/go-facts/v1"}, InputPlugins: []string{"", plugin.BuiltinID}, Run: semantic},
 		{Manifest: json.RawMessage(`{"api_version":"codexploit/v1","id":"builtin.discovery-paths","version":"1.2.0","name":"Candidate paths","description":"Bounded call reachability and candidate observations; no taint or verdict capability.","kind":"analyzer","languages":["Go"],"runtime":{"kind":"builtin"},"consumes":["security.facts","report.document"],"produces":["report.document","discovery.paths"],"permissions":{"network":"none","source_write":false},"config_schema":{"type":"object","properties":{"max_paths":{"type":"integer","minimum":1,"maximum":500},"max_depth":{"type":"integer","minimum":1,"maximum":8}},"additionalProperties":false}}`), PackageDigest: packageDigest, InputSchemas: []string{"codexploit/discovery/v1", "codexploit/builtin-native/v1"}, InputPlugins: []string{plugin.SemanticID, plugin.SemanticID}, Run: paths},
+		{Manifest: json.RawMessage(`{"api_version":"codexploit/v1","id":"builtin.path-enhancer","version":"1.0.0","name":"Deterministic path enhancement","description":"Deterministic filtering and ranking of existing candidate paths; no new endpoints, dataflow or verdict.","kind":"graph","languages":["Go"],"runtime":{"kind":"builtin"},"consumes":["discovery.paths","report.document"],"produces":["report.document","discovery.paths"],"permissions":{"network":"none","source_write":false},"config_schema":{"type":"object","properties":{"max_paths":{"type":"integer","minimum":1,"maximum":500},"min_priority":{"type":"number","minimum":0,"maximum":100},"keep_exploration":{"type":"boolean"},"max_per_entry":{"type":"integer","minimum":0,"maximum":50}},"additionalProperties":false}}`), PackageDigest: packageDigest, InputSchemas: []string{"codexploit/discovery/v1", "codexploit/builtin-native/v1"}, InputPlugins: []string{"builtin.discovery-paths", "builtin.discovery-paths"}, Run: enhance},
 	}
 }
 

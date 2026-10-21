@@ -125,7 +125,7 @@ func (e *Effects) Execute(ctx context.Context, run workflow.Run, plan workflow.P
 		return workflow.NodeResult{Status: "SKIPPED", Note: "Candidate runtime analysis was not requested"}, nil
 	}
 	if e.native == nil {
-		if err := e.restorePublishedInputs(ctx, run); err != nil {
+		if err := e.restorePublishedInputs(ctx, run, plan); err != nil {
 			return workflow.NodeResult{}, err
 		}
 	}
@@ -137,7 +137,7 @@ func (e *Effects) Execute(ctx context.Context, run workflow.Run, plan workflow.P
 
 // Restore application inputs from immutable, verified outputs. Recovery must
 // not re-publish batches or replace paths that already contain completed work.
-func (e *Effects) restorePublishedInputs(ctx context.Context, run workflow.Run) error {
+func (e *Effects) restorePublishedInputs(ctx context.Context, run workflow.Run, plan workflow.Plan) error {
 	for _, node := range run.Nodes {
 		if node.Status != "SUCCEEDED" && node.Status != "PARTIAL" {
 			continue
@@ -164,6 +164,9 @@ func (e *Effects) restorePublishedInputs(ctx context.Context, run workflow.Run) 
 			var native plugin.NativeReport
 			if json.Unmarshal(raw, &native) != nil || native.Scope != run.Scope {
 				return workflow.ErrInvalid
+			}
+			if native.Paths != nil && plan.PathSourceNodeID != "" && node.NodeID != plan.PathSourceNodeID {
+				continue
 			}
 			if e.native == nil || (e.native.Paths == nil && native.Paths != nil) {
 				e.native = &native
@@ -194,6 +197,12 @@ func (e *Effects) publish(ctx context.Context, run workflow.Run, plan workflow.P
 		document, err := e.Host.Result(ctx, run.Scope, inv.ID, 8<<20)
 		if err != nil {
 			return result, err
+		}
+		// When the plan pins an enhancement node, only its selected path set is
+		// authoritative. Publishing the upstream generator as well would make a
+		// filtered or unselected branch reappear in the same revision.
+		if document.Kind == "discovery.paths" && plan.PathSourceNodeID != "" && nr.NodeID != plan.PathSourceNodeID {
+			continue
 		}
 		batch, omitted := publication.BatchFromDiscovery(
 			"batch-"+run.ID+"-"+nr.NodeID,
@@ -243,6 +252,9 @@ func (e *Effects) publish(ctx context.Context, run workflow.Run, plan workflow.P
 			var native plugin.NativeReport
 			if json.Unmarshal(raw, &native) != nil || native.Scope != run.Scope {
 				return result, workflow.ErrInvalid
+			}
+			if native.Paths != nil && plan.PathSourceNodeID != "" && nr.NodeID != plan.PathSourceNodeID {
+				continue
 			}
 			if native.Paths != nil {
 				e.pathReports = append(e.pathReports, pathReport{&native, ref.ID})
@@ -341,7 +353,11 @@ func (e *Effects) materialize(ctx context.Context, run workflow.Run) error {
 			candidate.Status = audit.StatusQueued
 			candidate.Budget = task.Budget
 			candidate.Objectives = append([]string{task.Objective}, candidate.Objectives...)
-			candidate = audit.ScorePath(candidate, audit.ScoreInput{Now: run.UpdatedAt})
+			// The enhancement stage already scored and selected this path with
+			// pinned weights. Recomputing would silently replace its explanation.
+			if candidate.Selection == nil {
+				candidate = audit.ScorePath(candidate, audit.ScoreInput{Now: run.UpdatedAt})
+			}
 			candidate.ScoreSeq = 1
 			paths = append(paths, candidate)
 		}
@@ -373,6 +389,12 @@ func (e *Effects) materialize(ctx context.Context, run workflow.Run) error {
 	task.ASGVersion = e.native.Paths.ASGVersion
 	task.Coverage = e.native.Paths.Coverage
 	task.Coverage.PathsEmitted = len(paths)
+	if e.native.Enhancement != nil {
+		task.Enhancement = e.native.Enhancement
+		if e.native.Enhancement.ScoreVersion > 0 {
+			task.ScoreVersion = e.native.Enhancement.ScoreVersion
+		}
+	}
 	if e.truncated {
 		task.Coverage.Truncated = true
 		task.Coverage.TruncationReasons = append(task.Coverage.TruncationReasons, "task candidate path limit truncated merged reports")

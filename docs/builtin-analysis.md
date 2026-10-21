@@ -1,16 +1,17 @@
 # 内置语义、路径与规范化接口
 
-Issue #7 接通真实的解析 → 语义 → 路径调用。三个工具都从固定产物读取，保留版本、包摘要、配置、原始报告和 canonical ID；不会执行目标代码、构建、依赖安装或 hook。共享图层的发布在 #8 实现，本切片不替换既有图谱、任务路径或发现裁定。
+Issue #7 接通真实的解析 → 语义 → 路径调用，Issue #29 增加确定性路径增强。四个工具都从固定产物读取，保留版本、包摘要、配置、原始报告和 canonical ID；不会执行目标代码、构建、依赖安装或 hook。共享图层的发布在 #8 实现，本切片不替换既有图谱、任务路径或发现裁定。
 
 ## 固定工具与输入
 
 | 插件 | 版本 | 有序输入 | 输出 |
 |---|---|---|---|
-| builtin.go-parser | 1.1.0 | source.snapshot tar | code.ast、code.facts |
-| builtin.security-semantics | 1.0.0 | 同一快照的 tar、成功解析调用的 code.facts | 原始 report.document、security.facts |
-| builtin.discovery-paths | 1.0.0 | 同一个语义调用的 security.facts、原始 report.document | 原始 report.document、discovery.paths |
+| builtin.go-parser | 1.2.0 | source.snapshot tar | code.ast、code.facts |
+| builtin.security-semantics | 1.2.0 | 同一快照的 tar、成功解析调用的 code.facts | 原始 report.document、security.facts |
+| builtin.discovery-paths | 1.2.0 | 同一个语义调用的 security.facts、原始 report.document | 原始 report.document、discovery.paths |
+| builtin.path-enhancer | 1.0.0 | 同一个路径调用的 discovery.paths、原始 report.document | 原始 report.document、discovery.paths、增强 summary |
 
-解析器因宿主协议与包内容变更升级为 1.1.0。已有 1.0.0 清单、调用和证据保留，旧版本在当前宿主不再显示可执行。包摘要包含宿主、Normalizer、适配器、Go frontend、SCG / ASG / 路径 / 查询引擎源码指纹与工具链；变更编译输入需要提升版本，不能覆盖已有 id/version。
+解析器因宿主协议与包内容变更升级为 1.2.0。已有 1.0.0 清单、调用和证据保留，旧版本在当前宿主不再显示可执行。包摘要包含宿主、Normalizer、适配器、Go frontend、SCG / ASG / 路径 / 查询引擎源码指纹与工具链；变更编译输入需要提升版本，不能覆盖已有 id/version。
 
 语义参数为 `{}`；路径参数支持 `max_paths`（1–500，默认 200）、`max_depth`（1–8，默认 2）。其余字段拒绝，包括请求 taint_flow 或 confirmed。路径引擎的默认枚举预算还包括最多 200 个入口、每入口 20 个 sink、2000 次链查询；达到预算时保留截断说明，不能据此断言没有漏洞。
 
@@ -44,3 +45,11 @@ Issue #7 接通真实的解析 → 语义 → 路径调用。三个工具都从�
 正式插件中心选择固定快照和工具，再选择当前执行记录页内成功的上游调用。详情展示所有输入和输出；候选展开后可查看有序步骤、路径依据、canonical 引用、原始报告摘要和覆盖局限。产物页支持原始 / 标准 JSON 预览、校验和认证下载。解析器、登录和 LLM 配置仍使用已有程序界面。
 
 Issue #17 的宿主路径与图谱依赖升级后，语义与路径插件包版本为 `1.2.0`。旧 `1.1.0` 清单、调用、知识版本和产物继续可读；新执行须在正式工作流页选择当前可执行版本并重新编译计划，旧固定计划不能自动换用新包。
+
+## 确定性路径增强（#29）
+
+`builtin.path-enhancer@1.0.0` 是四阶段链路的第四阶段，也可在高级工作流中显式串接。它读取同一上游 `builtin.discovery-paths` 调用的 `discovery.paths` 与原始 `report.document`，校验两者 Scope、快照/图层版本、路径 ID 集合和 producer 完全一致；任一不匹配即拒绝，不猜测另一分支或 latest。
+
+增强阶段用固定版本的 `path.ScorePath` 在稳定的 path ID 顺序上重新计算特征与权重，然后按 `max_paths`、`min_priority`、`keep_exploration`、`max_per_entry` 排序/过滤。它只保留原 path ID，不新增端点、调用边、证据或 taint 结论；每条保留路径写入 `selection`（selected、原因、评分版本、权重摘要、来源路径/产物、producer），每条过滤路径写入 `enhancement.filtered`（过滤代码与原因）。`max_paths`/`max_per_entry` 触发的预算过滤显式标记 coverage truncated，按现有 PARTIAL 接受规则处理；阈值或探索开关过滤只记录选择说明，不伪装成分析中断。
+
+工作流编译会把唯一一个同时消费和产出 `discovery.paths` 的节点固定为 `path_source_node_id`；两个此类节点产生 `ambiguous_path_source` 诊断，不会默认选 latest。`$publish` 和 `$analyze` 只消费该固定节点的输出，上游生成器的未选路径不会重新进入同一发布版本。任务页的“路径筛选记录”和路径详情的“筛选与评分”展示保留/过滤原因、评分版本、权重摘要、特征原因、来源调用与局限；筛选是调度决策，不是严重度或安全证明。

@@ -3038,3 +3038,63 @@ pre {
   color: var(--muted);
   font-size: 12px;
 }
+
+/* Deterministic path enhancement (#29). */
+.path-selection {
+  margin: 12px 0 16px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 10px 12px;
+  background: var(--bg);
+}
+.path-selection > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+}
+.enhancement-meta {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 5px 12px;
+  margin: 10px 0;
+}
+.enhancement-meta dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+.enhancement-meta dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.reason-list {
+  margin: 8px 0;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.reason-list code {
+  color: var(--accent);
+  margin-right: 5px;
+}
+.enhancement-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+.enhancement-list > div {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr) auto;
+  gap: 4px 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+.enhancement-list small {
+  grid-column: 2 / -1;
+  color: var(--muted);
+}
+.enhancement-code {
+  color: var(--medium);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+}
