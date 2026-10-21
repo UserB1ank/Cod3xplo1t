@@ -83,6 +83,12 @@ type ServiceSpec struct {
 	Template  string           `json:"template"`
 	DependsOn []string         `json:"depends_on,omitempty"`
 	Readiness []ReadinessProbe `json:"readiness,omitempty"`
+	// Command is the argv the environment starts for this service. Like a step
+	// command it is an argv, never a shell string.
+	Command []string `json:"command,omitempty"`
+	// Workdir is the directory the service starts in. It must stay inside the
+	// read-only source mount, which is where /source resolves.
+	Workdir string `json:"workdir,omitempty"`
 }
 
 type NetworkRule struct {
@@ -112,6 +118,10 @@ type PlanEnvironment struct {
 	Permissions    []string      `json:"permissions,omitempty"`
 	CredentialRefs []string      `json:"credential_refs,omitempty"`
 	Resources      PlanResources `json:"resources"`
+	// Env is the non-secret environment the service receives. A key that looks
+	// like a credential is rejected by ValidateContainerPolicy rather than passed
+	// to the container; secrets travel through credential refs.
+	Env []string `json:"env,omitempty"`
 }
 
 type PlanVerifier struct {
@@ -222,8 +232,23 @@ func ValidateExecutionPlan(plan ExecutionPlan) error {
 		return fmt.Errorf("%w: network mode must be none or allowlist", ErrPlanInvalid)
 	case env.TTLSeconds <= 0:
 		return fmt.Errorf("%w: environment ttl is required", ErrPlanInvalid)
-	case env.ScratchMB < 0:
-		return fmt.Errorf("%w: scratch_mb cannot be negative", ErrPlanInvalid)
+	case env.ScratchMB <= 0:
+		return fmt.Errorf("%w: a positive scratch budget is required", ErrPlanInvalid)
+	case env.Resources.CPUMillis <= 0 || env.Resources.MemoryMB <= 0 || env.Resources.MaxProcesses <= 0:
+		return fmt.Errorf("%w: explicit cpu, memory and process limits are required", ErrPlanInvalid)
+	}
+	if err := ValidateContainerEnvironment(env.Env); err != nil {
+		return fmt.Errorf("%w: %v", ErrPlanInvalid, err)
+	}
+	if err := validatePlanServices(env.Services); err != nil {
+		return err
+	}
+	if !env.SourceReadOnly {
+		for _, step := range plan.Steps {
+			if step.Kind == StepDynamicProof {
+				return fmt.Errorf("%w: dynamic execution requires a read-only source mount", ErrPlanInvalid)
+			}
+		}
 	}
 	if env.Network.Mode == "none" && len(env.Network.AllowedHosts) > 0 {
 		return fmt.Errorf("%w: allowed hosts require allowlist mode", ErrPlanInvalid)
@@ -248,6 +273,51 @@ func ValidateExecutionPlan(plan ExecutionPlan) error {
 	}
 	if plan.Digest != "" && plan.Digest != plan.DigestOf() {
 		return fmt.Errorf("%w: digest does not match the plan", ErrPlanInvalid)
+	}
+	return nil
+}
+
+// validatePlanServices checks the service topology before it reaches a provider.
+// A plan with more than one service is structurally valid, but a provider that
+// cannot honour the topology must reject it rather than start only the first one.
+func validatePlanServices(services []ServiceSpec) error {
+	names := map[string]bool{}
+	for _, service := range services {
+		name := strings.TrimSpace(service.Name)
+		if name == "" || strings.TrimSpace(service.Template) == "" || strings.TrimSpace(service.Role) == "" {
+			return fmt.Errorf("%w: every service needs a name, role and template", ErrPlanInvalid)
+		}
+		if names[name] {
+			return fmt.Errorf("%w: service %q is declared twice", ErrPlanInvalid, name)
+		}
+		names[name] = true
+		if len(service.Command) == 0 {
+			return fmt.Errorf("%w: service %q has no start command", ErrPlanInvalid, name)
+		}
+		if service.Workdir != "" && !strings.HasPrefix(service.Workdir, "/") {
+			return fmt.Errorf("%w: service %q workdir must be absolute", ErrPlanInvalid, name)
+		}
+		for _, probe := range service.Readiness {
+			switch probe.Kind {
+			case "command":
+				if len(probe.Command) == 0 {
+					return fmt.Errorf("%w: service %q has a command probe without a command", ErrPlanInvalid, name)
+				}
+			case "http", "tcp":
+				if probe.Path == "" && probe.Port == 0 {
+					return fmt.Errorf("%w: service %q has a network probe without a path or port", ErrPlanInvalid, name)
+				}
+			default:
+				return fmt.Errorf("%w: service %q has unknown readiness kind %q", ErrPlanInvalid, name, probe.Kind)
+			}
+		}
+	}
+	for _, service := range services {
+		for _, dependency := range service.DependsOn {
+			if !names[dependency] {
+				return fmt.Errorf("%w: service %q depends on unknown service %q", ErrPlanInvalid, service.Name, dependency)
+			}
+		}
 	}
 	return nil
 }
@@ -362,4 +432,64 @@ func (p ExecutionPlan) NeedsApproval() bool {
 		}
 	}
 	return false
+}
+
+// LegacyPlan projects a fixed v2 execution plan onto the v1 Plan shape the
+// existing verifier, finding merge and evidence store already understand. The
+// projection is lossless where it matters: the v2 digest is carried in
+// SourcePlanDigest, so two v2 plans cannot be mistaken for the same verification
+// just because their commands happen to match.
+func LegacyPlan(plan ExecutionPlan) Plan { return LegacyPlanAttempt(plan, 1) }
+
+// LegacyPlanAttempt is LegacyPlan for one execution attempt. A later attempt is a
+// new run with its own plan hash, so a blocked or lost attempt cannot be replayed
+// as the answer to a fresh attempt.
+func LegacyPlanAttempt(plan ExecutionPlan, attempt int) Plan {
+	findingID := plan.FindingID
+	if findingID == "" {
+		findingID = FindingID(plan.HypothesisID)
+	}
+	steps := make([]Step, 0, len(plan.Steps))
+	for _, step := range plan.Steps {
+		steps = append(steps, Step{
+			Kind: step.Kind, Command: append([]string(nil), step.Command...),
+			StaticQuery: step.StaticQuery, Expectation: step.Expectation,
+			Contradiction: step.Contradiction, TimeoutSeconds: step.TimeoutSeconds,
+			RequiresApproval: step.RequiresApproval,
+		})
+	}
+	network := NetworkNone
+	allowed := []string(nil)
+	if plan.Environment.Network.Mode == "allowlist" {
+		network = NetworkRestricted
+		allowed = append([]string(nil), plan.Environment.Network.AllowedHosts...)
+	}
+	legacy := Plan{
+		SchemaVersion: SchemaVersion,
+		HypothesisID:  plan.HypothesisID, FindingID: findingID, PathID: plan.PathID,
+		AuditID: plan.AuditID, SnapshotID: plan.SnapshotID,
+		SecurityGoal: plan.SecurityGoal, Claim: plan.Claim, Steps: steps,
+		Environment: Environment{
+			Profile: "container:" + plan.Environment.Template, SourceReadOnly: plan.Environment.SourceReadOnly,
+			Network: network, AllowedHosts: allowed,
+			CPUMillis: plan.Environment.Resources.CPUMillis, MemoryMB: plan.Environment.Resources.MemoryMB,
+			DiskMB: plan.Environment.Resources.DiskMB, MaxProcesses: plan.Environment.Resources.MaxProcesses,
+			MaxWrites: plan.Environment.Resources.MaxWrites, TimeoutSeconds: plan.Budget.MaxSeconds,
+			MountHostSocket: false,
+		},
+		Scope: Scope{
+			Repository: plan.Scope.Repository, SnapshotID: plan.Scope.SnapshotID,
+			AllowedTargets: append([]string(nil), plan.Scope.AllowedTargets...),
+			AllowNetwork:   plan.Scope.AllowNetwork, RequiresHumanApproval: plan.Scope.RequiresHumanApproval,
+			AuthorizedBy: plan.Scope.AuthorizedBy, AuthorizedAt: plan.Scope.AuthorizedAt,
+		},
+		Limitations:      append([]string(nil), plan.Limitations...),
+		GeneratedAt:      plan.CreatedAt,
+		SourcePlanDigest: plan.DigestOf(),
+	}
+	if attempt > 1 {
+		legacy.SourcePlanDigest = fmt.Sprintf("%s#attempt-%d", legacy.SourcePlanDigest, attempt)
+	}
+	legacy.PlanHash = PlanHashOf(legacy)
+	return legacy
 }

@@ -185,7 +185,7 @@ reviewer must be able to check against the code. If any of them change, change t
 document in the same commit — a verification layer whose documentation overstates it
 is worse than one with no documentation at all.
 
-## Versioned execution plans (v2, in progress)
+## Versioned execution plans (v2)
 
 Issue #30 adds a fixed, reviewable plan that is approved before dynamic execution.
 The v2 `ExecutionPlan` (schema version 2) records the hypothesis/finding/path/audit
@@ -207,7 +207,10 @@ The plan embeds a `PlanEnvironment` instead of only the runtime limits:
 `DecodeExecutionPlan` uses strict JSON decoding, so an unsupported environment or
 assertion field is rejected instead of being silently ignored. `ValidateExecutionPlan`
 also rejects a network allowance the scope does not grant, a scope snapshot that
-differs from the plan, missing assertions and an already-expired plan.
+differs from the plan, missing resource limits, a sensitive environment name and
+an already-expired plan. A plan with no structured assertion is structurally
+valid, but the container executor will not confirm it: an exit code or text match
+alone is not enough.
 
 The plan digest covers every execution-relevant field (identity, claim, verifier,
 steps, assertions, environment, scope, budget, knowledge pin, expiry) and excludes
@@ -223,6 +226,97 @@ The plan lifecycle is persisted through `verify.PlanRepository` with a version
 CAS: Memory and SQL (SQLite migration `0033`, PostgreSQL `0015`) store the fixed
 plan, its state and the optional approval; a restart keeps the pending/approved
 state, a stale version is a conflict, another project cannot read the plan and the
-list filters by state. The authenticated plan/approval API and the page are the
-next step of #30; this document does not claim that dynamic verification already
-runs under the v2 plan.
+list filters by state. The authenticated plan/approval API is implemented. Dynamic execution under the
+approved v2 plan is described below.
+
+## Container environment provider (#31)
+
+`internal/verify/container.Provider` is a real Docker backend, separate from the
+plugin runtime. It never receives the host socket and every guarantee is either
+enforced or refused:
+
+- runs as a fixed non-root user (`10001:10001`), with `--read-only`,
+  `--cap-drop ALL` and `--security-opt no-new-privileges`;
+- mounts the frozen source with `readonly` at `/source`, and gives the container
+  only `/tmp` and `/scratch` as bounded tmpfs;
+- applies `--network none`, `--memory`/`--memory-swap`, `--cpus` and
+  `--pids-limit`; an `allowlist` plan is **refused** because Docker's bridge is not
+  an allowlist, not silently widened to one;
+- rejects environment entries whose names contain `KEY`, `TOKEN`, `SECRET`,
+  `PASSWORD` or `CREDENTIAL`; a credential travels as an opaque reference, never
+  as an environment value;
+- never mounts `docker.sock`; the source path is also checked for it.
+
+`Provision` reads the container back with `docker inspect` and builds
+`EnvironmentReceipt` from the daemon's answer — user, read-only rootfs, network
+mode, memory, CPU, PIDs, tmpfs, source mount and image digest. If any requested
+limit is missing, provisioning destroys the container and fails; a receipt is
+evidence of what was applied, not a copy of the request. The request digest labels
+the container, so repeating the same plan and source returns the same environment.
+`Exec` runs one argv with the same identity and limits, `Logs` returns a bounded
+tail, and `Destroy` is idempotent. `ListOwned`/`Reconcile` only touch containers
+carrying this host's verification labels and remove those past their TTL.
+
+## Verification execution and host verdicts (#32)
+
+`container.Executor` implements the existing `verify.Executor` port. It is bound to
+one fixed `ExecutionPlan`, one `PlanApproval` and one read-only source:
+
+1. acquire the environment lease; a held or expired lease blocks the run before
+   anything is provisioned;
+2. `Provision` the container and bind its id and receipt digest to the lease;
+3. wait for every service readiness probe (only `command` probes are enforceable
+   by this backend; `http`/`tcp` are refused rather than approximated from the
+   host);
+4. run each plan step as a structured argv, recording stdout, stderr, exit code,
+   truncation and timeouts as `runtime_log` evidence;
+5. evaluate every structured assertion against the observation and record each as
+   `test` evidence; a contradiction marker is attached only when the assertion's
+   own contradiction matched;
+6. record an `environment` evidence object with the applied receipt, image and
+   source digests, network mode and TTL;
+7. always destroy the environment and release the lease, recording cleanup
+   separately from the verdict.
+
+The adapter never calls `DeriveOutcome`; it returns observations to the host, which
+validates the result, persists evidence and derives `CONFIRMED`, `REFUTED`,
+`INCONCLUSIVE` or `BLOCKED`. A provisioning, readiness or timeout failure is
+`BLOCKED`, never a refutation. The Docker lifecycle and single-service tests are
+gated by `CODEXPLOIT_DOCKER_TESTS=1` and run a real build, start, readiness check,
+controlled probe, assertion, evidence write and destroy.
+
+`POST /api/v1/projects/{id}/verification-plans/{planID}/execute` starts an approved
+plan (writer). It resolves the plan's snapshot through the project and mounts the
+frozen tree read-only; the optional `attempt` field (default 1) makes a retry a new
+run instead of replaying the earlier verdict. Without `--verify-executor container`
+the endpoint answers 501; the legacy verification route remains available for its
+own executors and refuses container plans it cannot bind.
+
+## Environment leases, expiry and cleanup (#34)
+
+`verify.EnvironmentLeaseStore` persists one lease per plan with a monotonic epoch,
+a TTL, the environment id, image/receipt digests, run state and a separate cleanup
+state. Memory and SQL implementations share the same fence:
+
+- acquire is idempotent for the same owner, refuses another owner while the lease
+  is active, and increments the epoch after a released or expired lease;
+- renew/bind/release require the exact owner and epoch; a stale worker's write is
+  `ErrLeaseLost` and its result is discarded;
+- a failed renew marks the lease failed and cleanup pending; the executor cancels
+  the in-flight work immediately rather than letting it run while only refusing its
+  result;
+- release records `succeeded` or `failed` cleanup separately from the verdict;
+  `Reconcile` removes expired owned containers by their labels.
+
+SQLite migration `0034` and PostgreSQL `0016` add `environment_leases`. Tests cover
+epoch fencing, takeover, expiry, cleanup failure and SQLite restart persistence.
+
+### Known limits of this slice
+
+- Only one service, `network none`, command readiness probes and Docker are
+  implemented; multi-service topology, allowlist enforcement and a VM provider are
+  later issues (#33, #35).
+- The v2 plan/execute surface is API-only; a formal page for plan creation,
+  approval and execution is not part of this slice.
+- A lease loss records a `BLOCKED` run; starting a fresh attempt requires
+  `attempt > 1`, which the API supports and the page does not expose yet.

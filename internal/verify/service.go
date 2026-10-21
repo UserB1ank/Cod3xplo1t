@@ -91,13 +91,27 @@ type VerifyRequest struct {
 //   - the executor's claim is validated and then re-derived by DeriveOutcome, which
 //     is the only thing that produces the finding status.
 func (v *Verifier) Verify(ctx context.Context, req VerifyRequest) (*Run, error) {
+	return v.verify(ctx, req, v.Executor)
+}
+
+// VerifyWith runs one plan through an executor supplied by the caller. It is how an
+// approved v2 plan binds the container adapter to its own plan, approval and
+// source while the host keeps sole ownership of the verdict and the store.
+func (v *Verifier) VerifyWith(ctx context.Context, req VerifyRequest, executor Executor) (*Run, error) {
+	if executor == nil {
+		return nil, fmt.Errorf("%w: no executor is wired", ErrInvalidArgument)
+	}
+	return v.verify(ctx, req, executor)
+}
+
+func (v *Verifier) verify(ctx context.Context, req VerifyRequest, executor Executor) (*Run, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if v.Store == nil {
 		return nil, fmt.Errorf("%w: no store is wired", ErrInvalidArgument)
 	}
-	if v.Executor == nil {
+	if executor == nil {
 		return nil, fmt.Errorf("%w: no executor is wired", ErrInvalidArgument)
 	}
 
@@ -126,7 +140,7 @@ func (v *Verifier) Verify(ctx context.Context, req VerifyRequest) (*Run, error) 
 	now := v.now()
 	env := prepared.Environment
 	approved := req.Approved && strings.TrimSpace(req.ApprovedBy) != ""
-	caps := v.Executor.Capabilities()
+	caps := executor.Capabilities()
 	run := Run{
 		ID: runID, HypothesisID: prepared.Plan.HypothesisID, FindingID: prepared.Plan.FindingID,
 		PathID: prepared.Plan.PathID, AuditID: prepared.Plan.AuditID, SnapshotID: prepared.Plan.SnapshotID,
@@ -178,7 +192,7 @@ func (v *Verifier) Verify(ctx context.Context, req VerifyRequest) (*Run, error) 
 		return nil, err
 	}
 
-	result, execErr := v.Executor.Execute(withClock(ctx, v.Now), executionPlan, env)
+	result, execErr := executor.Execute(withClock(ctx, v.Now), executionPlan, env)
 	if execErr != nil {
 		// The executor could not report at all. The run is still closed honestly:
 		// nothing was verified, and the record says so.

@@ -8,6 +8,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/analysis"
 	"github.com/open-mcp-ai/Codexploit/internal/findings"
 	"github.com/open-mcp-ai/Codexploit/internal/scg"
+	"github.com/open-mcp-ai/Codexploit/internal/verify"
 )
 
 // SymbolQuery filters a symbol listing. Zero values mean "no filter".
@@ -130,6 +131,9 @@ type FullStore interface {
 	// methods are verification-scoped (CreateVerificationRun and friends) for the
 	// same reason the agent log's are run-scoped.
 	VerificationStore
+	// EnvironmentLeaseStore is the durable ownership and cleanup record of a
+	// provisioned verification environment (V04/V07).
+	verify.EnvironmentLeaseStore
 	// ObservationStore is the plugin observation ledger and severity audit
 	// history that the findings service groups. Findings themselves stay in the
 	// verification table.

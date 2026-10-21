@@ -199,7 +199,7 @@ func serveTestEnv(t *testing.T, rt *app.Runtime, allowNetwork bool) *testEnv {
 			t.Errorf("runtime close: %v", err)
 		}
 	})
-	srv := NewServer(rt.Store, rt.Manager, rt.Analyzer,
+	options := []Option{
 		WithWorkflows(rt.Workflows),
 		WithWorkflowCompiler(rt.WorkflowCompiler),
 		WithWorkflowRunner(rt.WorkflowRunner),
@@ -226,7 +226,16 @@ func serveTestEnv(t *testing.T, rt *app.Runtime, allowNetwork bool) *testEnv {
 		WithScheduler(rt.Scheduler),
 		WithAuth(testAuthenticator(t)),
 		WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil))),
-	)
+	}
+	if rt.ContainerVerification != nil {
+		options = append(options, WithContainerVerification(&ContainerVerification{
+			Provider: rt.ContainerVerification.Provider,
+			Leases:   rt.ContainerVerification.Leases,
+			Owner:    rt.ContainerVerification.Owner,
+			Source:   rt.EnvironmentSource,
+		}))
+	}
+	srv := NewServer(rt.Store, rt.Manager, rt.Analyzer, options...)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	return &testEnv{ts: ts, rt: rt, source: newTestSource(t), workspace: rt.Workspace}

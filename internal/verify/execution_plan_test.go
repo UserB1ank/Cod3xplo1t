@@ -169,3 +169,49 @@ func TestPlanStateTransitionsStayMonotonic(t *testing.T) {
 		t.Fatal("an approval was revived or replaced")
 	}
 }
+
+func TestExecutionPlanRejectsSecretEnvironmentAndWritableSource(t *testing.T) {
+	cases := map[string]func(*ExecutionPlan){
+		"secret env": func(p *ExecutionPlan) {
+			p.Environment.Env = []string{"API_TOKEN=secret"}
+		},
+		"credential-shaped env": func(p *ExecutionPlan) {
+			p.Environment.Env = []string{"DB_PASSWORD=secret"}
+		},
+		"writable source": func(p *ExecutionPlan) {
+			p.Environment.SourceReadOnly = false
+		},
+		"no resource limits": func(p *ExecutionPlan) {
+			p.Environment.Resources.MemoryMB = 0
+		},
+		"service without command": func(p *ExecutionPlan) {
+			p.Environment.Services = []ServiceSpec{{Name: "target", Role: "target", Template: "fixture:1"}}
+		},
+		"dangling dependency": func(p *ExecutionPlan) {
+			p.Environment.Services = []ServiceSpec{{
+				Name: "target", Role: "target", Template: "fixture:1", Command: []string{"/server"},
+				DependsOn: []string{"absent"},
+			}}
+		},
+	}
+	for name, change := range cases {
+		plan := validExecutionPlan()
+		change(&plan)
+		plan.Digest = plan.DigestOf()
+		if err := ValidateExecutionPlan(plan); !errors.Is(err, ErrPlanInvalid) {
+			t.Errorf("%s = %v", name, err)
+		}
+	}
+}
+
+func TestLegacyPlanAttemptChangesTheRunIdentity(t *testing.T) {
+	plan := validExecutionPlan()
+	first := LegacyPlan(plan)
+	second := LegacyPlanAttempt(plan, 2)
+	if first.PlanHash == second.PlanHash {
+		t.Fatal("a retry must not reuse the first attempt's plan hash")
+	}
+	if first.SourcePlanDigest != plan.DigestOf() || second.SourcePlanDigest == first.SourcePlanDigest {
+		t.Fatalf("source plan digest = %q / %q", first.SourcePlanDigest, second.SourcePlanDigest)
+	}
+}

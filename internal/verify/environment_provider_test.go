@@ -50,7 +50,11 @@ func (fakeProvider) Provision(context.Context, EnvironmentRequest) (EnvironmentH
 func (fakeProvider) Status(context.Context, EnvironmentHandle) (EnvironmentState, error) {
 	return EnvironmentReady, nil
 }
-func (fakeProvider) Destroy(context.Context, EnvironmentHandle) error { return nil }
+func (fakeProvider) Exec(context.Context, EnvironmentHandle, CommandRequest) (CommandResult, error) {
+	return CommandResult{}, nil
+}
+func (fakeProvider) Logs(context.Context, EnvironmentHandle, int) (string, error) { return "", nil }
+func (fakeProvider) Destroy(context.Context, EnvironmentHandle) error             { return nil }
 
 func TestEnvironmentProviderPortIsImplementable(t *testing.T) {
 	var provider EnvironmentProvider = fakeProvider{}

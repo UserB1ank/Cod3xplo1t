@@ -885,9 +885,11 @@ distinctions would undo the layer.
 
 ### Configuring the executor and the scripted dry run
 
-`--verify-executor` chooses the adapter (`scripted`, `cli` or `unsupported`), and
-omitting it leaves the whole verification layer unwired, so every route above
-answers `501`. `--verify-command` is the argv prefix of the command a `cli` step
+`--verify-executor` chooses the adapter (`scripted`, `cli`, `container` or
+`unsupported`), and omitting it leaves the whole verification layer unwired, so
+every route above answers `501`. The `container` adapter executes approved v2
+plans through Docker; `--verify-docker` names the CLI (default `docker`) and
+`--verify-container-owner` labels the leases and containers. `--verify-command` is the argv prefix of the command a `cli` step
 runs (repeatable, no shell), `--verify-env` is the complete extra environment
 allowlist as `KEY=VALUE` (repeatable), `--verify-working-dir` is the scratch
 directory that must already exist, and `--verify-max-output` bounds the bytes one
@@ -906,6 +908,44 @@ case-insensitively — `kind` (`test` or `runtime_log` for reproduction evidence
 `source`/`static_query` for a lead), `content`, `command`, `contradicts`, `err`,
 `file`, `line`, `exitCode` — and malformed JSON fails startup with the shape named
 rather than failing a run later.
+
+### Versioned verification plans and the container executor
+
+`POST /api/v1/projects/{id}/verification-plans` stores a fixed schema-2
+`ExecutionPlan` (strict JSON, no unknown fields) in `pending` state;
+`POST .../verification-plans/{planID}/decision` approves or rejects it with an
+`If-Match` version and records the approval digest, actor, role, permissions,
+reason and expiry. `GET` on the collection or one plan is a `reader` operation.
+A stale version is `412`, a stale plan digest or expired approval is `409`, and a
+permission the plan did not request is `403`.
+
+With `--verify-executor container`,
+`POST .../verification-plans/{planID}/execute` starts the approved plan:
+
+```json
+{"attempt": 1}
+```
+
+`attempt` is optional and defaults to 1. Attempt 1 is one run; sending the same
+attempt again replays the stored answer without provisioning another environment,
+while `attempt: 2` is a genuinely new run (a retry after a blocked or lost
+attempt). The handler resolves the plan's `snapshot_id` through the project and
+mounts the frozen tree read-only; a snapshot from another project is `409`. A
+server without the container backend answers `501
+container_verification_unavailable`. The response is the verification run, the
+attempt and the environment lease:
+
+```json
+{
+  "run": {"run_id": "...", "outcome": "CONFIRMED", "evidence_ids": ["..."]},
+  "attempt": 1,
+  "environment": {"lease_id": "...", "state": "destroyed", "cleanup": "succeeded"}
+}
+```
+
+The run's evidence includes the environment receipt (image digest, source digest,
+applied limits, network mode, TTL), each controlled command's observation and each
+structured assertion. The verdict is still derived by the host, not the container.
 
 **A scripted executor with no steps blocks every plan step.** That outcome is
 recorded as `BLOCKED` (`unsupported_step`) and the finding is `blocked`, which is

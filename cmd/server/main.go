@@ -85,11 +85,13 @@ func run() error {
 		agentHeartbeat = flag.Int("agent-heartbeat", 0, "lease heartbeat interval in seconds (0 uses the default)")
 		agentAnswer    = flag.String("agent-scripted-answer", "", "raw JSON answer for the scripted runtime (dry run)")
 
-		verifyExecutor  = flag.String("verify-executor", app.VerifyExecutorDisabled, "verification executor: disabled, scripted, cli or unsupported")
+		verifyExecutor  = flag.String("verify-executor", app.VerifyExecutorDisabled, "verification executor: disabled, scripted, cli, container or unsupported")
 		verifySteps     = flag.String("verify-scripted-steps", "", "scripted executor steps as a raw JSON array, or @file to read one; an empty script blocks every step")
 		verifyWorkDir   = flag.String("verify-working-dir", "", "scratch working directory of a cli verification step (must exist)")
 		verifyMaxOutput = flag.Int64("verify-max-output", 0, "maximum bytes one cli verification step may return (0 uses the executor default)")
 		verifyAllowNet  = flag.Bool("verify-allow-network", false, "declare that --verify-command runs inside a network-capable restricted container (still needs a per-request approval)")
+		verifyDocker    = flag.String("verify-docker", "docker", "docker CLI used by --verify-executor container")
+		verifyOwner     = flag.String("verify-container-owner", "", "lease and container owner label for container verification (default host)")
 
 		scheduler           = flag.Bool("scheduler", false, "run the resident P7 scheduler (needs --agent-runtime)")
 		schedulerInterval   = flag.Int("scheduler-interval", 30, "seconds between scheduler passes")
@@ -190,6 +192,8 @@ func run() error {
 			MaxOutputBytes:    *verifyMaxOutput,
 			AllowNetwork:      *verifyAllowNet,
 			ScriptedStepsJSON: *verifySteps,
+			DockerBin:         *verifyDocker,
+			ContainerOwner:    *verifyOwner,
 		},
 		Scheduler: app.SchedulerConfig{
 			Enabled:       *scheduler,
@@ -255,7 +259,7 @@ func run() error {
 			"audits", strings.Join(effective.Audits, ","))
 	}
 
-	srv := api.NewServer(rt.Store, rt.Manager, rt.Analyzer,
+	options := []api.Option{
 		api.WithWorkflows(rt.Workflows),
 		api.WithWorkflowCompiler(rt.WorkflowCompiler),
 		api.WithWorkflowRunner(rt.WorkflowRunner),
@@ -278,7 +282,16 @@ func run() error {
 		api.WithAccounts(accounts),
 		api.WithIdempotencyTTL(*idemTTL),
 		api.WithLogger(logger),
-	)
+	}
+	if rt.ContainerVerification != nil {
+		options = append(options, api.WithContainerVerification(&api.ContainerVerification{
+			Provider: rt.ContainerVerification.Provider,
+			Leases:   rt.ContainerVerification.Leases,
+			Owner:    rt.ContainerVerification.Owner,
+			Source:   rt.EnvironmentSource,
+		}))
+	}
+	srv := api.NewServer(rt.Store, rt.Manager, rt.Analyzer, options...)
 	httpServer := &http.Server{
 		Addr:              *addr,
 		Handler:           webui.Handler(srv.Handler()),

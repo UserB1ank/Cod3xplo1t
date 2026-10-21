@@ -321,6 +321,9 @@ type Plan struct {
 	Limitations []string    `json:"limitations"`
 	GeneratedAt string      `json:"generated_at"`
 	PlanHash    string      `json:"plan_hash"`
+	// SourcePlanDigest binds this legacy-shaped plan to the v2 execution plan it
+	// was derived from, so two v2 plans with the same commands cannot share a run.
+	SourcePlanDigest string `json:"source_plan_digest,omitempty"`
 }
 
 // PlanHashOf derives the plan hash from everything that changes what the plan does.
@@ -328,7 +331,7 @@ func PlanHashOf(plan Plan) string {
 	h := sha256.New()
 	fields := []string{
 		"codexploit/verify-plan/v1", plan.HypothesisID, plan.SnapshotID,
-		plan.SecurityGoal, plan.Claim, plan.Environment.Digest(),
+		plan.SecurityGoal, plan.Claim, plan.Environment.Digest(), plan.SourcePlanDigest,
 	}
 	for _, field := range fields {
 		fmt.Fprintf(h, "%d:%s", len(field), field)
@@ -464,6 +467,15 @@ const (
 	VerifyStopTimeout     = "timed_out"
 	VerifyStopCancelled   = "cancelled"
 	VerifyStopBudget      = "budget_exceeded"
+	// VerifyStopLeaseHeld means another execution owns the environment. It is a
+	// refusal, not a failed verification, and must never be reported as a
+	// refutation of the hypothesis.
+	VerifyStopLeaseHeld = "environment_lease_held"
+	// VerifyStopStale means this execution lost its lease and its result may not
+	// overwrite the newer owner's work.
+	VerifyStopStale = "stale_result"
+	// VerifyStopEnvironment means provisioning or readiness failed.
+	VerifyStopEnvironment = "environment_failed"
 )
 
 // Result is what an executor reports back.

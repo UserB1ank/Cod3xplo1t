@@ -26,3 +26,8 @@ Thumbs.db
 # Pi worker build output and installed packages
 runtime/pi-worker/node_modules/
 runtime/pi-worker/dist/
+
+# Go build cache kept inside the workspace for sandboxed runs
+/.gocache/
+/.gomodcache/
+/.staticcheck-cache/

@@ -108,6 +108,10 @@ type Server struct {
 	// every verification route answers 501.
 	Verifier      *verify.Verifier
 	VerifyPlanner *graph.VerifyPlanner
+	// containerVerification is the real backend for approved v2 plans. It is nil
+	// when the deployment has no container runtime, which makes the execute route
+	// answer 501 instead of claiming an environment it cannot create.
+	containerVerification *ContainerVerification
 	// Scheduler is the P7 resident scheduler. It is separate from the path engine
 	// so a deployment can serve the audit surface without a resident loop, in which
 	// case every scheduler route answers 501 instead of reporting an idle queue.
@@ -358,6 +362,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/v1/projects/{id}/verification-plans", s.handleListVerificationPlans)
 	mux.HandleFunc("GET /api/v1/projects/{id}/verification-plans/{planID}", s.handleGetVerificationPlan)
 	mux.HandleFunc("POST /api/v1/projects/{id}/verification-plans/{planID}/decision", s.handleDecideVerificationPlan)
+	mux.HandleFunc("POST /api/v1/projects/{id}/verification-plans/{planID}/execute", s.handleExecuteVerificationPlan)
 	mux.HandleFunc("POST /api/hypotheses/{id}/verifications", s.withIdempotency(s.handleCreateVerification))
 	mux.HandleFunc("GET /api/verifications", s.handleListVerifications)
 	mux.HandleFunc("GET /api/verifications/{id}", s.handleGetVerification)

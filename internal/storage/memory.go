@@ -41,6 +41,8 @@ type Memory struct {
 	workflowHeads     map[string]workflowHead
 	plugins           map[string][]byte
 	plans             map[string]verify.PlanRecord
+	environmentLeases *verify.MemoryEnvironmentLeases
+	leaseInit         sync.Once
 	pluginInvocations map[string][]byte
 	snapshots         map[string]memorySnapshot
 	manifests         map[string][]byte
@@ -113,6 +115,7 @@ func NewMemory() *Memory {
 		agentHypotheses:        map[string]agent.Hypothesis{},
 		verificationRuns:       map[string]verify.Run{},
 		plans:                  map[string]verify.PlanRecord{},
+		environmentLeases:      verify.NewMemoryEnvironmentLeases(),
 		evidence:               map[string]verify.Evidence{},
 		findings:               map[string]verify.Finding{},
 		findingObservations:    map[string]findings.Observation{},

@@ -8,7 +8,7 @@ import (
 func validContainerPolicy() ContainerPolicy {
 	return ContainerPolicy{
 		Image: "codexploit/verify-fixture:1.0", User: "10001:10001", ReadOnlyRootFS: true,
-		SourceMount: "/source", ScratchMB: 64, TTLSeconds: 120,
+		SourceMount: "/source", SourceReadOnly: true, ScratchMB: 64, TTLSeconds: 120,
 		CPUMillis: 500, MemoryMB: 256, PIDs: 32, NetworkMode: "none",
 	}
 }
@@ -24,7 +24,12 @@ func TestValidateContainerPolicyRequiresIsolation(t *testing.T) {
 		"ttl":           func(p *ContainerPolicy) { p.TTLSeconds = 0 },
 		"resources":     func(p *ContainerPolicy) { p.MemoryMB = 0 },
 		"network":       func(p *ContainerPolicy) { p.NetworkMode = "host" },
+		"source mount":  func(p *ContainerPolicy) { p.SourceMount = "" },
+		"writable src":  func(p *ContainerPolicy) { p.SourceReadOnly = false },
+		"socket mount":  func(p *ContainerPolicy) { p.SourceMount = "/var/run/docker.sock" },
 		"secret env":    func(p *ContainerPolicy) { p.Env = []string{"API_KEY=secret"} },
+		"cred env":      func(p *ContainerPolicy) { p.Env = []string{"db_password=secret"} },
+		"malformed env": func(p *ContainerPolicy) { p.Env = []string{"NO_EQUALS"} },
 	}
 	for name, change := range cases {
 		policy := validContainerPolicy()

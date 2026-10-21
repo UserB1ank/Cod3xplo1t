@@ -35,6 +35,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/schedule"
 	"github.com/open-mcp-ai/Codexploit/internal/storage"
 	"github.com/open-mcp-ai/Codexploit/internal/verify"
+	"github.com/open-mcp-ai/Codexploit/internal/verify/container"
 	"github.com/open-mcp-ai/Codexploit/internal/workflow"
 	"github.com/open-mcp-ai/Codexploit/internal/workflowexec"
 	"github.com/open-mcp-ai/Codexploit/migrations"
@@ -118,8 +119,9 @@ type SchedulerConfig struct {
 // VerificationConfig describes the verification layer of a deployment.
 type VerificationConfig struct {
 	Enabled bool
-	// Executor is "scripted", "cli" or "unsupported". It is spelled out rather than
-	// inferred, so a typo is an error instead of a silently dead verifier.
+	// Executor is "scripted", "cli", "container" or "unsupported". It is spelled out
+	// rather than inferred, so a typo is an error instead of a silently dead
+	// verifier.
 	Executor string
 	// Command is the argv of the cli executor. It is executed directly, never
 	// through a shell.
@@ -153,6 +155,18 @@ type VerificationConfig struct {
 	// kind, content, command, contradicts, err, file, line, exitCode). Malformed
 	// JSON fails Build rather than surfacing as a run that fails later.
 	ScriptedStepsJSON string
+	// DockerBin is the docker CLI the container executor invokes.
+	DockerBin string
+	// ContainerOwner labels the leases and containers this deployment creates.
+	ContainerOwner string
+}
+
+// ContainerVerification is the runtime's real container verification backend.
+// The API receives it only when --verify-executor container selected it.
+type ContainerVerification struct {
+	Provider verify.EnvironmentProvider
+	Leases   verify.EnvironmentLeaseStore
+	Owner    string
 }
 
 // AgentConfig describes the agent runtime of a deployment.
@@ -240,6 +254,9 @@ type Runtime struct {
 	// disabled, which is what makes every verification route answer 501 instead of
 	// pretending a verification is missing.
 	Verifier *verify.Verifier
+	// ContainerVerification is non-nil only when --verify-executor container was
+	// selected. It provisions the real environment for an approved v2 plan.
+	ContainerVerification *ContainerVerification
 	// VerifyPlanner turns a hypothesis into a finding and a plan. It is nil when
 	// verification is disabled.
 	VerifyPlanner *graph.VerifyPlanner
@@ -795,6 +812,7 @@ const (
 	VerifyExecutorScripted    = "scripted"
 	VerifyExecutorCLI         = "cli"
 	VerifyExecutorUnsupported = "unsupported"
+	VerifyExecutorContainer   = "container"
 )
 
 // wireVerification builds the P6 engine over the already-wired store and graph
@@ -809,23 +827,31 @@ func (r *Runtime) wireVerification(cfg VerificationConfig) error {
 	}
 	mode := strings.ToLower(strings.TrimSpace(cfg.Executor))
 	switch mode {
-	case VerifyExecutorScripted, VerifyExecutorCLI, VerifyExecutorUnsupported:
+	case VerifyExecutorScripted, VerifyExecutorCLI, VerifyExecutorUnsupported, VerifyExecutorContainer:
 	case VerifyExecutorDisabled:
 		return errors.New("app: verification: Enabled is set but Executor is \"disabled\"; " +
-			"pass --verify-executor scripted, cli or unsupported, or leave verification off")
+			"pass --verify-executor scripted, cli, container or unsupported, or leave verification off")
 	case "":
 		return errors.New("app: verification: Enabled is set but Executor is empty; " +
-			"pass --verify-executor scripted, cli or unsupported")
+			"pass --verify-executor scripted, cli, container or unsupported")
 	default:
-		return fmt.Errorf("app: verification: unknown executor %q (want %s, %s or %s)",
-			cfg.Executor, VerifyExecutorScripted, VerifyExecutorCLI, VerifyExecutorUnsupported)
+		return fmt.Errorf("app: verification: unknown executor %q (want %s, %s, %s or %s)",
+			cfg.Executor, VerifyExecutorScripted, VerifyExecutorCLI, VerifyExecutorContainer, VerifyExecutorUnsupported)
 	}
 	steps, err := scriptedSteps(cfg)
 	if err != nil {
 		return err
 	}
 	cfg.ScriptedSteps = steps
-	executor, err := r.buildVerifyExecutor(mode, cfg)
+	var executor verify.Executor
+	if mode == VerifyExecutorContainer {
+		// The legacy verification route has no v2 plan to bind, so it must refuse;
+		// the real work happens through the approved-plan execute endpoint.
+		executor = verify.NewUnsupportedExecutor("container", "1.0.0",
+			"container verification runs from an approved v2 plan; use the verification plan execute endpoint")
+	} else {
+		executor, err = r.buildVerifyExecutor(mode, cfg)
+	}
 	if err != nil {
 		return err
 	}
@@ -843,7 +869,48 @@ func (r *Runtime) wireVerification(cfg VerificationConfig) error {
 	r.Verifier = verify.NewVerifier(r.Store, executor)
 	r.VerifyPlanner = planner
 	r.VerificationConfig = cfg
+	if mode == VerifyExecutorContainer {
+		bin := strings.TrimSpace(cfg.DockerBin)
+		if bin == "" {
+			bin = "docker"
+		}
+		r.ContainerVerification = &ContainerVerification{
+			Provider: container.Provider{Binary: bin},
+			Leases:   r.Store,
+			Owner:    strings.TrimSpace(cfg.ContainerOwner),
+		}
+	}
 	return nil
+}
+
+// EnvironmentSource resolves a project snapshot to the frozen tree a container may
+// mount read-only. It refuses a snapshot that belongs to another project, and the
+// digest is computed from the tree rather than trusted from the request.
+func (r *Runtime) EnvironmentSource(ctx context.Context, projectID, snapshotID string) (verify.EnvironmentSource, error) {
+	records, err := r.Store.ListSnapshots(ctx, projectID)
+	if err != nil {
+		return verify.EnvironmentSource{}, err
+	}
+	found := false
+	for _, record := range records {
+		if record.SnapshotID == snapshotID && record.ProjectID == projectID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return verify.EnvironmentSource{}, fmt.Errorf("%w: snapshot %s does not belong to project %s", verify.ErrNotFound, snapshotID, projectID)
+	}
+	snapshot, err := r.Manager.Load(snapshotID)
+	if err != nil {
+		return verify.EnvironmentSource{}, err
+	}
+	dir := snapshot.TreeDir()
+	digest, err := container.DigestSource(dir)
+	if err != nil {
+		return verify.EnvironmentSource{}, err
+	}
+	return verify.EnvironmentSource{SnapshotID: snapshotID, Digest: digest, ReadOnly: true, Path: dir}, nil
 }
 
 // scriptedSteps resolves the scripted executor's script: the parsed form a caller
@@ -914,8 +981,8 @@ func (r *Runtime) buildVerifyExecutor(mode string, cfg VerificationConfig) (veri
 		return verify.NewUnsupportedExecutor(VerifyExecutorUnsupported, "1",
 			"no verification executor is configured for this deployment"), nil
 	default:
-		return nil, fmt.Errorf("app: verification: unknown executor %q (want %s, %s or %s)",
-			mode, VerifyExecutorScripted, VerifyExecutorCLI, VerifyExecutorUnsupported)
+		return nil, fmt.Errorf("app: verification: unknown executor %q (want %s, %s, %s or %s)",
+			mode, VerifyExecutorScripted, VerifyExecutorCLI, VerifyExecutorContainer, VerifyExecutorUnsupported)
 	}
 }
 
