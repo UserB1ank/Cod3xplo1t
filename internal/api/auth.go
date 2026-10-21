@@ -314,6 +314,12 @@ func requiredCapability(method, path string) (Capability, bool) {
 			}
 			return CapWrite, true
 		}
+		if action == "agent-sessions" || strings.HasPrefix(action, "agent-sessions/") {
+			if method == http.MethodGet {
+				return CapRead, true
+			}
+			return CapWrite, true
+		}
 		if strings.HasPrefix(action, "verification-plans") {
 			if method == http.MethodGet {
 				return CapRead, true

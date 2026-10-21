@@ -1,4 +1,4 @@
-import type { AnalysisRun, Audit, PathSubtask, AuditBudget, AuditDraft, AuditEvent, AuditPath, BudgetGrant, Connection, Finding, FindingDetail, GraphSummary, Project, ProjectDirectoryEntry, ProjectInput, Run, Scheduler, Snapshot, Workspace } from './types.ts';
+import type { AnalysisRun, Audit, PathSubtask, SupervisorSession, SupervisorRun, SupervisorMessage, AuditBudget, AuditDraft, AuditEvent, AuditPath, BudgetGrant, Connection, Finding, FindingDetail, GraphSummary, Project, ProjectDirectoryEntry, ProjectInput, Run, Scheduler, Snapshot, Workspace } from './types.ts';
 
 export class ApiError extends Error {
   status: number;
@@ -115,6 +115,11 @@ export class ApiClient {
   }
   selectPaths(projectID: string, pathIDs: string[]) { return this.post<{ selections: PathSubtask[]; reused: boolean }>(`/v1/projects/${encodeURIComponent(projectID)}/path-selections`, { api_version: 'codexploit/v1', path_ids: pathIDs }); }
   pathSelections(projectID: string, pathID?: string, signal?: AbortSignal) { return this.get<{ selections: PathSubtask[] }>(`/v1/projects/${encodeURIComponent(projectID)}/path-selections${pathID ? `?path_id=${encodeURIComponent(pathID)}` : ''}`, signal); }
+  supervisorSessions(projectID: string, signal?: AbortSignal) { return this.get<{ sessions: SupervisorSession[]; available: boolean; reason?: string }>(`/v1/projects/${encodeURIComponent(projectID)}/agent-sessions`, signal); }
+  createSupervisorSession(projectID: string, title = "") { return this.post<{ session: SupervisorSession }>(`/v1/projects/${encodeURIComponent(projectID)}/agent-sessions`, { api_version: "codexploit/v1", title }); }
+  supervisorSession(projectID: string, sessionID: string, signal?: AbortSignal) { return this.get<{ session: SupervisorSession }>(`/v1/projects/${encodeURIComponent(projectID)}/agent-sessions/${encodeURIComponent(sessionID)}`, signal); }
+  sendSupervisorMessage(projectID: string, sessionID: string, content: string, clientMessageID: string) { return this.post<{ message: SupervisorMessage; run: SupervisorRun }>(`/v1/projects/${encodeURIComponent(projectID)}/agent-sessions/${encodeURIComponent(sessionID)}/messages`, { api_version: "codexploit/v1", content, client_message_id: clientMessageID }); }
+  cancelSupervisorRun(projectID: string, sessionID: string, runID: string) { return this.post<{ run: SupervisorRun }>(`/v1/projects/${encodeURIComponent(projectID)}/agent-sessions/${encodeURIComponent(sessionID)}/runs/${encodeURIComponent(runID)}/cancel`, { reason: "operator stop" }); }
   analysisRuns(projectID: string, signal?: AbortSignal) { return this.get<{ analysis_runs: AnalysisRun[] }>(`/v1/projects/${encodeURIComponent(projectID)}/analysis-runs?limit=20`, signal); }
   startAnalysis(projectID: string, body: { agent_assisted: boolean; runtime?: string; idempotency_key?: string }) { return this.post<{ analysis_run: AnalysisRun; reused: boolean }>(`/v1/projects/${encodeURIComponent(projectID)}/analysis-runs`, { api_version: 'codexploit/v1', ...body }); }
   analysisRun(projectID: string, analysisRunID: string, signal?: AbortSignal) { return this.get<{ analysis_run: AnalysisRun }>(`/v1/projects/${encodeURIComponent(projectID)}/analysis-runs/${encodeURIComponent(analysisRunID)}`, signal); }

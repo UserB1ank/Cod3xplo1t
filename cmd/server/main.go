@@ -275,6 +275,7 @@ func run() error {
 		api.WithAgent(rt.Agent),
 		api.WithAgentRuntimes(func() []agent.RuntimeInfo { return rt.AgentRuntimeInfo }),
 		api.WithLLMSettings(rt.LLMSettings),
+		api.WithSupervisor(rt.Supervisor),
 		api.WithVerifier(rt.Verifier),
 		api.WithVerifyPlanner(rt.VerifyPlanner),
 		api.WithScheduler(rt.Scheduler),

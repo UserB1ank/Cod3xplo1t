@@ -463,6 +463,11 @@ func (m *Memory) purgeProjectRowsLocked(projectID string) {
 			delete(m.analysisRuns, analysisRunID)
 		}
 	}
+	for sessionID, session := range m.supervisorSessions {
+		if session.ProjectID == projectID {
+			delete(m.supervisorSessions, sessionID)
+		}
+	}
 }
 
 func verificationTerminal(status string) bool {

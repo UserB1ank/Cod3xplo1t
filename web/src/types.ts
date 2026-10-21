@@ -6,6 +6,27 @@ export interface PathSubtask {
   selection_id: string; project_id: string; snapshot_id: string; audit_id: string; path_id: string;
   run_id?: string; state: string; source: string; reused: boolean;
 }
+export interface SupervisorCall { call_id: string; name: string; arguments: string }
+export interface SupervisorMessage {
+  message_id: string; session_id: string; project_id: string; role: string; content: string;
+  client_message_id?: string; calls?: SupervisorCall[]; tool_call_id?: string; run_id?: string;
+  status: string; seq: number; created_at: string;
+}
+export interface SupervisorRun {
+  run_id: string; session_id: string; project_id: string; status: string; runtime: string;
+  model: string; config_version: string; prompt_version: string; tool_digest: string;
+  input_tokens: number; output_tokens: number; error?: string; error_code?: string;
+  started_at?: string; finished_at?: string; created_at: string; updated_at: string; version: number;
+}
+export interface SupervisorEvent {
+  event_id: string; session_id: string; run_id?: string; seq: number; type: string;
+  summary?: string; detail?: Record<string, string>; created_at: string;
+}
+export interface SupervisorSession {
+  session_id: string; project_id: string; snapshot_id: string; title: string; state: string;
+  messages: SupervisorMessage[]; runs: SupervisorRun[]; events: SupervisorEvent[];
+  created_at: string; updated_at: string; version: number;
+}
 export interface AnalysisKnowledge { revision: string; digest: string }
 export interface AnalysisArtifact { id: string; kind: string; schema_id: string; bytes?: number }
 export interface AnalysisRunStage {

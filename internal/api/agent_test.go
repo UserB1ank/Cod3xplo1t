@@ -204,6 +204,7 @@ func serveTestEnv(t *testing.T, rt *app.Runtime, allowNetwork bool) *testEnv {
 		WithWorkflowCompiler(rt.WorkflowCompiler),
 		WithWorkflowRunner(rt.WorkflowRunner),
 		WithLLMSettings(rt.AgentConfig.ModelSettings),
+		WithSupervisor(rt.Supervisor),
 		WithPluginCatalog(rt.PluginCatalog),
 		WithPlugins(rt.Plugins),
 		WithAllowNetwork(allowNetwork),

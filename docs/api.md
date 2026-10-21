@@ -144,6 +144,16 @@ without an input record.
 | `DELETE /api/v1/projects/{id}` | writer-only recoverable deletion; `204` only after cleanup completes |
 | `POST /api/v1/projects/{id}/sources` | register the single local-folder/Git input, or a source for a legacy project; `201` and source `ETag` |
 | `GET /api/v1/projects/{id}/sources?cursor=&limit=50` | `{sources,next_cursor,legacy_source}`; stable ID cursor, maximum 200 per page |
+| `GET/POST /api/v1/projects/{projectID}/agent-sessions` | main-Agent conversations; create returns the project default session bound to the ready snapshot |
+| `GET /api/v1/projects/{projectID}/agent-sessions/{sessionID}` | messages, runs, ordered events and fixed runtime/model/tool pins |
+| `POST .../agent-sessions/{sessionID}/messages` | writer; free-form text + `client_message_id`; idempotent, returns 202 with a RUNNING run |
+| `GET .../agent-sessions/{sessionID}/messages?after_seq=&limit=` | bounded message history |
+| `GET .../agent-sessions/{sessionID}/events?after_seq=` | ordered event cursor |
+| `POST .../agent-sessions/{sessionID}/runs/{runID}/cancel` | writer; stop the current main-Agent turn |
+
+The main-Agent session is separate from path audits and runs. Tools are the
+existing read-only MCP surface; the host binds project/snapshot and never accepts
+a model-supplied scope. See `docs/supervisor.md`.
 | `POST /api/v1/projects/{projectID}/analysis-runs` | writer; starts the fixed default four-stage workflow for a ready single-source input. Optional body `idempotency_key`, `agent_assisted`, `runtime`; active/replayed requests return `200 {analysis_run,reused:true}`, new runs return `201` |
 | `GET /api/v1/projects/{projectID}/analysis-runs?limit=20` | reader; project history, newest first; active rows are synchronized from the fixed workflow run |
 | `GET /api/v1/projects/{projectID}/analysis-runs/{analysisRunID}` | reader; stage status, fixed plan/invocation, inputs/outputs, knowledge revisions, coverage and limitations |

@@ -126,6 +126,8 @@ type FullStore interface {
 	// AnalysisRunStore is the project-level aggregate over the default
 	// four-stage workflow (#64).
 	AnalysisRunStore
+	// SupervisorStore is the project supervisor conversation (#66).
+	SupervisorStore
 
 	// AuditStore is the path engine's persistence contract (P4).
 	AuditStore

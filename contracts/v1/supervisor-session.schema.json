@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codexploit.invalid/contracts/v1/supervisor-session.schema.json",
+  "title": "Project supervisor conversation session",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["api_version", "session"],
+  "properties": {
+    "api_version": { "const": "codexploit/v1" },
+    "session": { "$ref": "#/$defs/Session" }
+  },
+  "$defs": {
+    "Call": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["call_id", "name", "arguments"],
+      "properties": {
+        "call_id": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "arguments": { "type": "string", "maxLength": 65536 }
+      }
+    },
+    "Message": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["message_id", "session_id", "project_id", "role", "content", "status", "seq", "created_at"],
+      "properties": {
+        "message_id": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "session_id": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "project_id": { "$ref": "common.schema.json#/$defs/ID" },
+        "role": { "enum": ["user", "assistant", "tool", "system"] },
+        "content": { "type": "string", "maxLength": 65536 },
+        "client_message_id": { "type": "string", "maxLength": 160 },
+        "calls": { "type": "array", "maxItems": 16, "items": { "$ref": "#/$defs/Call" } },
+        "tool_call_id": { "type": "string", "maxLength": 160 },
+        "run_id": { "type": "string", "maxLength": 160 },
+        "status": { "type": "string", "maxLength": 40 },
+        "seq": { "type": "integer", "minimum": 1 },
+        "created_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "Run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run_id", "session_id", "project_id", "status", "runtime", "model", "config_version", "prompt_version", "tool_digest", "input_tokens", "output_tokens", "created_at", "updated_at", "version"],
+      "properties": {
+        "run_id": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "session_id": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "project_id": { "$ref": "common.schema.json#/$defs/ID" },
+        "status": { "enum": ["RUNNING", "SUCCEEDED", "FAILED", "CANCELLED"] },
+        "runtime": { "type": "string", "maxLength": 80 },
+        "model": { "type": "string", "maxLength": 200 },
+        "config_version": { "type": "string", "maxLength": 160 },
+        "prompt_version": { "type": "string", "maxLength": 80 },
+        "tool_digest": { "type": "string", "maxLength": 64 },
+        "input_tokens": { "type": "integer", "minimum": 0 },
+        "output_tokens": { "type": "integer", "minimum": 0 },
+        "error_code": { "type": "string", "maxLength": 120 },
+        "error": { "type": "string", "maxLength": 2000 },
+        "started_at": { "type": "string", "format": "date-time" },
+        "finished_at": { "type": "string", "format": "date-time" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" },
+        "version": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "Event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["event_id", "session_id", "seq", "type", "created_at"],
+      "properties": {
+        "event_id": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "session_id": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "run_id": { "type": "string", "maxLength": 160 },
+        "seq": { "type": "integer", "minimum": 1 },
+        "type": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "summary": { "type": "string", "maxLength": 2000 },
+        "detail": { "type": "object", "additionalProperties": { "type": "string", "maxLength": 2000 } },
+        "created_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "Session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["session_id", "project_id", "snapshot_id", "title", "state", "messages", "runs", "events", "created_at", "updated_at", "version"],
+      "properties": {
+        "session_id": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "project_id": { "$ref": "common.schema.json#/$defs/ID" },
+        "snapshot_id": { "$ref": "common.schema.json#/$defs/ID" },
+        "title": { "type": "string", "maxLength": 200 },
+        "state": { "type": "string", "maxLength": 40 },
+        "messages": { "type": "array", "maxItems": 1000, "items": { "$ref": "#/$defs/Message" } },
+        "runs": { "type": "array", "maxItems": 1000, "items": { "$ref": "#/$defs/Run" } },
+        "events": { "type": "array", "maxItems": 5000, "items": { "$ref": "#/$defs/Event" } },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" },
+        "version": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}

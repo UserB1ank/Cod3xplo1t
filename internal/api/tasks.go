@@ -26,6 +26,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	}
 	features := storage.StorageCapabilities(s.Store)
 	features["agent"], features["llm_settings"], features["verification"], features["scheduler"], features["network"] = ready, s.LLMSettings != nil, s.Verifier != nil && s.VerifyPlanner != nil, s.Scheduler != nil, s.AllowNetwork
+	features["supervisor"] = s.Supervisor != nil && s.Supervisor.Ready() == nil
 	features["storage_postgres"] = storage.IsPostgres(s.Store)
 	_, features["storage_memory"] = s.Store.(*storage.Memory)
 	writeJSON(w, http.StatusOK, map[string]any{"name": p.Name, "role": p.Capabilities.String(), "can_write": p.Capabilities.Allows(CapWrite), "features": features})

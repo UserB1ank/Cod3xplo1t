@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/open-mcp-ai/Codexploit/internal/agent"
 	"github.com/open-mcp-ai/Codexploit/internal/analysis"
 	"github.com/open-mcp-ai/Codexploit/internal/artifact"
@@ -25,6 +26,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/graph"
 	"github.com/open-mcp-ai/Codexploit/internal/lifecycle"
 	"github.com/open-mcp-ai/Codexploit/internal/llm"
+	mcpserver "github.com/open-mcp-ai/Codexploit/internal/mcp"
 	"github.com/open-mcp-ai/Codexploit/internal/path"
 	"github.com/open-mcp-ai/Codexploit/internal/plugin"
 	"github.com/open-mcp-ai/Codexploit/internal/processplugin"
@@ -34,6 +36,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/scg/gofrontend"
 	"github.com/open-mcp-ai/Codexploit/internal/schedule"
 	"github.com/open-mcp-ai/Codexploit/internal/storage"
+	"github.com/open-mcp-ai/Codexploit/internal/supervisor"
 	"github.com/open-mcp-ai/Codexploit/internal/verify"
 	"github.com/open-mcp-ai/Codexploit/internal/verify/container"
 	"github.com/open-mcp-ai/Codexploit/internal/workflow"
@@ -278,8 +281,12 @@ type Runtime struct {
 	// stores ciphertext in the shared database; SQLite and memory keep the
 	// workspace files. It is non-nil only when the LLM runtime is enabled.
 	LLMSettings *llm.Manager
-	Workspace   string
-	closers     []func() error
+	// Supervisor is the project-scoped conversational agent. It uses the same
+	// MCP server handlers as the stdio surface and is unavailable when no model
+	// is configured.
+	Supervisor *supervisor.Service
+	Workspace  string
+	closers    []func() error
 }
 
 // Build constructs a runtime, applying migrations when a SQL database is used.
@@ -378,6 +385,11 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 				return nil, err
 			}
 		}
+		if err := rt.wireSupervisor(); err != nil {
+			rt.Close()
+			store.Close()
+			return nil, err
+		}
 		rt.closers = append(rt.closers, store.Close)
 		return rt, nil
 	}
@@ -411,6 +423,9 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 			return nil, err
 		}
 		if err := rt.wireScheduler(rt.SchedulerConfig); err != nil {
+			return nil, err
+		}
+		if err := rt.wireSupervisor(); err != nil {
 			return nil, err
 		}
 		return rt, nil
@@ -456,6 +471,10 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 		return nil, err
 	}
 	if err := rt.wireScheduler(rt.SchedulerConfig); err != nil {
+		sqlStore.Close()
+		return nil, err
+	}
+	if err := rt.wireSupervisor(); err != nil {
 		sqlStore.Close()
 		return nil, err
 	}
@@ -554,6 +573,16 @@ func (r *Runtime) wirePlugins(executors []plugin.Executor) error {
 		ports[manifest.ID+"@"+manifest.Version] = workflow.AdapterInputs{Schemas: executor.InputSchemas, Producers: executor.InputPlugins}
 	}
 	r.WorkflowCompiler = &workflow.Compiler{AdapterInputs: ports, Plugins: r.PluginCatalog, Workflows: r.Workflows, Plans: planRepo, Artifacts: objects, Scopes: index, Knowledge: knowledge}
+	return nil
+}
+
+func (r *Runtime) wireSupervisor() error {
+	if r.Store == nil || r.Graph == nil {
+		return nil
+	}
+	r.Supervisor = supervisor.New(r.Store, r.LLMSettings, func(ctx context.Context) (*sdk.ClientSession, error) {
+		return mcpserver.NewInMemoryClient(ctx, r.Graph, r.Store)
+	})
 	return nil
 }
 

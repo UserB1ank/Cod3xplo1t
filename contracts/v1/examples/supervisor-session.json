@@ -1,0 +1,61 @@
+{
+  "api_version": "codexploit/v1",
+  "session": {
+    "session_id": "ss-example",
+    "project_id": "proj-example",
+    "snapshot_id": "snap-example",
+    "title": "默认会话",
+    "state": "ACTIVE",
+    "messages": [
+      {
+        "message_id": "sm-user",
+        "session_id": "ss-example",
+        "project_id": "proj-example",
+        "role": "user",
+        "content": "这个项目有哪些入口？",
+        "client_message_id": "client-1",
+        "run_id": "srun-example",
+        "status": "complete",
+        "seq": 1,
+        "created_at": "2026-10-21T12:00:00Z"
+      },
+      {
+        "message_id": "sm-answer",
+        "session_id": "ss-example",
+        "project_id": "proj-example",
+        "role": "assistant",
+        "content": "真实图谱中有一个入口。",
+        "run_id": "srun-example",
+        "status": "complete",
+        "seq": 2,
+        "created_at": "2026-10-21T12:00:02Z"
+      }
+    ],
+    "runs": [
+      {
+        "run_id": "srun-example",
+        "session_id": "ss-example",
+        "project_id": "proj-example",
+        "status": "SUCCEEDED",
+        "runtime": "llm",
+        "model": "example-model",
+        "config_version": "3",
+        "prompt_version": "supervisor/v1",
+        "tool_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "input_tokens": 100,
+        "output_tokens": 20,
+        "started_at": "2026-10-21T12:00:00Z",
+        "finished_at": "2026-10-21T12:00:02Z",
+        "created_at": "2026-10-21T12:00:00Z",
+        "updated_at": "2026-10-21T12:00:02Z",
+        "version": 2
+      }
+    ],
+    "events": [
+      { "event_id": "se-1", "session_id": "ss-example", "run_id": "srun-example", "seq": 1, "type": "turn_started", "summary": "user message accepted", "created_at": "2026-10-21T12:00:00Z" }
+    ],
+    "created_at": "2026-10-21T11:59:00Z",
+    "updated_at": "2026-10-21T12:00:02Z",
+    "version": 2
+  }
+}

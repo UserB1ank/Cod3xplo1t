@@ -95,7 +95,7 @@ export function readRoute(hash: string): Route {
       .split("/")
       .map(decodeURIComponent);
     if (root === "configuration") return { view: "configuration", section: project === "storage" ? "storage" : "models" };
-    if (root === "workspace" && ["overview", "tasks", "sources", "knowledge", "findings", "reports", "artifacts", "plugins", "workflows", "settings"].includes(project))
+    if (root === "workspace" && ["overview", "assistant", "tasks", "sources", "knowledge", "findings", "reports", "artifacts", "plugins", "workflows", "settings"].includes(project))
       return { view: project, selecting: true };
     if (root === "settings") return { view: "settings" };
     if (root === "storage") return { view: "storage" };
@@ -112,6 +112,7 @@ export function readRoute(hash: string): Route {
       project,
       view: [
         "overview",
+        "assistant",
         "sources",
         "knowledge",
         "findings",

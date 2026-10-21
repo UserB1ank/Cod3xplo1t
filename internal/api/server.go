@@ -53,6 +53,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/schedule"
 	"github.com/open-mcp-ai/Codexploit/internal/sourceimport"
 	"github.com/open-mcp-ai/Codexploit/internal/storage"
+	"github.com/open-mcp-ai/Codexploit/internal/supervisor"
 	"github.com/open-mcp-ai/Codexploit/internal/verify"
 	"github.com/open-mcp-ai/Codexploit/internal/workflow"
 )
@@ -66,6 +67,7 @@ type Server struct {
 	Workflows        *workflow.Catalog
 	WorkflowRunner   *workflow.Runner
 	WorkflowCompiler *workflow.Compiler
+	Supervisor       *supervisor.Service
 	PluginCatalog    *plugin.Catalog
 	Plugins          *plugin.Host
 	snapshots        lifecycle.Snapshots
@@ -236,6 +238,14 @@ func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/storage/status", s.handleStorageStatus)
 	mux.HandleFunc("POST /api/v1/projects/{projectID}/analysis-runs", s.handleStartAnalysisRun)
+	mux.HandleFunc("GET /api/v1/projects/{projectID}/agent-sessions", s.handleListSupervisorSessions)
+	mux.HandleFunc("POST /api/v1/projects/{projectID}/agent-sessions", s.handleCreateSupervisorSession)
+	mux.HandleFunc("GET /api/v1/projects/{projectID}/agent-sessions/{sessionID}", s.handleGetSupervisorSession)
+	mux.HandleFunc("GET /api/v1/projects/{projectID}/agent-sessions/{sessionID}/messages", s.handleSupervisorMessages)
+	mux.HandleFunc("POST /api/v1/projects/{projectID}/agent-sessions/{sessionID}/messages", s.handlePostSupervisorMessage)
+	mux.HandleFunc("GET /api/v1/projects/{projectID}/agent-sessions/{sessionID}/events", s.handleSupervisorEvents)
+	mux.HandleFunc("GET /api/v1/projects/{projectID}/agent-sessions/{sessionID}/runs/{runID}", s.handleGetSupervisorRun)
+	mux.HandleFunc("POST /api/v1/projects/{projectID}/agent-sessions/{sessionID}/runs/{runID}/cancel", s.handleCancelSupervisorRun)
 	mux.HandleFunc("POST /api/v1/projects/{projectID}/path-selections", s.handleSelectPaths)
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/path-selections", s.handleListPathSelections)
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/analysis-runs", s.handleListAnalysisRuns)

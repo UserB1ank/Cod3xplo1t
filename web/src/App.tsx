@@ -20,6 +20,7 @@ import {
   Layers,
   Loader2,
   LockKeyhole,
+  MessageSquare,
   LogOut,
   Network,
   Pause,
@@ -48,6 +49,7 @@ import { Plugins } from "./Plugins";
 import { Workflows, type Plan } from "./Workflows";
 import { WorkflowRun, flowStatus } from "./WorkflowRun";
 import { Knowledge } from "./Knowledge";
+import { Assistant } from "./Assistant";
 import { Reports } from "./Reports";
 import { ProjectHome } from "./ProjectHome";
 import {
@@ -305,9 +307,10 @@ export default function App() {
   const canWrite = identity.can_write;
   const limitedTasks = identity.features.tasks === false;
   const canBuildKnowledge = identity.features.knowledge !== false;
-  const availableView = (view: string) => ["sources", "artifacts", "settings"].includes(view) || (view === "knowledge" ? canBuildKnowledge : view === "plugins" ? identity.features.plugins !== false : !limitedTasks);
+  const availableView = (view: string) => ["sources", "artifacts", "settings"].includes(view) || (view === "assistant" ? identity.features.supervisor !== false : view === "knowledge" ? canBuildKnowledge : view === "plugins" ? identity.features.plugins !== false : !limitedTasks);
   const navItems = [
     { id: "overview", label: "项目概览", icon: Layers },
+    { id: "assistant", label: "项目助手", icon: MessageSquare },
     { id: "tasks", label: "挖掘任务", icon: Workflow },
     { id: "sources", label: "代码源", icon: FolderGit2 },
     { id: "knowledge", label: "共享知识图谱", icon: Network },
@@ -517,7 +520,9 @@ export default function App() {
                               ? "按所选快照固定真实发现、证据与来源，保存可复核的报告。"
                             : route.view === "findings"
                               ? "汇总任务发现，按证据结论与漏洞严重度查看。"
-                              : route.view === "sources"
+                              : route.view === "assistant"
+                                ? "用自然语言提问；助手自主决定直接回答、先澄清，或查询真实图谱与源码。"
+                                : route.view === "sources"
                                 ? projectInputState(projectInput) !== "legacy"
                                   ? "一份源码对应一次审计；输入就绪后不再提供更新代码入口。"
                                   : limitedTasks ? "管理文件夹与 Git 仓库，固定源码版本并校验产物。" : "管理文件夹与 Git 仓库，固定源码版本，再选择代码基线创建任务。"
@@ -584,6 +589,13 @@ export default function App() {
                   snapshots={snapshots.data || []}
                   canWrite={canWrite}
                   revision={revision}
+                />
+              ) : route.view === "assistant" ? (
+                <Assistant
+                  key={project.id}
+                  api={api}
+                  projectID={project.id}
+                  canWrite={canWrite}
                 />
               ) : route.view === "plugins" ? (
                 <Plugins

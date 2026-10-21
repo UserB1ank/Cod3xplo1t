@@ -111,7 +111,9 @@
 
 
 
-- 2026-10-21 — #65 入口局部图谱与路径子任务：知识页新增程序入口目录（ASG EntryPoint 服务端搜索/分页）与 1–2 跳有界邻居；新增 `asg-neighborhood` 返回节点/出边/未解析端点/截断/局限，排除 DERIVED_FROM 调用语义，节点抽屉读取固定视图源码、SCG 引用、边证据与 provenance。候选路径页展示证据等级、优先级、筛选原因、任务/工具来源与局限；勾选 1–5 条后调用 `POST /v1/projects/{id}/path-selections`，按规范 path_id 生成稳定 selection ID，并通过现有 Agent RunPath 创建独立 run；重复选择返回已记录 run，跨项目/路径不存在/reader 写入明确拒绝。新增 `path-selection.schema.json`，更新 knowledge/API 文档与写权限映射。已通过入口搜索/邻居、路径选择幂等/隔离、PG 入口查询与重启、全量竞态、PG、契约、frontend 构建和 18091 Chromium（入口键盘→源码→路径详情、窄屏）验收；无 Agent 时只禁用生成按钮。`internal/app` WIP 与既有 gofmt 阻塞未改。提交并关闭；未 push。
+- 2026-10-21 — #65 入口局部图谱与路径子任务：程序入口服务端搜索/分页、1–2 跳有界 ASG 邻居（未解析端点、截断、局限，排除 DERIVED_FROM 调用语义），节点抽屉读取固定视图源码/SCG/边证据；候选路径展示证据、优先级、筛选原因、来源与局限，勾选 1–5 条经现有 RunPath 生成稳定 selection ID 的独立子任务，重复选择幂等、跨项目/reader 写明确拒绝。已通过竞态/PG/契约/前端/Chromium；无 Agent 时只禁用生成。`internal/app` WIP 与既有 gofmt 阻塞未改。提交并关闭；未 push。
+
+- 2026-10-21 — #66 项目主 Agent 开放对话与只读 MCP：新增独立 Supervisor session/run（不构造 AuditPath），自由文本无 intent/action_type，消息、run、有序事件与 runtime/model/config/prompt/tool pin 存入 PG/SQLite `supervisor_sessions` 文档（PG `0020`），幂等 client_message_id、cursor、取消和模型不可用原因真实可读。主 Agent 用真实 MCP SDK 连接现有 stdio 九工具同一 server，宿主去掉 advertised snapshot 参数并强制注入绑定 snapshot，工具错误配对回灌；模型直接使用应用内 llm 设置，不回落 ScriptedRuntime，Pi 主会话适配留后续。正式“项目助手”页默认会话、自然语言发送、工具调用/结果、固定 pin、事件与停止。已通过合成 provider 纯回答/工具两种提示、真实 MCP tools/list/call、API 幂等/隔离/reader 403/PG 重启/全量竞态/PG/契约/前端/Chromium；真实模型验收未执行（无凭据），以本地合成 provider 页面验收替代并明确记录。`internal/app` WIP 与既有 gofmt 阻塞未改。提交并关闭；未 push。
 ## Agent skills
 
 ### Issue tracker

@@ -118,5 +118,9 @@
   {
     "file": "examples/path-selection.json",
     "schema": "path-selection.schema.json"
+  },
+  {
+    "file": "examples/supervisor-session.json",
+    "schema": "supervisor-session.schema.json"
   }
 ]
