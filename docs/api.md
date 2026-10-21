@@ -144,6 +144,17 @@ without an input record.
 | `DELETE /api/v1/projects/{id}` | writer-only recoverable deletion; `204` only after cleanup completes |
 | `POST /api/v1/projects/{id}/sources` | register the single local-folder/Git input, or a source for a legacy project; `201` and source `ETag` |
 | `GET /api/v1/projects/{id}/sources?cursor=&limit=50` | `{sources,next_cursor,legacy_source}`; stable ID cursor, maximum 200 per page |
+| `POST /api/v1/projects/{projectID}/analysis-runs` | writer; starts the fixed default four-stage workflow for a ready single-source input. Optional body `idempotency_key`, `agent_assisted`, `runtime`; active/replayed requests return `200 {analysis_run,reused:true}`, new runs return `201` |
+| `GET /api/v1/projects/{projectID}/analysis-runs?limit=20` | reader; project history, newest first; active rows are synchronized from the fixed workflow run |
+| `GET /api/v1/projects/{projectID}/analysis-runs/{analysisRunID}` | reader; stage status, fixed plan/invocation, inputs/outputs, knowledge revisions, coverage and limitations |
+| `POST /api/v1/projects/{projectID}/analysis-runs/{analysisRunID}/cancel` | writer; cancels the fixed workflow run and returns the synchronized aggregate |
+
+`analysis_run` is a project-level aggregate, not a second executor: the existing
+WorkflowRunner still owns leases, retries and node execution. `state` is
+`QUEUED/RUNNING/PAUSED/CANCELLING/SUCCEEDED/PARTIAL/FAILED/CANCELLED`; the fixed
+stages are parse, semantic, paths, enhance and publish. There is no fabricated
+percentage. `agent_assisted=false` (the default) never starts a model; when true
+the server checks the actual runtime and records the resulting Agent runs.
 | `POST /api/v1/sources/{id}/snapshots` | materialize current files, optionally build manifest/SCG/ASG; `201` |
 
 Source registration uses this body (see [source schema](../contracts/v1/source.schema.json)):

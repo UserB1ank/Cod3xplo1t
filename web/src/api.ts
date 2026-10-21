@@ -1,4 +1,4 @@
-import type { Audit, AuditBudget, AuditDraft, AuditEvent, AuditPath, BudgetGrant, Connection, Finding, FindingDetail, GraphSummary, Project, ProjectDirectoryEntry, ProjectInput, Run, Scheduler, Snapshot, Workspace } from './types.ts';
+import type { AnalysisRun, Audit, AuditBudget, AuditDraft, AuditEvent, AuditPath, BudgetGrant, Connection, Finding, FindingDetail, GraphSummary, Project, ProjectDirectoryEntry, ProjectInput, Run, Scheduler, Snapshot, Workspace } from './types.ts';
 
 export class ApiError extends Error {
   status: number;
@@ -113,6 +113,10 @@ export class ApiClient {
     ]);
     return { projects, project, snapshots, snapshot, audits, audit, paths: (pathPage.paths || []).map(cleanPath), pathTotal: pathPage.total, findings: (findingPage.findings || []).map(cleanFinding), findingTotal: findingPage.total, runs: runPage.runs || [], runTotal: runPage.total, events: (events.events || []).sort((a, b) => b.seq - a.seq), graph, scheduler, warnings };
   }
+  analysisRuns(projectID: string, signal?: AbortSignal) { return this.get<{ analysis_runs: AnalysisRun[] }>(`/v1/projects/${encodeURIComponent(projectID)}/analysis-runs?limit=20`, signal); }
+  startAnalysis(projectID: string, body: { agent_assisted: boolean; runtime?: string; idempotency_key?: string }) { return this.post<{ analysis_run: AnalysisRun; reused: boolean }>(`/v1/projects/${encodeURIComponent(projectID)}/analysis-runs`, { api_version: 'codexploit/v1', ...body }); }
+  analysisRun(projectID: string, analysisRunID: string, signal?: AbortSignal) { return this.get<{ analysis_run: AnalysisRun }>(`/v1/projects/${encodeURIComponent(projectID)}/analysis-runs/${encodeURIComponent(analysisRunID)}`, signal); }
+  cancelAnalysisRun(projectID: string, analysisRunID: string) { return this.post<{ analysis_run: AnalysisRun }>(`/v1/projects/${encodeURIComponent(projectID)}/analysis-runs/${encodeURIComponent(analysisRunID)}/cancel`, {}); }
   path(id: string, signal?: AbortSignal) { return this.get<{ path: AuditPath; events: AuditEvent[] }>(`/paths/${encodeURIComponent(id)}`, signal); }
   finding(id: string, signal?: AbortSignal) { return this.get<FindingDetail>(`/findings/${encodeURIComponent(id)}`, signal); }
   taskBudget(projectID: string, taskID: string, signal?: AbortSignal) { return this.get<{ budget: AuditBudget; grants: BudgetGrant[] }>(`/v1/projects/${encodeURIComponent(projectID)}/tasks/${encodeURIComponent(taskID)}/budget`, signal); }

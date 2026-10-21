@@ -47,6 +47,11 @@ func (p Projects) Delete(ctx context.Context, id string) error {
 	default:
 		return err
 	}
+	if active, ok, err := p.Store.ActiveAnalysisRun(ctx, id); err != nil {
+		return err
+	} else if ok {
+		return fmt.Errorf("%w: project %s has an active analysis run %s", storage.ErrConflict, id, active.ID)
+	}
 	records, err := p.Store.ListSnapshots(ctx, id)
 	if err != nil {
 		return err

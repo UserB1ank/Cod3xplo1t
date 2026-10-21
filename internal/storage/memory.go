@@ -41,6 +41,7 @@ type Memory struct {
 	workflowPlans     map[string][]byte
 	workflows         map[string][]byte
 	workflowHeads     map[string]workflowHead
+	analysisRuns      map[string]AnalysisRun
 	plugins           map[string][]byte
 	plans             map[string]verify.PlanRecord
 	environmentLeases *verify.MemoryEnvironmentLeases
@@ -111,6 +112,7 @@ func NewMemory() *Memory {
 		asgDocuments:           map[string]*asg.Document{},
 		idempotency:            map[idempotencyKey]IdempotencyRecord{},
 		audits:                 map[string]*auditDocument{},
+		analysisRuns:           map[string]AnalysisRun{},
 		agentRuns:              map[string]*agentRunDocument{},
 		agentCheckpoints:       map[string]agent.Checkpoint{},
 		agentCheckpointResumes: map[string]struct{}{},

@@ -123,6 +123,9 @@ type FullStore interface {
 	// of FullStore because both deployments that expose project management must
 	// persist the same input and deletion fences.
 	ProjectRepository
+	// AnalysisRunStore is the project-level aggregate over the default
+	// four-stage workflow (#64).
+	AnalysisRunStore
 
 	// AuditStore is the path engine's persistence contract (P4).
 	AuditStore

@@ -2,6 +2,21 @@ export type View = 'overview' | 'projects' | 'graph' | 'surface' | 'paths' | 'ru
 export type PathFilter = 'all' | 'queued' | 'active' | 'attention';
 export type FindingStatus = 'candidate' | 'confirmed' | 'refuted' | 'inconclusive' | 'blocked';
 
+export interface AnalysisKnowledge { revision: string; digest: string }
+export interface AnalysisArtifact { id: string; kind: string; schema_id: string; bytes?: number }
+export interface AnalysisRunStage {
+  key: string; label: string; status: string; node_id?: string; plugin_id?: string; plugin_version?: string;
+  invocation_id?: string; inputs?: AnalysisArtifact[]; outputs?: AnalysisArtifact[]; knowledge?: AnalysisKnowledge[];
+  agent_run_ids?: string[]; error_code?: string; note?: string; started_at?: string; finished_at?: string;
+}
+export interface AnalysisRun {
+  analysis_run_id: string; project_id: string; snapshot_id: string; task_id: string; workflow_run_id: string;
+  plan_id: string; plan_digest: string; workflow_id: string; workflow_version: string; state: string;
+  agent_assisted: boolean; idempotency_key?: string; stages: AnalysisRunStage[];
+  coverage: { entry_points_examined: number; chains_resolved: number; chains_unresolved: number; truncated: boolean; truncation_reasons?: string[] };
+  limitations: string[]; path_count: number; knowledge: AnalysisKnowledge[]; failure_code?: string; failure_message?: string;
+  created_at: string; updated_at: string; version: number;
+}
 export interface Project { id: string; name: string; description?: string; source: string; identity: string; created_at: string; updated_at: string; version: number }
 export type ProjectInputState = 'importing' | 'ready' | 'failed' | 'legacy';
 export interface ProjectInput { project_id: string; state: ProjectInputState; source_id?: string; source_kind?: string; source_name?: string; snapshot_id?: string; files: number; bytes: number; failure_code?: string; failure_message?: string; version: number; created_at: string; updated_at: string }

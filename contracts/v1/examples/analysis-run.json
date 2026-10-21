@@ -1,0 +1,120 @@
+{
+  "api_version": "codexploit/v1",
+  "reused": false,
+  "analysis_run": {
+    "analysis_run_id": "analysis-example1234",
+    "project_id": "proj-example",
+    "snapshot_id": "snap-example",
+    "task_id": "task-example",
+    "workflow_run_id": "wrun-example",
+    "plan_id": "plan-0123456789abcdef0123456789abcdef",
+    "plan_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "workflow_id": "codexploit.default-analysis",
+    "workflow_version": "1.0.0",
+    "state": "SUCCEEDED",
+    "agent_assisted": false,
+    "stages": [
+      {
+        "key": "parse",
+        "label": "\u4ee3\u7801\u56fe\u8c31",
+        "status": "SUCCEEDED",
+        "node_id": "parse",
+        "plugin_id": "builtin.go-parser",
+        "plugin_version": "1.2.0",
+        "invocation_id": "winv-example-parse",
+        "inputs": [],
+        "outputs": [
+          {
+            "id": "artifact-ast",
+            "kind": "code.ast",
+            "scope": {
+              "project_id": "proj-example",
+              "source_id": "src-example",
+              "snapshot_id": "snap-example"
+            },
+            "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "bytes": 100,
+            "media_type": "application/json",
+            "schema_id": "codexploit/go-ast/v1",
+            "producer": {
+              "plugin_id": "builtin.go-parser",
+              "plugin_version": "1.2.0",
+              "invocation_id": "winv-example-parse",
+              "config_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+            }
+          }
+        ],
+        "started_at": "2026-10-21T10:00:00Z",
+        "finished_at": "2026-10-21T10:00:01Z"
+      },
+      {
+        "key": "semantic",
+        "label": "\u5b89\u5168\u8bed\u4e49\u4e0e\u653b\u51fb\u9762",
+        "status": "SUCCEEDED",
+        "node_id": "semantic",
+        "plugin_id": "builtin.security-semantics",
+        "plugin_version": "1.2.0"
+      },
+      {
+        "key": "paths",
+        "label": "\u5019\u9009\u8def\u5f84",
+        "status": "SUCCEEDED",
+        "node_id": "paths",
+        "plugin_id": "builtin.discovery-paths",
+        "plugin_version": "1.2.0"
+      },
+      {
+        "key": "enhance",
+        "label": "\u8def\u5f84\u7b5b\u9009\u4e0e\u8bc4\u5206",
+        "status": "SUCCEEDED",
+        "node_id": "enhance",
+        "plugin_id": "builtin.path-enhancer",
+        "plugin_version": "1.0.0"
+      },
+      {
+        "key": "publish",
+        "label": "\u5171\u4eab\u77e5\u8bc6\u53d1\u5e03",
+        "status": "SUCCEEDED",
+        "node_id": "$publish",
+        "plugin_id": "codexploit.workflow",
+        "plugin_version": "1.0.0",
+        "knowledge": [
+          {
+            "revision": "rev-1",
+            "digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+          }
+        ]
+      }
+    ],
+    "coverage": {
+      "entry_points_examined": 1,
+      "entry_points_skipped": 0,
+      "sinks_examined": 4,
+      "sinks_skipped": 0,
+      "chains_resolved": 4,
+      "chains_unresolved": 0,
+      "chain_queries": 0,
+      "chain_query_budget": 2000,
+      "paths_considered": 4,
+      "paths_emitted": 1,
+      "paths_skipped": 3,
+      "duplicate_paths": 0,
+      "clusters": 0,
+      "truncated": false,
+      "truncation_reasons": []
+    },
+    "limitations": [
+      "call reachability is not taint flow"
+    ],
+    "path_count": 1,
+    "knowledge": [
+      {
+        "revision": "rev-1",
+        "digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      }
+    ],
+    "created_at": "2026-10-21T10:00:00Z",
+    "updated_at": "2026-10-21T10:00:05Z",
+    "version": 3
+  }
+}

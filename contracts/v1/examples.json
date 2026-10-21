@@ -110,5 +110,9 @@
   {
     "file": "examples/plugin-capabilities.json",
     "schema": "plugin-capabilities.schema.json"
+  },
+  {
+    "file": "examples/analysis-run.json",
+    "schema": "analysis-run.schema.json"
   }
 ]

@@ -231,3 +231,15 @@ func TestCompilerPinsOnePathEnhancementSource(t *testing.T) {
 		t.Fatalf("missing ambiguous_path_source diagnostic: %+v", result.Diagnostics)
 	}
 }
+
+func TestDefaultAnalysisSpecCompilesToFourStagesAndAPinnedEnhancer(t *testing.T) {
+	c := compiler(t)
+	raw, _ := json.Marshal(workflow.DefaultAnalysisSpec())
+	result, err := c.Validate(context.Background(), raw)
+	if err != nil || !result.Valid || len(result.Nodes) != 4 || result.PathSourceNodeID != "enhance" {
+		t.Fatalf("default analysis: %+v %v", result, err)
+	}
+	if result.Nodes[3].Plugin.Manifest.ID != "builtin.path-enhancer" || result.Nodes[3].Plugin.Manifest.Version != "1.0.0" {
+		t.Fatalf("default analysis did not pin the enhancer: %+v", result.Nodes[3])
+	}
+}

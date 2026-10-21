@@ -264,11 +264,19 @@ export default function App() {
     },
     [api, route.project, revision, snapshots.data],
   );
+  const analysisRuns = useResource(
+    async (signal) =>
+      api && route.project
+        ? (await api.analysisRuns(route.project, signal)).analysis_runs || []
+        : [],
+    [api, route.project, revision],
+  );
   const task = tasks.data?.tasks.find((t) => t.audit_id === route.task);
   const action = async (
     label: string,
     work: () => Promise<unknown>,
     done?: () => void,
+    notice?: string,
   ) => {
     if (busy) return;
     setBusy(label);
@@ -277,7 +285,7 @@ export default function App() {
     try {
       await work();
       refresh((n) => n + 1);
-      setNotice(`${label}完成`);
+      setNotice(notice || `${label}完成`);
       done?.();
     } catch (error) {
       setError(errorText(error));
@@ -649,6 +657,8 @@ export default function App() {
                         findings.data?.counts || {},
                       ).reduce<number>((sum, value) => sum + (Number(value) || 0), 0)}
                       reportCount={reportCount.data || 0}
+                      runs={analysisRuns.data || []}
+                      agentAvailable={!!identity?.features.agent}
                       canWrite={canWrite}
                       busy={!!busy}
                       onEdit={() => setDialog("edit-project")}
@@ -659,6 +669,31 @@ export default function App() {
                       onNavigate={(view) =>
                         navigate({ project: project.id, view })
                       }
+                      onStartAnalysis={(agentAssisted) =>
+                        void action(
+                          "开始图谱化分析",
+                          () =>
+                            api.startAnalysis(project.id, {
+                              agent_assisted: agentAssisted,
+                            }),
+                          undefined,
+                          "分析请求已提交；阶段状态以面板为准",
+                        )
+                      }
+                      onCancelAnalysis={() => {
+                        const current = analysisRuns.data?.find(
+                          (run) =>
+                            !["SUCCEEDED", "PARTIAL", "FAILED", "CANCELLED"].includes(
+                              run.state,
+                            ),
+                        );
+                        if (current) {
+                          void action("停止分析", () =>
+                            api.cancelAnalysisRun(project.id, current.analysis_run_id),
+                          );
+                        }
+                      }}
+                      onRefresh={() => refresh((n) => n + 1)}
                     />
                   ) : (
                     <Metrics

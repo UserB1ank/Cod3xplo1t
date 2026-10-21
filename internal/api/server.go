@@ -235,6 +235,10 @@ func (s *Server) Handler() http.Handler {
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/storage/status", s.handleStorageStatus)
+	mux.HandleFunc("POST /api/v1/projects/{projectID}/analysis-runs", s.handleStartAnalysisRun)
+	mux.HandleFunc("GET /api/v1/projects/{projectID}/analysis-runs", s.handleListAnalysisRuns)
+	mux.HandleFunc("GET /api/v1/projects/{projectID}/analysis-runs/{analysisRunID}", s.handleGetAnalysisRun)
+	mux.HandleFunc("POST /api/v1/projects/{projectID}/analysis-runs/{analysisRunID}/cancel", s.handleCancelAnalysisRun)
 	mux.HandleFunc("POST /api/v1/projects/{projectID}/reports", s.withIdempotency(s.handleCreateReport))
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/reports", s.handleListReports)
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/reports/{reportID}", s.handleGetReport)

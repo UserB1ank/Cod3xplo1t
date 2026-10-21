@@ -458,6 +458,11 @@ func (m *Memory) purgeProjectRowsLocked(projectID string) {
 			delete(m.pluginInvocations, invocationID)
 		}
 	}
+	for analysisRunID, run := range m.analysisRuns {
+		if run.ProjectID == projectID {
+			delete(m.analysisRuns, analysisRunID)
+		}
+	}
 }
 
 func verificationTerminal(status string) bool {

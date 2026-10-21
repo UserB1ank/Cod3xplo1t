@@ -334,6 +334,7 @@ func (s *SQL) FinishProjectDeletion(ctx context.Context, id string) (ProjectDele
 		`DELETE FROM workflow_versions WHERE project_id = ?`,
 		`DELETE FROM workflow_plans WHERE project_id = ?`,
 		`DELETE FROM workflow_runs WHERE project_id = ?`,
+		`DELETE FROM analysis_runs WHERE project_id = ?`,
 		`DELETE FROM plugin_invocations WHERE project_id = ?`,
 		`DELETE FROM knowledge_analysis_paths WHERE project_id = ?`,
 		`DELETE FROM knowledge_analyses WHERE project_id = ?`,
