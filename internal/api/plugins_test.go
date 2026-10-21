@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -285,4 +286,104 @@ func TestRegisterPluginRejectsReservedSource(t *testing.T) {
 	if denied.status != http.StatusBadRequest {
 		t.Fatalf("reserved source = %d %s", denied.status, denied.body)
 	}
+}
+
+func TestPluginCapabilityCatalogDistinguishesAdapterKindsAndProtocols(t *testing.T) {
+	env := newTestEnv(t, false)
+	read := doAs(t, env.ts, readerSecret, http.MethodGet, "/api/v1/plugins/capabilities", nil, nil)
+	if read.status != http.StatusOK {
+		t.Fatalf("capabilities: %d %s", read.status, read.body)
+	}
+	var page struct {
+		APIVersion   string                  `json:"api_version"`
+		Capabilities []pluginCapabilityView  `json:"capabilities"`
+		Protocols    []plugin.DomainProtocol `json:"protocols"`
+	}
+	read.decode(t, &page)
+	if len(page.Capabilities) != 9 || len(page.Protocols) < 7 {
+		t.Fatalf("capability/protocol catalog = %d/%d", len(page.Capabilities), len(page.Protocols))
+	}
+	protocols := map[string]plugin.DomainProtocol{}
+	for _, protocol := range page.Protocols {
+		protocols[protocol.Schema] = protocol
+	}
+	for _, schema := range []string{"codexploit/agent-task/v1", "codexploit/environment-request/v1", "codexploit/verification-evidence/v1", "codexploit/path-enhancement/v1"} {
+		if protocols[schema].Transport == "" {
+			t.Fatalf("missing domain protocol %s", schema)
+		}
+	}
+	byKey := map[string]pluginCapabilityView{}
+	for _, capability := range page.Capabilities {
+		byKey[capability.Key] = capability
+	}
+	parse := byKey["parse"]
+	if !parse.Available || parse.ExecutionModel != "plugin_execute" {
+		t.Fatalf("parse = %+v", parse)
+	}
+	foundPlugin := false
+	for _, adapter := range parse.Adapters {
+		if adapter.Kind == "plugin_runtime" && adapter.Measured && adapter.ProtocolVersion == "builtin/v1" {
+			foundPlugin = true
+		}
+	}
+	if !foundPlugin {
+		t.Fatalf("parse plugin adapter = %+v", parse.Adapters)
+	}
+	source := byKey["source"]
+	if !source.Available || source.ExecutionModel != "native_service" || len(source.Adapters) == 0 || source.Adapters[0].Kind != "native_service" || !source.Adapters[0].Measured {
+		t.Fatalf("source adapters = %+v", source)
+	}
+	agent := byKey["agent"]
+	if agent.ExecutionModel != "agent_runtime" || len(agent.Adapters) == 0 || agent.Adapters[0].Kind != "agent_runtime" {
+		t.Fatalf("agent adapters = %+v", agent.Adapters)
+	}
+	environment := byKey["environment"]
+	if environment.Available || environment.ExecutionModel != "environment_backend" {
+		t.Fatalf("environment = %+v", environment)
+	}
+	for _, adapter := range environment.Adapters {
+		if adapter.Kind != "environment_backend" || adapter.Measured {
+			t.Fatalf("environment adapter = %+v", adapter)
+		}
+	}
+	verification := byKey["verification"]
+	if verification.Available || verification.ExecutionModel != "verification_executor" {
+		t.Fatalf("verification = %+v", verification)
+	}
+}
+
+func TestCapabilityCatalogShowsEnvironmentBackendSeparatelyFromPlugins(t *testing.T) {
+	env := newTestEnv(t, false)
+	srv := NewServer(env.rt.Store, env.rt.Manager, env.rt.Analyzer,
+		WithAuth(testAuthenticator(t)),
+		WithPluginCatalog(env.rt.PluginCatalog),
+		WithContainerVerification(&ContainerVerification{Provider: &planProvider{}, Owner: "capability-test"}),
+	)
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+	read := doAs(t, ts, readerSecret, http.MethodGet, "/api/v1/plugins/capabilities", nil, nil)
+	if read.status != http.StatusOK {
+		t.Fatalf("capabilities: %d %s", read.status, read.body)
+	}
+	var page struct {
+		Capabilities []pluginCapabilityView `json:"capabilities"`
+	}
+	read.decode(t, &page)
+	for _, capability := range page.Capabilities {
+		if capability.Key != "environment" {
+			continue
+		}
+		if !capability.Available || capability.ExecutionModel != "environment_backend" || len(capability.Adapters) != 1 {
+			t.Fatalf("environment capability = %+v", capability)
+		}
+		adapter := capability.Adapters[0]
+		if adapter.Kind != "environment_backend" || !adapter.Installed || !adapter.Measured || len(adapter.Capabilities) == 0 {
+			t.Fatalf("environment adapter = %+v", adapter)
+		}
+		if adapter.ProtocolVersion != "environment-provider/v1" {
+			t.Fatalf("environment protocol = %+v", adapter)
+		}
+		return
+	}
+	t.Fatal("environment capability missing")
 }

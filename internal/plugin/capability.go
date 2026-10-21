@@ -95,6 +95,9 @@ var contractRegistry = sync.OnceValues(func() (*registry, error) {
 		}
 		result.byKind[contract.Kind] = contract
 	}
+	if err := validateDomainProtocols(result); err != nil {
+		return nil, err
+	}
 	return result, nil
 })
 
@@ -161,10 +164,26 @@ func ValidateManifestContracts(manifest Manifest) error {
 	if _, ok := CapabilityForManifestKind(manifest.Kind); !ok {
 		return fmt.Errorf("%w: unknown plugin capability %q", ErrInvalid, manifest.Kind)
 	}
+	primary, ok := CapabilityForRecord(Record{Manifest: manifest})
+	if !ok {
+		return fmt.Errorf("%w: unknown plugin capability %q", ErrInvalid, manifest.Kind)
+	}
+	producedPrimary := false
 	for _, kind := range append(append([]string{}, manifest.Consumes...), manifest.Produces...) {
-		if _, ok := LookupContract(kind); !ok {
+		contract, ok := LookupContract(kind)
+		if !ok {
 			return fmt.Errorf("%w: unknown artifact contract %q", ErrInvalid, kind)
 		}
+		if contract.Capability == string(primary) {
+			for _, produced := range manifest.Produces {
+				if produced == kind {
+					producedPrimary = true
+				}
+			}
+		}
+	}
+	if !producedPrimary {
+		return fmt.Errorf("%w: plugin does not produce an artifact of its declared %s capability", ErrInvalid, primary)
 	}
 	return nil
 }

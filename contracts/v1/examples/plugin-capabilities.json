@@ -1,0 +1,154 @@
+{
+  "api_version": "codexploit/v1",
+  "capabilities": [
+    {
+      "key": "source",
+      "label": "源码接入",
+      "available": false,
+      "execution_model": "native_service",
+      "plugins": [],
+      "adapters": [],
+      "contracts": []
+    },
+    {
+      "key": "parse",
+      "label": "解析",
+      "available": true,
+      "execution_model": "plugin_execute",
+      "plugins": [
+        {
+          "id": "builtin.go-parser",
+          "version": "1.2.0",
+          "name": "Go syntax parser",
+          "runtime": "builtin",
+          "source": "compiled builtin",
+          "installed": true,
+          "executable": true,
+          "adapter_kind": "plugin_runtime",
+          "protocol_version": "builtin/v1",
+          "package_version": "1.2.0",
+          "declared": true,
+          "measured": true
+        }
+      ],
+      "adapters": [
+        {
+          "id": "builtin.go-parser@1.2.0",
+          "name": "Go syntax parser",
+          "kind": "plugin_runtime",
+          "version": "1.2.0",
+          "protocol_version": "builtin/v1",
+          "declared": true,
+          "installed": true,
+          "measured": true,
+          "capabilities": [
+            "language:Go",
+            "network:none"
+          ]
+        }
+      ],
+      "contracts": [
+        {
+          "kind": "code.ast",
+          "capability": "parse",
+          "schemas": [
+            "codexploit/go-ast/v1"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "semantic",
+      "label": "语义",
+      "available": false,
+      "execution_model": "plugin_execute",
+      "plugins": [],
+      "adapters": [],
+      "contracts": []
+    },
+    {
+      "key": "scan",
+      "label": "扫描",
+      "available": false,
+      "execution_model": "plugin_execute",
+      "plugins": [],
+      "adapters": [],
+      "contracts": []
+    },
+    {
+      "key": "path",
+      "label": "路径",
+      "available": false,
+      "execution_model": "plugin_execute",
+      "plugins": [],
+      "adapters": [],
+      "contracts": []
+    },
+    {
+      "key": "agent",
+      "label": "Agent",
+      "available": false,
+      "reason": "尚无已就绪的 Agent runtime；可选增强不阻断默认纯工具链。",
+      "execution_model": "agent_runtime",
+      "plugins": [],
+      "adapters": [
+        {
+          "id": "agent/runtime",
+          "name": "Agent runtime",
+          "kind": "agent_runtime",
+          "declared": true,
+          "installed": false,
+          "measured": false,
+          "capabilities": [],
+          "reason": "此部署未配置 Agent runtime。"
+        }
+      ],
+      "contracts": [
+        {
+          "kind": "agent.task",
+          "capability": "agent",
+          "schemas": [
+            "codexploit/agent-task/v1"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "environment",
+      "label": "环境供应",
+      "available": false,
+      "execution_model": "environment_backend",
+      "plugins": [],
+      "adapters": [],
+      "contracts": []
+    },
+    {
+      "key": "verification",
+      "label": "验证",
+      "available": false,
+      "execution_model": "verification_executor",
+      "plugins": [],
+      "adapters": [],
+      "contracts": []
+    },
+    {
+      "key": "report",
+      "label": "报告",
+      "available": false,
+      "execution_model": "plugin_execute",
+      "plugins": [],
+      "adapters": [],
+      "contracts": []
+    }
+  ],
+  "protocols": [
+    {
+      "schema": "codexploit/agent-task/v1",
+      "capability": "agent",
+      "transport": "agent_runtime",
+      "direction": "input",
+      "file": "agent-protocol.schema.json",
+      "description": "Bounded task envelope sent to an agent runtime."
+    }
+  ]
+}

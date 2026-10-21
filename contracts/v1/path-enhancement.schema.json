@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codexploit.invalid/contracts/v1/path-enhancement.schema.json",
+  "title": "Deterministic path enhancement",
+  "description": "Versioned output of a path scoring/filtering adapter. It may add scores, reasons and observations but cannot rewrite the candidate path or turn reachability into a vulnerability verdict.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "path_id", "audit_id", "score", "reasons", "evidence_refs", "limitations"],
+  "properties": {
+    "schema_version": { "const": "codexploit/path-enhancement/v1" },
+    "path_id": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "audit_id": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "score": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["priority", "support", "risk", "utility", "score_version"],
+      "properties": {
+        "priority": { "type": "number", "minimum": 0, "maximum": 100 },
+        "support": { "type": "number", "minimum": 0, "maximum": 1 },
+        "risk": { "type": "number", "minimum": 0, "maximum": 1 },
+        "utility": { "type": "number", "minimum": 0, "maximum": 1 },
+        "score_version": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "reasons": { "type": "array", "minItems": 1, "maxItems": 64, "items": { "type": "string", "maxLength": 500 } },
+    "evidence_refs": { "type": "array", "maxItems": 64, "items": { "type": "string", "maxLength": 300 } },
+    "limitations": { "type": "array", "maxItems": 64, "items": { "type": "string", "maxLength": 500 } },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["plugin_id", "plugin_version", "package_digest"],
+      "properties": {
+        "plugin_id": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "plugin_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "package_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    }
+  }
+}

@@ -90,23 +90,30 @@ func (s *Server) handleListPlugins(w http.ResponseWriter, r *http.Request) {
 }
 
 type pluginCapabilityView struct {
-	Key       string                  `json:"key"`
-	Label     string                  `json:"label"`
-	Available bool                    `json:"available"`
-	Reason    string                  `json:"reason,omitempty"`
-	Plugins   []pluginCapabilityEntry `json:"plugins"`
-	Contracts []plugin.Contract       `json:"contracts"`
+	Key            string                  `json:"key"`
+	Label          string                  `json:"label"`
+	Available      bool                    `json:"available"`
+	Reason         string                  `json:"reason,omitempty"`
+	ExecutionModel string                  `json:"execution_model"`
+	Plugins        []pluginCapabilityEntry `json:"plugins"`
+	Adapters       []capabilityAdapter     `json:"adapters"`
+	Contracts      []plugin.Contract       `json:"contracts"`
 }
 
 type pluginCapabilityEntry struct {
-	ID         string `json:"id"`
-	Version    string `json:"version"`
-	Name       string `json:"name"`
-	Runtime    string `json:"runtime"`
-	Source     string `json:"source"`
-	Installed  bool   `json:"installed"`
-	Executable bool   `json:"executable"`
-	Reason     string `json:"reason,omitempty"`
+	ID              string `json:"id"`
+	Version         string `json:"version"`
+	Name            string `json:"name"`
+	Runtime         string `json:"runtime"`
+	Source          string `json:"source"`
+	Installed       bool   `json:"installed"`
+	Executable      bool   `json:"executable"`
+	AdapterKind     string `json:"adapter_kind"`
+	ProtocolVersion string `json:"protocol_version,omitempty"`
+	PackageVersion  string `json:"package_version"`
+	Declared        bool   `json:"declared"`
+	Measured        bool   `json:"measured"`
+	Reason          string `json:"reason,omitempty"`
 }
 
 // handlePluginCapabilities answers GET /api/v1/plugins/capabilities. The plugin
@@ -126,12 +133,17 @@ func (s *Server) handlePluginCapabilities(w http.ResponseWriter, r *http.Request
 	contracts := plugin.Contracts()
 	views := make([]pluginCapabilityView, 0, len(plugin.Capabilities()))
 	for _, capability := range plugin.Capabilities() {
-		view := pluginCapabilityView{Key: capability.Key, Label: capability.Label, Plugins: []pluginCapabilityEntry{}, Contracts: []plugin.Contract{}}
+		view := pluginCapabilityView{
+			Key: capability.Key, Label: capability.Label,
+			ExecutionModel: executionModel(capability.Key),
+			Plugins:        []pluginCapabilityEntry{}, Adapters: []capabilityAdapter{}, Contracts: []plugin.Contract{},
+		}
 		for _, contract := range contracts {
 			if contract.Capability == capability.Key {
 				view.Contracts = append(view.Contracts, contract)
 			}
 		}
+		view.Adapters = append(view.Adapters, s.nativeAdapters(capability.Key)...)
 		for _, record := range rows {
 			kind, ok := plugin.CapabilityForRecord(record)
 			if !ok || string(kind) != capability.Key {
@@ -140,16 +152,25 @@ func (s *Server) handlePluginCapabilities(w http.ResponseWriter, r *http.Request
 			view.Plugins = append(view.Plugins, pluginCapabilityEntry{
 				ID: record.Manifest.ID, Version: record.Manifest.Version, Name: record.Manifest.Name,
 				Runtime: record.Manifest.Runtime.Kind, Source: record.Source, Installed: record.Installed,
-				Executable: record.Executable, Reason: record.Reason,
+				Executable: record.Executable, AdapterKind: adapterPluginRuntime,
+				ProtocolVersion: record.ProtocolVersion, PackageVersion: record.Manifest.Version,
+				Declared: true, Measured: record.Executable, Reason: record.Reason,
 			})
-			if record.Executable {
+			view.Adapters = append(view.Adapters, pluginAdapter(record))
+		}
+		for _, adapter := range view.Adapters {
+			if adapter.Measured {
 				view.Available = true
 			}
 		}
 		if !view.Available {
-			view.Reason = "尚无已安装的可执行适配器"
+			view.Reason = capabilityReason(capability.Key, view.Adapters)
 		}
 		views = append(views, view)
 	}
-	writeJSON(w, 200, map[string]any{"api_version": "codexploit/v1", "capabilities": views})
+	writeCapabilityJSON(w, 200, map[string]any{
+		"api_version":  "codexploit/v1",
+		"capabilities": views,
+		"protocols":    plugin.DomainProtocols(),
+	})
 }

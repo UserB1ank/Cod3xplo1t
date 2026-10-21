@@ -60,6 +60,10 @@
         "entrypoint": {
           "type": "string",
           "minLength": 1
+        },
+        "protocol": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*/v[0-9]+$"
         }
       },
       "required": [
@@ -99,7 +103,14 @@
           "discovery.paths",
           "discovery.findings",
           "knowledge.view",
-          "report.document"
+          "report.document",
+          "path.enhancement",
+          "agent.task",
+          "agent.answer",
+          "environment.request",
+          "environment.receipt",
+          "verification.plan",
+          "verification.evidence"
         ]
       },
       "minItems": 1,
@@ -117,7 +128,14 @@
           "discovery.paths",
           "discovery.findings",
           "knowledge.view",
-          "report.document"
+          "report.document",
+          "path.enhancement",
+          "agent.task",
+          "agent.answer",
+          "environment.request",
+          "environment.receipt",
+          "verification.plan",
+          "verification.evidence"
         ]
       },
       "minItems": 1,

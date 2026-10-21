@@ -1,0 +1,13 @@
+{
+  "schema_version": "codexploit/verification-evidence/v1",
+  "evidence_id": "evidence-example",
+  "run_id": "run-example",
+  "plan_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "kind": "test",
+  "command": "go test ./...",
+  "exit_code": 1,
+  "timed_out": false,
+  "output_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "limitations": ["The regression test exercises one synthetic route, not a production deployment."],
+  "source": { "snapshot_id": "snap-0123456789abcdef0123456789abcdef", "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+}

@@ -328,6 +328,7 @@ func fixtureManifest() plugin.Manifest {
 		Runtime: struct {
 			Kind       string `json:"kind"`
 			Entrypoint string `json:"entrypoint,omitempty"`
+			Protocol   string `json:"protocol,omitempty"`
 		}{Kind: "process", Entrypoint: "fixture"},
 		Consumes: []string{"source.snapshot"},
 		Produces: []string{"scanner.alerts"},

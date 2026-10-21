@@ -14,7 +14,7 @@ import (
 )
 
 func packageManifest(id, version, entrypoint string) string {
-	return `{"api_version":"codexploit/v1","id":"` + id + `","version":"` + version + `","name":"Pattern scanner","description":"Offline fixture.","kind":"analyzer","languages":["Go"],"runtime":{"kind":"process","entrypoint":"` + entrypoint + `"},"consumes":["source.snapshot"],"produces":["scanner.alerts"],"permissions":{"network":"none","source_write":false},"config_schema":{"type":"object","properties":{},"additionalProperties":false}}`
+	return `{"api_version":"codexploit/v1","id":"` + id + `","version":"` + version + `","name":"Pattern scanner","description":"Offline fixture.","kind":"scanner","languages":["Go"],"runtime":{"kind":"process","entrypoint":"` + entrypoint + `"},"consumes":["source.snapshot"],"produces":["scanner.alerts"],"permissions":{"network":"none","source_write":false},"config_schema":{"type":"object","properties":{},"additionalProperties":false}}`
 }
 
 func writePackage(t *testing.T, root, id, version, entrypoint, content string) string {

@@ -41,6 +41,9 @@ type Manifest struct {
 	Runtime     struct {
 		Kind       string `json:"kind"`
 		Entrypoint string `json:"entrypoint,omitempty"`
+		// Protocol is optional for old manifests. When present, the host must
+		// advertise the same runtime protocol or the plugin is not executable.
+		Protocol string `json:"protocol,omitempty"`
 	} `json:"runtime"`
 	Consumes    []string `json:"consumes"`
 	Produces    []string `json:"produces"`
@@ -58,7 +61,10 @@ type Record struct {
 	Source         string   `json:"source"`
 	Installed      bool     `json:"installed"`
 	Executable     bool     `json:"executable"`
-	Reason         string   `json:"reason,omitempty"`
+	// ProtocolVersion is the runtime protocol this host would use. It is pinned
+	// with the rest of the record in a workflow plan.
+	ProtocolVersion string `json:"protocol_version,omitempty"`
+	Reason          string `json:"reason,omitempty"`
 }
 
 type CatalogRepository interface {
@@ -72,6 +78,7 @@ type Catalog struct {
 	mu         sync.RWMutex
 	installed  map[string]string
 	executable map[string]bool
+	protocols  map[string]string
 }
 
 var manifestSchema = sync.OnceValues(func() (*jsonschema.Resolved, error) {
@@ -166,8 +173,16 @@ func (c *Catalog) availability(record Record) Record {
 	c.mu.RLock()
 	record.Installed = c.installed[key] == identity
 	record.Executable = record.Installed && c.executable[key]
+	record.ProtocolVersion = c.protocols[record.Manifest.Runtime.Kind]
 	c.mu.RUnlock()
+	declared := strings.TrimSpace(record.Manifest.Runtime.Protocol)
+	protocolMismatch := declared != "" && declared != record.ProtocolVersion
+	if protocolMismatch {
+		record.Executable = false
+	}
 	switch {
+	case protocolMismatch:
+		record.Reason = fmt.Sprintf("Declared runtime protocol %q is not supported by this host (supported: %q)", declared, record.ProtocolVersion)
 	case record.Executable:
 		record.Reason = ""
 	case record.Installed:
@@ -221,9 +236,25 @@ func (c *Catalog) List(ctx context.Context, cursor string, limit int) ([]Record,
 }
 
 func NewCatalog(ctx context.Context, repo CatalogRepository) (*Catalog, error) {
-	c := &Catalog{Repository: repo, installed: map[string]string{}, executable: map[string]bool{}}
+	c := &Catalog{
+		Repository: repo,
+		installed:  map[string]string{},
+		executable: map[string]bool{},
+		protocols:  defaultRuntimeProtocols(),
+	}
 	err := c.install(ctx, BuiltinManifest(), BuiltinPackageDigest(), "compiled builtin")
 	return c, err
+}
+
+// defaultRuntimeProtocols maps the runtime adapters this host actually
+// implements to their wire protocol. A manifest may declare a protocol; a
+// mismatch makes it non-executable instead of attempting a handshake that
+// cannot succeed.
+func defaultRuntimeProtocols() map[string]string {
+	return map[string]string{
+		"builtin": "builtin/v1",
+		"process": "ndjson-jsonrpc/v1",
+	}
 }
 
 func (c *Catalog) install(ctx context.Context, manifest json.RawMessage, packageDigest, source string) error {

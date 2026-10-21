@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codexploit.invalid/contracts/v1/agent-protocol.schema.json",
+  "title": "Agent runtime task and answer protocol",
+  "description": "Bounded domain protocol for an agent adapter. The Go host remains the authority for scope, budget, tool allowlists and answer validation; this document only defines the versioned envelope.",
+  "oneOf": [
+    { "$ref": "#/$defs/Task" },
+    { "$ref": "#/$defs/Answer" }
+  ],
+  "$defs": {
+    "Obligation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "statement"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "kind": { "enum": ["source_control", "sink_reachability", "control_failure", "sink_sensitivity"] },
+        "statement": { "type": "string", "minLength": 1, "maxLength": 2000 }
+      }
+    },
+    "Task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "task_id", "objective", "obligations", "limits", "source"],
+      "properties": {
+        "schema_version": { "const": "codexploit/agent-task/v1" },
+        "task_id": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "objective": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "obligations": { "type": "array", "minItems": 1, "maxItems": 64, "items": { "$ref": "#/$defs/Obligation" } },
+        "evidence": { "type": "array", "maxItems": 256, "items": { "type": "string", "maxLength": 300 } },
+        "frontier": { "type": "array", "maxItems": 256, "items": { "type": "string", "maxLength": 300 } },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["max_tool_calls", "max_tokens", "max_depth"],
+          "properties": {
+            "max_tool_calls": { "type": "integer", "minimum": 0, "maximum": 1000 },
+            "max_tokens": { "type": "integer", "minimum": 0 },
+            "max_depth": { "type": "integer", "minimum": 0, "maximum": 64 }
+          }
+        },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["snapshot_id", "digest"],
+          "properties": {
+            "snapshot_id": { "type": "string", "minLength": 1, "maxLength": 200 },
+            "digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+          }
+        }
+      }
+    },
+    "AnswerObligation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "verdict"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "verdict": { "enum": ["met", "not_met", "unknown"] },
+        "blocker": { "enum": ["unresolved_call", "dynamic_dispatch", "external_dependency", "control_unassessed", "budget"] }
+      }
+    },
+    "Answer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "task_id", "verdict", "obligations"],
+      "properties": {
+        "schema_version": { "const": "codexploit/agent-answer/v1" },
+        "task_id": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "verdict": { "enum": ["candidate", "refuted", "inconclusive"] },
+        "obligations": { "type": "array", "minItems": 1, "maxItems": 64, "items": { "$ref": "#/$defs/AnswerObligation" } },
+        "falsifier": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["claim", "checked"],
+          "properties": {
+            "claim": { "type": "string", "minLength": 1, "maxLength": 2000 },
+            "checked": { "type": "boolean" },
+            "how": { "type": "string", "maxLength": 1000 }
+          }
+        },
+        "limitations": { "type": "array", "maxItems": 64, "items": { "type": "string", "maxLength": 500 } }
+      }
+    }
+  }
+}

@@ -90,5 +90,25 @@
   {
     "file": "examples/project-input.json",
     "schema": "project-input.schema.json"
+  },
+  {
+    "file": "examples/agent-task.json",
+    "schema": "agent-protocol.schema.json"
+  },
+  {
+    "file": "examples/environment-receipt.json",
+    "schema": "environment-protocol.schema.json"
+  },
+  {
+    "file": "examples/verification-evidence.json",
+    "schema": "verification-protocol.schema.json"
+  },
+  {
+    "file": "examples/path-enhancement.json",
+    "schema": "path-enhancement.schema.json"
+  },
+  {
+    "file": "examples/plugin-capabilities.json",
+    "schema": "plugin-capabilities.schema.json"
   }
 ]

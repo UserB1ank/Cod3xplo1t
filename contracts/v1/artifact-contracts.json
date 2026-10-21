@@ -19,6 +19,13 @@
     {"kind": "scanner.alerts", "capability": "scan", "schemas": ["codexploit/scanner-alerts/v1"]},
     {"kind": "discovery.paths", "capability": "path", "schemas": ["codexploit/discovery/v1"]},
     {"kind": "discovery.findings", "capability": "report", "schemas": ["codexploit/report-input/v1", "codexploit/discovery/v1"]},
-    {"kind": "report.document", "capability": "report", "schemas": ["codexploit/builtin-native/v1", "codexploit/report/v1"]}
+    {"kind": "report.document", "capability": "report", "schemas": ["codexploit/builtin-native/v1", "codexploit/report/v1"]},
+    {"kind": "path.enhancement", "capability": "path", "schemas": ["codexploit/path-enhancement/v1"]},
+    {"kind": "agent.task", "capability": "agent", "schemas": ["codexploit/agent-task/v1"]},
+    {"kind": "agent.answer", "capability": "agent", "schemas": ["codexploit/agent-answer/v1"]},
+    {"kind": "environment.request", "capability": "environment", "schemas": ["codexploit/environment-request/v1"]},
+    {"kind": "environment.receipt", "capability": "environment", "schemas": ["codexploit/environment-receipt/v1"]},
+    {"kind": "verification.plan", "capability": "verification", "schemas": ["codexploit/verification-plan/v1"]},
+    {"kind": "verification.evidence", "capability": "verification", "schemas": ["codexploit/verification-evidence/v1"]}
   ]
 }

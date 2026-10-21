@@ -38,6 +38,14 @@ single-finding DTO.
 fixed selection, candidate policy and independent verdict / severity counts.
 See [fixed reports](../../docs/reports.md) for capture, download and restart semantics.
 
+`domain-protocols.json` registers versioned domain envelopes that are not generic
+plugin Execute artifacts: agent task/answer, environment request/receipt,
+verification plan/evidence and path enhancement. Each entry names a local schema
+file and an execution transport; the registry refuses unknown schema IDs, unsafe
+file names or network resolution. `plugin-capabilities.schema.json` validates the
+catalog response that exposes plugin, Agent, environment and verification
+adapters with their declared/installed/measured state.
+
 `project-input.schema.json` defines the single implicit audit input of a project
 created after #63: `importing`, `ready`, `failed` or `legacy`, with the bound
 source/snapshot and a bounded failure reason. A legacy project has no stored

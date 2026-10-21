@@ -1,0 +1,12 @@
+{
+  "schema_version": "codexploit/environment-receipt/v1",
+  "environment_id": "env-example",
+  "provider": "container",
+  "provider_version": "1.0.0",
+  "applied": ["container", "network_none", "read_only_source", "controlled_exec"],
+  "network_mode": "none",
+  "source_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "source_read_only": true,
+  "image_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+}

@@ -1,0 +1,14 @@
+{
+  "schema_version": "codexploit/path-enhancement/v1",
+  "path_id": "path-example",
+  "audit_id": "audit-example",
+  "score": { "priority": 81.5, "support": 0.72, "risk": 0.6, "utility": 0.55, "score_version": 3 },
+  "reasons": ["public route reaches a database query", "no parameterization observed"],
+  "evidence_refs": ["asgn-example"],
+  "limitations": ["static reachability does not establish taint flow"],
+  "producer": {
+    "plugin_id": "builtin.path-enhancer",
+    "plugin_version": "1.0.0",
+    "package_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  }
+}

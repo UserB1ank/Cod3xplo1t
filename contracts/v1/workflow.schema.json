@@ -34,7 +34,14 @@
           "discovery.paths",
           "discovery.findings",
           "knowledge.view",
-          "report.document"
+          "report.document",
+          "path.enhancement",
+          "agent.task",
+          "agent.answer",
+          "environment.request",
+          "environment.receipt",
+          "verification.plan",
+          "verification.evidence"
         ]
       },
       "uniqueItems": true

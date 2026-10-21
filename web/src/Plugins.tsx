@@ -5,6 +5,14 @@ import { preparePublication, type PublicationRequest } from "./knowledgeData";
 import { Badge, EmptyState, Hint, Modal, Panel } from "./components";
 import type { Snapshot } from "./types";
 import { latestSnapshot } from "./workbench";
+import {
+  adapterDetail,
+  adapterStatus,
+  capabilityStatus,
+  executionModelLabel,
+  type CapabilityView,
+  type DomainProtocol,
+} from "./capability";
 import type { ArtifactRef } from "./Artifacts";
 
 export interface PluginRecord {
@@ -135,6 +143,8 @@ export function Plugins({
   onKnowledge: () => void;
 }) {
   const [catalog, setCatalog] = useState<PluginRecord[]>([]);
+  const [capabilities, setCapabilities] = useState<CapabilityView[]>([]);
+  const [protocols, setProtocols] = useState<DomainProtocol[]>([]);
   const [catalogCursor, setCatalogCursor] = useState([""]);
   const [nextCatalog, setNextCatalog] = useState("");
   const [selected, setSelected] = useState("");
@@ -212,6 +222,22 @@ export function Plugins({
     if (!snapshot && snapshots.length)
       setSnapshot(latestSnapshot(snapshots)!.snapshot_id);
   }, [snapshot, snapshots]);
+  useEffect(() => {
+    const controller = new AbortController();
+    api
+      .get<{ capabilities: CapabilityView[]; protocols: DomainProtocol[] }>(
+        "/v1/plugins/capabilities",
+        controller.signal,
+      )
+      .then((page) => {
+        setCapabilities(page.capabilities || []);
+        setProtocols(page.protocols || []);
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) setError(errorText(error));
+      });
+    return () => controller.abort();
+  }, [api, catalogTick, revision]);
   useEffect(() => {
     const controller = new AbortController();
     api
@@ -364,6 +390,100 @@ export function Plugins({
           {notice}
         </div>
       )}
+      <Panel
+        title="能力与执行适配器"
+        eyebrow="CAPABILITY CATALOG"
+        action={
+          <button
+            className="button secondary"
+            onClick={() => updateCatalog((n) => n + 1)}
+            disabled={!!busy}
+          >
+            <RefreshCw size={14} />
+            刷新能力
+          </button>
+        }
+      >
+        <Hint>
+          九个阶段分别列出可用适配器；声明、安装和实测可执行是三种状态。
+          插件 Runtime、Agent Runtime、环境供应后端与验证执行器不会被混成同一种 Execute。
+          契约中的 Schema 只说明数据结构，不授予权限。
+        </Hint>
+        {capabilities.length ? (
+          <div className="capability-grid">
+            {capabilities.map((capability) => {
+              const status = capabilityStatus(capability);
+              return (
+                <section className="capability-card" key={capability.key}>
+                  <header>
+                    <div>
+                      <strong>{capability.label}</strong>
+                      <small>{capability.key} · {executionModelLabel(capability.execution_model)}</small>
+                    </div>
+                    <span className={`input-state ${status.tone}`}>{status.label}</span>
+                  </header>
+                  {capability.reason && (
+                    <p className="capability-reason">{capability.reason}</p>
+                  )}
+                  {capability.contracts.length > 0 && (
+                    <div className="capability-contracts">
+                      {capability.contracts.map((contract) => (
+                        <span key={contract.kind} title={contract.schemas.join(", ")}>
+                          {contract.kind}
+                          <code>{contract.schemas.join(" · ")}</code>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <div className="capability-adapters">
+                    {capability.adapters.map((adapter) => {
+                      const adapterState = adapterStatus(adapter);
+                      return (
+                        <div className="capability-adapter" key={`${adapter.kind}:${adapter.id}`}>
+                          <span className={`input-state ${adapterState.tone}`}>{adapterState.label}</span>
+                          <div>
+                            <strong>{adapter.name}</strong>
+                            <small>{adapterDetail(adapter)}</small>
+                            {adapter.reason && <p>{adapter.reason}</p>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {!capability.adapters.length && (
+                      <p className="muted">此阶段没有已配置的适配器。</p>
+                    )}
+                  </div>
+                </section>
+              );
+            })}
+          </div>
+        ) : (
+          <EmptyState title="能力目录不可用">服务端未返回能力目录，刷新后重试。</EmptyState>
+        )}
+        {protocols.length > 0 && (
+          <details className="capability-protocols">
+            <summary>版本化领域协议（{protocols.length}）</summary>
+            <div className="table-scroll">
+              <table className="standard-table">
+                <thead>
+                  <tr><th>Schema</th><th>阶段</th><th>传输</th><th>方向</th><th>本地文件</th></tr>
+                </thead>
+                <tbody>
+                  {protocols.map((protocol) => (
+                    <tr key={protocol.schema}>
+                      <td><code>{protocol.schema}</code></td>
+                      <td>{protocol.capability}</td>
+                      <td>{executionModelLabel(protocol.transport)}</td>
+                      <td>{protocol.direction}</td>
+                      <td><code>{protocol.file}</code></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </details>
+        )}
+      </Panel>
       <Panel
         title="插件目录"
         action={

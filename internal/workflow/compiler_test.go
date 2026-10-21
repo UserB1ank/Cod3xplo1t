@@ -103,7 +103,7 @@ func TestCompilerRejectsCancelledValidationAndUnavailableAdapters(t *testing.T) 
 		t.Fatalf("cancelled validation: %v", err)
 	}
 	catalog := c.Plugins.(*plugin.Catalog)
-	manifest := json.RawMessage(`{"api_version":"codexploit/v1","id":"external.scanner","version":"1.0.0","name":"Synthetic scanner","description":"Not installed","kind":"analyzer","languages":["Go"],"runtime":{"kind":"container","entrypoint":"scanner"},"consumes":["source.snapshot"],"produces":["scanner.alerts"],"permissions":{"network":"none","source_write":false},"config_schema":{"type":"object","additionalProperties":false}}`)
+	manifest := json.RawMessage(`{"api_version":"codexploit/v1","id":"external.scanner","version":"1.0.0","name":"Synthetic scanner","description":"Not installed","kind":"scanner","languages":["Go"],"runtime":{"kind":"container","entrypoint":"scanner"},"consumes":["source.snapshot"],"produces":["scanner.alerts"],"permissions":{"network":"none","source_write":false},"config_schema":{"type":"object","additionalProperties":false}}`)
 	if _, err := catalog.Register(context.Background(), manifest, strings.Repeat("a", 64), "synthetic fixture"); err != nil {
 		t.Fatal(err)
 	}
@@ -175,4 +175,31 @@ func hasDiagnostic(result workflow.Validation, code string) bool {
 		}
 	}
 	return false
+}
+
+func TestCompilerRejectsCapabilityWithoutItsOwnProducedContract(t *testing.T) {
+	record := plugin.Record{
+		Manifest: plugin.Manifest{
+			APIVersion: "codexploit/v1", ID: "external.scanner", Version: "1.0.0", Name: "Synthetic scanner",
+			Kind: "scanner", Languages: []string{"Go"}, Consumes: []string{"source.snapshot"}, Produces: []string{"code.facts"},
+			ConfigSchema: json.RawMessage(`{"type":"object","additionalProperties":false}`),
+		},
+		Executable: true,
+	}
+	c := &workflow.Compiler{
+		Plugins: staticCatalog{record: record},
+		AdapterInputs: map[string]workflow.AdapterInputs{
+			"external.scanner@1.0.0": {Schemas: []string{"codexploit/source-tar/v1"}, Producers: []string{""}},
+		},
+	}
+	spec := fixture()
+	spec.Nodes = []workflow.Node{{ID: "scan", PluginID: "external.scanner", PluginVersion: "1.0.0", Needs: []string{}, Config: json.RawMessage(`{}`), TimeoutSeconds: 60}}
+	raw, _ := json.Marshal(spec)
+	result, err := c.Validate(context.Background(), raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Valid || len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "capability" || result.Diagnostics[0].Path != "/nodes/0/plugin_version" {
+		t.Fatalf("capability mismatch diagnostics = %+v", result.Diagnostics)
+	}
 }

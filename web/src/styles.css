@@ -2938,3 +2938,103 @@ pre {
     justify-content: flex-start;
   }
 }
+
+/* Capability and adapter catalog (#28). */
+.capability-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+.capability-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+}
+.capability-card > header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+.capability-card > header > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.capability-card > header strong {
+  font-size: 14px;
+  font-weight: 550;
+}
+.capability-card > header small {
+  color: var(--muted);
+  font-size: 11px;
+}
+.capability-reason {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.capability-contracts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.capability-contracts > span {
+  display: grid;
+  gap: 1px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.capability-contracts code {
+  color: var(--accent);
+  font-size: 10px;
+}
+.capability-adapters {
+  display: grid;
+  gap: 8px;
+}
+.capability-adapter {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.capability-adapter > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.capability-adapter strong {
+  font-size: 12px;
+  font-weight: 550;
+  overflow-wrap: anywhere;
+}
+.capability-adapter small {
+  color: var(--muted);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+.capability-adapter p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.capability-protocols {
+  margin-top: 14px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+.capability-protocols summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+}

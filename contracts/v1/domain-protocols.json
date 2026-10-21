@@ -1,0 +1,61 @@
+{
+  "api_version": "codexploit/contracts/v1",
+  "protocols": [
+    {
+      "schema": "codexploit/agent-task/v1",
+      "capability": "agent",
+      "transport": "agent_runtime",
+      "direction": "input",
+      "file": "agent-protocol.schema.json",
+      "description": "Bounded task envelope sent to an agent runtime; the Go host remains authoritative for scope, budget and answer validation."
+    },
+    {
+      "schema": "codexploit/agent-answer/v1",
+      "capability": "agent",
+      "transport": "agent_runtime",
+      "direction": "output",
+      "file": "agent-protocol.schema.json",
+      "description": "Proposed answer envelope returned by an agent runtime; the host validates obligations, falsifiers and evidence before accepting it."
+    },
+    {
+      "schema": "codexploit/environment-request/v1",
+      "capability": "environment",
+      "transport": "environment_backend",
+      "direction": "input",
+      "file": "environment-protocol.schema.json",
+      "description": "Approved plan and frozen source bound to an environment request; credentials stay outside this document."
+    },
+    {
+      "schema": "codexploit/environment-receipt/v1",
+      "capability": "environment",
+      "transport": "environment_backend",
+      "direction": "output",
+      "file": "environment-protocol.schema.json",
+      "description": "What the backend actually applied, including network mode, source digest and provider version."
+    },
+    {
+      "schema": "codexploit/verification-plan/v1",
+      "capability": "verification",
+      "transport": "verification_executor",
+      "direction": "input",
+      "file": "verification-protocol.schema.json",
+      "description": "Approved fixed plan with bounded steps and required environment capabilities."
+    },
+    {
+      "schema": "codexploit/verification-evidence/v1",
+      "capability": "verification",
+      "transport": "verification_executor",
+      "direction": "output",
+      "file": "verification-protocol.schema.json",
+      "description": "Observed command/test evidence with provenance and limitations; it is not a confirmed verdict."
+    },
+    {
+      "schema": "codexploit/path-enhancement/v1",
+      "capability": "path",
+      "transport": "plugin_execute",
+      "direction": "output",
+      "file": "path-enhancement.schema.json",
+      "description": "Deterministic score/reason enrichment for an existing candidate path; it cannot rewrite the path."
+    }
+  ]
+}

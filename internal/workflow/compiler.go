@@ -99,13 +99,29 @@ func (c *Compiler) Validate(ctx context.Context, raw json.RawMessage) (Validatio
 		if !record.Executable {
 			add(fmt.Sprintf("/nodes/%d/plugin_version", i), "plugin_unavailable", "Plugin package has no installed execution adapter")
 		}
-		if _, ok := plugin.CapabilityForManifestKind(record.Manifest.Kind); !ok {
+		_, kindKnown := plugin.CapabilityForManifestKind(record.Manifest.Kind)
+		primary, capabilityKnown := plugin.CapabilityForRecord(record)
+		if !kindKnown || !capabilityKnown {
 			add(fmt.Sprintf("/nodes/%d/plugin_version", i), "capability", "Plugin manifest declares an unknown capability")
+			capabilityKnown = false
 		}
+		producedPrimary := false
 		for _, kind := range append(append([]string{}, record.Manifest.Consumes...), record.Manifest.Produces...) {
-			if _, ok := plugin.LookupContract(kind); !ok {
+			contract, ok := plugin.LookupContract(kind)
+			if !ok {
 				add(fmt.Sprintf("/nodes/%d/needs", i), "unknown_contract", "Unknown artifact contract "+kind)
+				continue
 			}
+			if capabilityKnown && contract.Capability == string(primary) {
+				for _, produced := range record.Manifest.Produces {
+					if produced == kind {
+						producedPrimary = true
+					}
+				}
+			}
+		}
+		if capabilityKnown && !producedPrimary {
+			add(fmt.Sprintf("/nodes/%d/plugin_version", i), "capability", "Plugin does not produce an artifact of its declared capability")
 		}
 		schema, resolved, err := offlineSchema(record.Manifest.ConfigSchema)
 		if err != nil {

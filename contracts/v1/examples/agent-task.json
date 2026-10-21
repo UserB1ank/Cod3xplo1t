@@ -1,0 +1,13 @@
+{
+  "schema_version": "codexploit/agent-task/v1",
+  "task_id": "task-example",
+  "objective": "Review one candidate path without claiming a vulnerability.",
+  "obligations": [
+    { "id": "path-1/source_control", "kind": "source_control", "statement": "The request value reaches the sink without a constant override." },
+    { "id": "path-1/sink_reachability", "kind": "sink_reachability", "statement": "A call edge reaches the sensitive operation." }
+  ],
+  "evidence": ["evidence-example"],
+  "frontier": ["is the query parameterized?"],
+  "limits": { "max_tool_calls": 12, "max_tokens": 60000, "max_depth": 4 },
+  "source": { "snapshot_id": "snap-0123456789abcdef0123456789abcdef", "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+}

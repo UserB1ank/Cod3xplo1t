@@ -1,6 +1,6 @@
 # 版本化插件与内置 Go 解析器
 
-Issue #6 将插件目录、内置执行器和正式插件中心接到真实存储。插件目录在工作区共享，调用与产物严格限定 project / source / snapshot。当前安装 `builtin.go-parser@1.1.0`、两个内置分析插件，以及部署目录提供的固定版本进程扫描器 `codexploit.static-patterns@1.0.0`。进程扫描器通过有界 NDJSON JSON-RPC 读取冻结源码 tar，只报告告警位置，不运行目标项目的 build、test、hook 或依赖安装；包格式、协议、归一化和局限见 [进程扫描器](process-scanner.md)。
+Issue #6 将插件目录、内置执行器和正式插件中心接到真实存储。插件目录在工作区共享，调用与产物严格限定 project / source / snapshot。当前安装 `builtin.go-parser@1.2.0`、两个内置分析插件，以及部署目录提供的固定版本进程扫描器 `codexploit.static-patterns@1.0.6`。进程扫描器通过有界 NDJSON JSON-RPC 读取冻结源码 tar，只报告告警位置，不运行目标项目的 build、test、hook 或依赖安装；包格式、协议、归一化和局限见 [进程扫描器](process-scanner.md)。
 
 ## 标准接口
 
@@ -94,6 +94,34 @@ Issue #7 已接通内置语义和路径分析、Normalizer、AnalysisResult 与�
 - 内置插件的宿主注册表优先于清单 `kind`：历史上 `builtin.discovery-paths` 与扫描器都声明为 `analyzer`，但分别属于 path 与 scan；部署注册表按插件 ID 固定主能力，第三方插件仍按 `kind` 映射，后续清单可用显式能力字段取代。
 - 工作流编译在运行前检查节点插件的未知能力/未知产物契约（诊断代码 `capability`、`unknown_contract`），以及既有的输入 Schema、直接 producer 与包可用性检查。
 
-认证 API `GET /api/v1/plugins/capabilities`（reader）返回全部九个阶段：每个阶段的标签、是否可用、不可用原因、声明该能力的插件（id/version/name/runtime/source/installed/executable/reason）以及该阶段的产物契约。环境供应与验证目前没有适配器，会如实显示为不可用，而不是从目录里消失。
+认证 API `GET /api/v1/plugins/capabilities`（reader）返回全部九个阶段：每个阶段的标签、执行模型、是否可用、不可用原因、声明该能力的插件、插件/Agent/环境/验证适配器（含协议版本与声明/安装/实测状态）以及产物契约。环境供应与验证在没有配置后端时显示带原因的不可用适配器，而不是从目录里消失；配置真实容器后端和执行器时则显示实测能力。
 
-说明：清单 Schema 不能凭字段声明授予权限；有效权限仍是清单、安装授权、任务策略与实际可执行能力的交集。插件页的展示与交互由前端单独演进，本接口是它的数据来源。
+说明：清单 Schema 不能凭字段声明授予权限；有效权限仍是清单、安装授权、任务策略与实际可执行能力的交集。
+
+### 执行适配器与领域协议（#28）
+
+`GET /api/v1/plugins/capabilities` 现在同时返回九个阶段的 `execution_model`、`adapters` 与 `protocols`。每项适配器明确是 `plugin_runtime`、`agent_runtime`、`environment_backend`、`verification_executor` 或 `native_service`，并分别给出：
+
+- `declared`：清单/配置是否声明了该能力；
+- `installed`：部署中是否存在通过校验的包或已配置后端；
+- `measured`：宿主是否真的完成了握手或探测，能执行该阶段。
+
+插件 Runtime 与目标环境 backend 不再混成一个概念：Agent Runtime 的 readiness 来自 `agent.RuntimeInfo`，环境 backend 的能力来自 `verify.EnvironmentProvider.Capabilities()`，验证执行器来自 `verify.Executor.Capabilities()`。没有配置时目录显示占位适配器和真实原因，不会把阶段隐藏，也不会声称动态验证可用。`protocol_version` 记录宿主实际使用的协议（内置 `builtin/v1`、进程 `ndjson-jsonrpc/v1`）；清单可声明 `runtime.protocol`，与宿主不一致时只登记、不可执行，编译在运行前拒绝。
+
+版本化领域协议存放在本地 `contracts/v1/domain-protocols.json`，不依赖网络解析：
+
+| Schema | 阶段 | 传输 | 方向 | 本地 Schema |
+|---|---|---|---|---|
+| `codexploit/agent-task/v1` | Agent | `agent_runtime` | 输入 | `agent-protocol.schema.json` |
+| `codexploit/agent-answer/v1` | Agent | `agent_runtime` | 输出 | `agent-protocol.schema.json` |
+| `codexploit/environment-request/v1` | 环境供应 | `environment_backend` | 输入 | `environment-protocol.schema.json` |
+| `codexploit/environment-receipt/v1` | 环境供应 | `environment_backend` | 输出 | `environment-protocol.schema.json` |
+| `codexploit/verification-plan/v1` | 验证 | `verification_executor` | 输入 | `verification-protocol.schema.json` |
+| `codexploit/verification-evidence/v1` | 验证 | `verification_executor` | 输出 | `verification-protocol.schema.json` |
+| `codexploit/path-enhancement/v1` | 路径增强 | `plugin_execute` | 输出 | `path-enhancement.schema.json` |
+
+Agent、环境供应和验证保留各自的领域端口（任务/答案、供应/回执、计划/证据），不会为了复用插件 Execute 而伪造一次插件调用；只有路径增强和既有分析阶段进入固定版本插件调用。
+
+工作流编译在原有类型、Schema 版本、直接 producer、scope、语言、知识 pin 和包摘要检查之外，要求每个插件至少产出一个属于其声明能力的契约；缺少适配器、协议不匹配、契约未知或输入有歧义时都在运行前诊断。`plugin-capability` 页面的能力矩阵、适配器状态、协议表和插件目录均来自上述真实 API，不使用示例数组。
+
+原始报告到标准事实的映射继续由 Normalizer 完成：canonical ID、规则 ID/版本、覆盖、局限、producer 与原始产物引用全部保留；不同工具对同一事实的观察按独立 observation 保存，冲突不会被后到的工具静默覆盖。
