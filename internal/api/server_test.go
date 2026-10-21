@@ -27,6 +27,7 @@ import (
 const (
 	adminSecret  = "test-admin-secret-0123456789"
 	admin2Secret = "test-admin2-secret-0123456789"
+	writerSecret = "test-writer-secret-0123456789"
 	readerSecret = "test-reader-secret-0123456789"
 )
 
@@ -36,6 +37,7 @@ func testAuthenticator(t *testing.T) *Authenticator {
 	auth, err := NewAuthenticator([]Token{
 		{Name: "admin", Role: "admin", Secret: adminSecret},
 		{Name: "second", Role: "admin", Secret: admin2Secret},
+		{Name: "writer", Role: "writer", Secret: writerSecret},
 		{Name: "reader", Role: "reader", Secret: readerSecret},
 	})
 	if err != nil {

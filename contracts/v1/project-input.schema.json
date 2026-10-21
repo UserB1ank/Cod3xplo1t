@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codexploit.invalid/contracts/v1/project-input.schema.json",
+  "title": "Project audit input",
+  "description": "The single implicit source input of a project created after #63. Projects without this record are legacy multi-source projects and answer state=legacy without inventing a latest input.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["api_version", "input"],
+  "properties": {
+    "api_version": { "const": "codexploit/v1" },
+    "input": { "$ref": "#/$defs/ProjectInput" }
+  },
+  "$defs": {
+    "ProjectInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["project_id", "state", "files", "bytes", "version", "created_at", "updated_at"],
+      "properties": {
+        "project_id": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "state": { "enum": ["importing", "ready", "failed", "legacy"] },
+        "source_id": { "type": "string", "maxLength": 200 },
+        "source_kind": { "enum": ["uploaded_archive", "uploaded_directory", "git_repository", "local_folder"] },
+        "source_name": { "type": "string", "maxLength": 300 },
+        "snapshot_id": { "type": "string", "maxLength": 200 },
+        "files": { "type": "integer", "minimum": 0 },
+        "bytes": { "type": "integer", "minimum": 0 },
+        "failure_code": { "type": "string", "maxLength": 100 },
+        "failure_message": { "type": "string", "maxLength": 500 },
+        "version": { "type": "integer", "minimum": 0 },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "state": { "const": "failed" } }, "required": ["state"] },
+          "then": { "required": ["failure_code", "failure_message"] }
+        },
+        {
+          "if": { "properties": { "state": { "const": "ready" } }, "required": ["state"] },
+          "then": { "required": ["source_id", "snapshot_id"] }
+        },
+        {
+          "if": { "properties": { "state": { "const": "legacy" } }, "required": ["state"] },
+          "then": { "properties": { "version": { "const": 0 } } }
+        }
+      ]
+    }
+  }
+}

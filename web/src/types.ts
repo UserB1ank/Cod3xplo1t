@@ -2,7 +2,10 @@ export type View = 'overview' | 'projects' | 'graph' | 'surface' | 'paths' | 'ru
 export type PathFilter = 'all' | 'queued' | 'active' | 'attention';
 export type FindingStatus = 'candidate' | 'confirmed' | 'refuted' | 'inconclusive' | 'blocked';
 
-export interface Project { id: string; name: string; source: string; identity: string; created_at: string; updated_at: string; version: number }
+export interface Project { id: string; name: string; description?: string; source: string; identity: string; created_at: string; updated_at: string; version: number }
+export type ProjectInputState = 'importing' | 'ready' | 'failed' | 'legacy';
+export interface ProjectInput { project_id: string; state: ProjectInputState; source_id?: string; source_kind?: string; source_name?: string; snapshot_id?: string; files: number; bytes: number; failure_code?: string; failure_message?: string; version: number; created_at: string; updated_at: string }
+export interface ProjectDirectoryEntry { project: Project; audit_input?: ProjectInput }
 export interface Snapshot { snapshot_id: string; project_id: string; commit: string; vcs: string; created_at: string; manifest_present: boolean; source_id?: string; source_version?: number }
 export interface Step { layer: string; from: string; to: string; kind: string; subject?: string; file?: string; line?: number; evidence?: string; confidence?: string }
 export interface AuditPath {

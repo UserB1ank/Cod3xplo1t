@@ -1,4 +1,4 @@
-import type { Audit, AuditBudget, AuditDraft, AuditEvent, AuditPath, BudgetGrant, Connection, Finding, FindingDetail, GraphSummary, Project, Run, Scheduler, Snapshot, Workspace } from './types.ts';
+import type { Audit, AuditBudget, AuditDraft, AuditEvent, AuditPath, BudgetGrant, Connection, Finding, FindingDetail, GraphSummary, Project, ProjectDirectoryEntry, ProjectInput, Run, Scheduler, Snapshot, Workspace } from './types.ts';
 
 export class ApiError extends Error {
   status: number;
@@ -62,6 +62,20 @@ export class ApiClient {
     return (await this.response(path, { method: 'POST', body: JSON.stringify(body), signal, headers: { 'Idempotency-Key': crypto.randomUUID(), ...headers } })).json() as Promise<T>;
   }
   projects(signal?: AbortSignal) { return this.get<{ projects: Project[] }>('/projects', signal); }
+  projectDirectory(signal?: AbortSignal) { return this.get<{ api_version: string; projects: ProjectDirectoryEntry[] }>('/v1/projects', signal); }
+  projectInput(projectID: string, signal?: AbortSignal) { return this.get<{ api_version: string; input: ProjectInput }>(`/v1/projects/${encodeURIComponent(projectID)}/audit-input`, signal); }
+  async updateProject(projectID: string, body: { name?: string; description?: string }) {
+    const current = await this.response(`/projects/${encodeURIComponent(projectID)}`);
+    const etag = current.headers.get('ETag');
+    if (!etag) throw new Error('项目缺少版本标识，请刷新后重试。');
+    await current.arrayBuffer();
+    return (await this.response(`/projects/${encodeURIComponent(projectID)}`, {
+      method: 'PATCH', body: JSON.stringify(body), headers: { 'If-Match': etag },
+    })).json() as Promise<Project>;
+  }
+  async deleteProject(projectID: string) {
+    return this.response(`/v1/projects/${encodeURIComponent(projectID)}`, { method: 'DELETE' });
+  }
 
   async workspace(projectChoice?: string, snapshotChoice?: string, signal?: AbortSignal): Promise<Workspace> {
     const { projects: rawProjects } = await this.projects(signal);

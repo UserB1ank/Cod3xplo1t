@@ -1,0 +1,16 @@
+{
+  "api_version": "codexploit/v1",
+  "input": {
+    "project_id": "proj-example",
+    "state": "ready",
+    "source_id": "src-example",
+    "source_kind": "uploaded_archive",
+    "source_name": "example-source.zip",
+    "snapshot_id": "snap-0123456789abcdef0123456789abcdef",
+    "files": 12,
+    "bytes": 4096,
+    "version": 2,
+    "created_at": "2026-10-21T08:00:00Z",
+    "updated_at": "2026-10-21T08:00:05Z"
+  }
+}

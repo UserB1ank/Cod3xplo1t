@@ -34,8 +34,8 @@ protected by accident.
 | Capability | Allows |
 |---|---|
 | `reader` | all `GET` endpoints, plus `POST /graph/paths` and `POST /graph/slice` (query-shaped, they only take a body) |
-| `writer` | everything a reader may do, plus `POST /api/projects`, `POST /api/projects/{id}/snapshots`, `POST /api/snapshots/{id}/graph` |
-| `admin` | everything a writer may do, plus `PATCH /api/projects/{id}` and `DELETE /api/snapshots/{id}` |
+| `writer` | everything a reader may do, plus project create/edit/delete, source create/capture, snapshots, and graph builds |
+| `admin` | everything a writer may do, plus `DELETE /api/snapshots/{id}` |
 
 The additive local-source routes below use `reader` for listing and `writer`
 for project creation, source creation and capture.
@@ -130,13 +130,19 @@ settings remain workspace-backed until #18. See [deployment and recovery](postgr
 
 ### Explicit project sources (implemented v1 subset)
 
-`POST /api/v1/projects` accepts `{"api_version":"codexploit/v1","name":"Service audit"}`
-and creates an independent project without a legacy default source. Existing
-`POST /api/projects` identity and IDs are unchanged.
+`POST /api/v1/projects` accepts
+`{"api_version":"codexploit/v1","name":"Service audit","description":"..."}`
+and creates an independent project with an implicit, single audit input. Existing
+`POST /api/projects` identity and IDs are unchanged and create legacy projects
+without an input record.
 
 | Method and path | Result |
 |---|---|
-| `POST /api/v1/projects/{id}/sources` | register a local-folder or Git definition; `201` and source `ETag` |
+| `GET /api/v1/projects` | directory entries `{project, audit_input?}`; new projects carry their real input, legacy projects omit it |
+| `GET /api/v1/projects/{id}/audit-input` | `{api_version, input}`; legacy projects answer `state=legacy`, never a guessed latest input |
+| `PATCH /api/projects/{id}` | edit name and/or description with `If-Match`; source binding is not editable |
+| `DELETE /api/v1/projects/{id}` | writer-only recoverable deletion; `204` only after cleanup completes |
+| `POST /api/v1/projects/{id}/sources` | register the single local-folder/Git input, or a source for a legacy project; `201` and source `ETag` |
 | `GET /api/v1/projects/{id}/sources?cursor=&limit=50` | `{sources,next_cursor,legacy_source}`; stable ID cursor, maximum 200 per page |
 | `POST /api/v1/sources/{id}/snapshots` | materialize current files, optionally build manifest/SCG/ASG; `201` |
 
@@ -149,8 +155,12 @@ Source registration uses this body (see [source schema](../contracts/v1/source.s
 Definitions are immutable in this implementation and start at `version: 1`.
 The returned `snapshot`, `files` and `revision` describe the latest captured
 content, independently of definition `version`. A new distinct snapshot increments
-`revision`; recapturing the same snapshot does not. A project may own several
-sources. `legacy_source` is the existing project's default input, not a v1 source.
+`revision`; recapturing the same snapshot does not. A project created through
+`/api/v1/projects` owns exactly one bound source and is reported as ready only
+after its snapshot and artifacts exist. A second source returns `409 input_fixed`
+(or `409 import_in_progress` while the first is still importing). Legacy projects
+retain their multi-source history. `legacy_source` is the existing project's
+default input, not a v1 source.
 
 Capture requires the project and definition version:
 
@@ -173,6 +183,27 @@ binding. `POST /api/projects/{id}/tasks` accepts optional `source_id` alongside
 `snapshot_id`; if supplied, it must match the snapshot's source. Tasks remain
 pinned to that snapshot when the folder changes. Bindings and definitions persist
 in SQLite and are removed consistently with snapshot deletion.
+
+### Project input lifecycle and deletion
+
+A new input moves `importing -> ready` only after the immutable snapshot and its
+artifacts are published. A failed archive/directory/Git import moves it to
+`failed` with a real code and message; retrying the same source is allowed, while
+a completed project refuses any other source with `409 input_fixed`. An import
+that disappears (closed dialog, crashed process) is presented as
+`failed/import_interrupted` after five minutes, so it can be retried or deleted
+instead of blocking forever.
+
+`DELETE /api/v1/projects/{id}` is idempotent: a completed tombstone answers `204`
+without recreating the project. Before writing the tombstone the server checks
+queued/running paths, unfinished analyses, agent/workflow/verification/plugin
+runs, pending verification plans, active environment leases and a live import.
+A conflict returns `409 project_active_work` and removes nothing. The tombstone,
+snapshot fences, filesystem removal and final row deletion are resumable, so a
+retried request after a crash continues the same cleanup. Late project/source/
+snapshot writes are refused after the tombstone exists. Artifacts are
+content-addressed and shared, so deletion removes references and snapshot trees
+but does not delete an object another project may still reference.
 
 Scope mismatches return `400 invalid_scope`, a stale definition version returns
 `412 precondition_failed`, a missing mount returns `503 source_mount_unavailable`,
@@ -227,11 +258,13 @@ List or read projects. `GET` by id returns an `ETag` for use with `PATCH`.
 ### `PATCH /api/projects/{id}`
 
 ```json
-{"name": "new display name"}
+{"name": "new display name", "description": "optional description"}
 ```
 
-Renames a project. Requires `If-Match` with the current `ETag` (capability
-`admin`); the response carries the new `ETag`.
+Edits the project name and/or description. Requires `If-Match` with the current
+`ETag` (capability `writer`); the response carries the new `ETag`. The source
+binding is deliberately not part of this DTO, so a normal edit cannot replace the
+audited code.
 
 The project has a monotonically increasing `version`. Comparing that version and
 renaming are one storage operation, so concurrent requests with the same ETag

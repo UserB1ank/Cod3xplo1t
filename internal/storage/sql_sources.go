@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	"github.com/open-mcp-ai/Codexploit/internal/repository"
 )
@@ -16,7 +17,8 @@ func (s *SQL) CreateSource(ctx context.Context, source SourceDefinition) error {
 		return err
 	}
 	result, err := s.db.ExecContext(ctx, s.rebind(`INSERT INTO project_sources (source_id, project_id, version, definition_json)
-SELECT ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM projects WHERE id = ?)`), source.ID, source.ProjectID, source.Version, string(document), source.ProjectID)
+SELECT ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM projects WHERE id = ?)
+AND NOT EXISTS (SELECT 1 FROM project_deletions WHERE project_id = ?)`), source.ID, source.ProjectID, source.Version, string(document), source.ProjectID, source.ProjectID)
 	if err != nil {
 		return mapSQLError(err)
 	}
@@ -25,6 +27,13 @@ SELECT ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM projects WHERE id = ?)`), source.I
 		return err
 	}
 	if count == 0 {
+		var deleting int
+		if err := s.db.QueryRowContext(ctx, s.rebind(`SELECT COUNT(*) FROM project_deletions WHERE project_id = ?`), source.ProjectID).Scan(&deleting); err != nil {
+			return mapSQLError(err)
+		}
+		if deleting != 0 {
+			return fmt.Errorf("%w: project %s is being deleted", ErrConflict, source.ProjectID)
+		}
 		return ErrNotFound
 	}
 	return nil
@@ -36,6 +45,13 @@ func (s *SQL) RegisterSourceSnapshot(ctx context.Context, source SourceDefinitio
 		return mapSQLError(err)
 	}
 	defer tx.Rollback()
+	var projectDeleted int
+	if err := tx.QueryRowContext(ctx, s.rebind(`SELECT COUNT(*) FROM project_deletions WHERE project_id = ?`), source.ProjectID).Scan(&projectDeleted); err != nil {
+		return mapSQLError(err)
+	}
+	if projectDeleted != 0 {
+		return fmt.Errorf("%w: project %s is being deleted", ErrConflict, source.ProjectID)
+	}
 	// Always acquire the snapshot fence before the source row, including replay.
 	// Deletion uses the same order when clearing a source's latest snapshot.
 	if err := s.snapshotRegistrationTx(ctx, tx, snapshot); err != nil {

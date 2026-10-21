@@ -23,12 +23,14 @@ import {
   LogOut,
   Network,
   Pause,
+  Pencil,
   Play,
   Plus,
   RefreshCw,
   Search,
   Settings2,
   ShieldCheck,
+  Trash2,
   Workflow,
 } from "lucide-react";
 import { ApiClient } from "./api";
@@ -47,6 +49,13 @@ import { Workflows, type Plan } from "./Workflows";
 import { WorkflowRun, flowStatus } from "./WorkflowRun";
 import { Knowledge } from "./Knowledge";
 import { Reports } from "./Reports";
+import { ProjectHome } from "./ProjectHome";
+import {
+  canStartAnalysis,
+  effectiveProjectInput,
+  projectInputLabel,
+  projectInputState,
+} from "./project-management";
 
 import {
   Badge,
@@ -64,6 +73,8 @@ import type {
   Evidence,
   GraphSummary,
   Project,
+  ProjectDirectoryEntry,
+  ProjectInput,
   Run,
   RuntimeInfo,
   Snapshot,
@@ -185,11 +196,18 @@ export default function App() {
     window.addEventListener("hashchange", listener);
     return () => window.removeEventListener("hashchange", listener);
   }, []);
-  const projects = useResource(
-    async (signal) => (api ? (await api.projects(signal)).projects || [] : []),
-    [api, revision],
+  const directory = useResource(
+    async (signal) =>
+      api ? (await api.projectDirectory(signal)).projects || [] : [],
+    [api, revision, route.project],
   );
-  const project = projects.data?.find((p) => p.id === route.project);
+  const projectEntries = directory.data || [];
+  const projects = projectEntries.map((entry) => entry.project);
+  const project = projects.find((p) => p.id === route.project);
+  const projectInput = effectiveProjectInput(
+    projectEntries.find((entry) => entry.project.id === route.project)
+      ?.audit_input,
+  );
   const snapshots = useResource(
     async (signal) =>
       api && route.project
@@ -229,6 +247,22 @@ export default function App() {
           )
         : { findings: [], total: 0, counts: {}, truncated: false },
     [api, route.project, revision, identity?.features.findings],
+  );
+  const reportCount = useResource(
+    async (signal) => {
+      const snapshot = snapshots.data?.[snapshots.data.length - 1];
+      if (!api || !route.project || !snapshot) return 0;
+      try {
+        const page = await api.get<{ reports: unknown[] }>(
+          `/v1/projects/${encodeURIComponent(route.project)}/reports?snapshot_id=${encodeURIComponent(snapshot.snapshot_id)}&limit=100`,
+          signal,
+        );
+        return (page.reports || []).length;
+      } catch {
+        return 0;
+      }
+    },
+    [api, route.project, revision, snapshots.data],
   );
   const task = tasks.data?.tasks.find((t) => t.audit_id === route.task);
   const action = async (
@@ -374,14 +408,14 @@ export default function App() {
         </header>
         <main>
           {(error ||
-            projects.error ||
+            directory.error ||
             snapshots.error ||
             tasks.error ||
             findings.error) && (
             <Failure
               message={
                 error ||
-                projects.error ||
+                directory.error ||
                 snapshots.error ||
                 tasks.error ||
                 findings.error ||
@@ -416,15 +450,15 @@ export default function App() {
             <Projects
               api={api}
               revision={revision}
-              projects={projects.data || []}
-              loading={projects.loading}
+              entries={projectEntries}
+              loading={directory.loading}
               canWrite={canWrite}
               limitedTasks={limitedTasks}
               selectionLabel={route.selecting ? navItems.find((item) => item.id === route.view)?.label : undefined}
               onCreate={() => { setCreationTarget(route.selecting ? route.view : undefined); setDialog("project"); }}
               onOpen={(id) => navigate({ project: id, view: route.selecting ? route.view : limitedTasks ? "sources" : "tasks" })}
             />
-          ) : projects.loading && !project ? (
+          ) : directory.loading && !project ? (
             <Loading />
           ) : !project ? (
             <EmptyState title="项目不存在">
@@ -476,12 +510,18 @@ export default function App() {
                             : route.view === "findings"
                               ? "汇总任务发现，按证据结论与漏洞严重度查看。"
                               : route.view === "sources"
-                                ? limitedTasks ? "管理文件夹与 Git 仓库，固定源码版本并校验产物。" : "管理文件夹与 Git 仓库，固定源码版本，再选择代码基线创建任务。"
-                                : project.source || "项目代码源独立管理。"}
+                                ? projectInputState(projectInput) !== "legacy"
+                                  ? "一份源码对应一次审计；输入就绪后不再提供更新代码入口。"
+                                  : limitedTasks ? "管理文件夹与 Git 仓库，固定源码版本并校验产物。" : "管理文件夹与 Git 仓库，固定源码版本，再选择代码基线创建任务。"
+                                : route.view === "overview"
+                                  ? project.description || "一份源码 · 一次审计。"
+                                  : project.source || "项目代码源独立管理。"}
                   </p>
                 </div>
                 <div className="heading-actions">
-                  {project.source && route.view !== "sources" && (
+                  {project.source &&
+                    route.view !== "sources" &&
+                    projectInputState(projectInput) === "legacy" && (
                     <button
                       className="button secondary"
                       disabled={!canWrite || !!busy}
@@ -512,6 +552,7 @@ export default function App() {
                   revision={revision}
                   canWrite={canWrite && !busy}
                   canBuildKnowledge={canBuildKnowledge}
+                  auditInput={projectInput}
                   canCreateTask={!limitedTasks}
                   onRefresh={() => refresh((n) => n + 1)}
                   onLegacySnapshot={() => setDialog("snapshot")}
@@ -593,35 +634,37 @@ export default function App() {
                   project={project}
                   identity={identity}
                   snapshots={snapshots.data || []}
+                  canWrite={canWrite}
+                  onEdit={() => setDialog("edit-project")}
                 />
               ) : (
                 <>
-                  <Metrics
-                    counts={findings.data?.counts || {}}
-                    tasks={tasks.data?.total || 0}
-                  />
-                  {route.view === "overview" && (
-                    <div className="overview-intro">
-                      <div>
-                        <span className="eyebrow">SHARED KNOWLEDGE</span>
-                        <h2>一次建立，持续积累。</h2>
-                        <p>
-                          {snapshots.data?.length || 0} 个代码版本 ·{" "}
-                          {tasks.data?.total || 0}{" "}
-                          个挖掘任务。任务运行记录独立保存，发现与证据汇入项目知识库。
-                        </p>
-                        <button
-                          className="text-button"
-                          onClick={() =>
-                            navigate({ project: project.id, view: "knowledge" })
-                          }
-                        >
-                          打开知识图谱
-                          <ArrowRight size={15} />
-                        </button>
-                      </div>
-                      <Network size={88} strokeWidth={0.7} />
-                    </div>
+                  {route.view === "overview" ? (
+                    <ProjectHome
+                      project={project}
+                      input={projectInput}
+                      snapshots={snapshots.data || []}
+                      taskCount={tasks.data?.total || 0}
+                      findingCount={Object.values(
+                        findings.data?.counts || {},
+                      ).reduce<number>((sum, value) => sum + (Number(value) || 0), 0)}
+                      reportCount={reportCount.data || 0}
+                      canWrite={canWrite}
+                      busy={!!busy}
+                      onEdit={() => setDialog("edit-project")}
+                      onDelete={() => setDialog("delete-project")}
+                      onSources={() =>
+                        navigate({ project: project.id, view: "sources" })
+                      }
+                      onNavigate={(view) =>
+                        navigate({ project: project.id, view })
+                      }
+                    />
+                  ) : (
+                    <Metrics
+                      counts={findings.data?.counts || {}}
+                      tasks={tasks.data?.total || 0}
+                    />
                   )}
                   <ProjectTasks
                     key={project.id}
@@ -645,11 +688,13 @@ export default function App() {
                     onCreate={() => setDialog("task")}
                     canWrite={canWrite && !!snapshots.data?.length}
                   />
-                  {!snapshots.data?.length && !snapshots.loading && (
-                    <Hint>
-                      项目尚无图谱。点击“更新代码版本”建立首个快照、源码图谱和攻击面，再创建任务。
-                    </Hint>
-                  )}
+                  {projectInputState(projectInput) === "legacy" &&
+                    !snapshots.data?.length &&
+                    !snapshots.loading && (
+                      <Hint>
+                        项目尚无图谱。点击“更新代码版本”建立首个快照、源码图谱和攻击面，再创建任务。
+                      </Hint>
+                    )}
                 </>
               )}
             </>
@@ -668,69 +713,147 @@ export default function App() {
         <ProjectForm
           busy={!!busy}
           network={identity.features.network}
-          buildKnowledge={canBuildKnowledge}
           onSubmit={(values) =>
-            action(
-              canBuildKnowledge ? "建立项目与图谱" : "建立项目与快照",
-              async () => {
-                if ((values.kind === "uploaded_archive" && values.file) || (values.kind === "uploaded_directory" && values.directory)) {
-                  let projectID = values.projectID;
-                  if (!projectID) {
-                    const created = await api.post<{ project: Project }>("/v1/projects", {
-                      api_version: "codexploit/v1", name: values.name,
-                    }, values.signal);
-                    projectID = created.project.id;
-                    values.rememberProject(projectID);
-                    refresh((n) => n + 1);
+            action("建立项目并保存源码", async () => {
+              if (values.kind === "legacy_auto") {
+                const created = await api.post<{ project: Project }>(
+                  "/projects",
+                  { name: values.name, source: values.source },
+                );
+                await api.post(`/projects/${created.project.id}/snapshots`, {
+                  ref: values.ref || "HEAD",
+                  build_graph: canBuildKnowledge,
+                  build_asg: canBuildKnowledge,
+                });
+                refresh((n) => n + 1);
+                setDialog("");
+                navigate({
+                  project: created.project.id,
+                  view: creationTarget || (limitedTasks ? "sources" : "tasks"),
+                });
+                return;
+              }
+              let projectID = values.projectID;
+              if (!projectID) {
+                const created = await api.post<{ project: Project }>(
+                  "/v1/projects",
+                  {
+                    api_version: "codexploit/v1",
+                    name: values.name,
+                    description: values.description,
+                  },
+                  values.signal,
+                );
+                projectID = created.project.id;
+                values.rememberProject(projectID);
+                refresh((n) => n + 1);
+              }
+              try {
+                if (
+                  values.kind === "uploaded_archive" ||
+                  values.kind === "uploaded_directory"
+                ) {
+                  if (
+                    values.kind === "uploaded_directory" &&
+                    values.directory
+                  ) {
+                    await importDirectory(
+                      api,
+                      projectID,
+                      values.sourceID,
+                      values.name,
+                      values.directory,
+                      false,
+                      values.signal,
+                    );
+                  } else {
+                    await importArchive(
+                      api,
+                      projectID,
+                      values.sourceID,
+                      values.name,
+                      values.file!,
+                      false,
+                      values.signal,
+                    );
                   }
-                  navigate({ project: projectID, view: "sources" });
-                  if (values.directory && values.kind === "uploaded_directory") await importDirectory(api, projectID, values.sourceID, values.name, values.directory, canBuildKnowledge, values.signal);
-                  else await importArchive(api, projectID, values.sourceID, values.name, values.file!, canBuildKnowledge, values.signal);
-                  if (creationTarget) navigate({ project: projectID, view: creationTarget });
-                  return;
-                }
-                if (values.kind !== "legacy_auto") {
-                  const created = await api.post<{ project: Project }>(
-                    "/v1/projects",
-                    { api_version: "codexploit/v1", name: values.name },
-                  );
-                  navigate({ project: created.project.id, view: "sources" });
+                } else {
                   const input = await api.post<{ source: CodeSource }>(
-                    `/v1/projects/${created.project.id}/sources`,
+                    `/v1/projects/${projectID}/sources`,
                     sourceInput(
-                      created.project.id,
+                      projectID,
                       values.name,
                       values.source,
                       values.kind as CodeSource["kind"],
                       values.ref,
                       values.credentialRef,
                     ),
+                    values.signal,
                   );
-                  await api.post(`/v1/sources/${input.source.id}/snapshots`, {
-                    project_id: created.project.id,
-                    source_version: input.source.version,
-                    build_graph: canBuildKnowledge,
-                    build_asg: canBuildKnowledge,
-                  });
-                  if (creationTarget) navigate({ project: created.project.id, view: creationTarget });
-                  return;
+                  await api.post(
+                    `/v1/sources/${input.source.id}/snapshots`,
+                    {
+                      project_id: projectID,
+                      source_version: input.source.version,
+                      build_graph: false,
+                      build_asg: false,
+                    },
+                    values.signal,
+                  );
                 }
-                const created = await api.post<{ project: Project }>(
-                  "/projects",
-                  { name: values.name, source: values.source },
-                );
-                navigate({ project: created.project.id, view: limitedTasks ? "sources" : "tasks" });
-                await api.post(`/projects/${created.project.id}/snapshots`, {
-                  ref: values.ref || "HEAD",
-                  build_graph: canBuildKnowledge,
-                  build_asg: canBuildKnowledge,
-                });
-                if (creationTarget) navigate({ project: created.project.id, view: creationTarget });
-              },
-              () => setDialog(""),
-            )
+              } catch (error) {
+                // The project exists even when its import failed. Refresh the
+                // directory so the failed input is visible and retryable.
+                refresh((n) => n + 1);
+                throw error;
+              }
+              refresh((n) => n + 1);
+              setDialog("");
+              navigate({ project: projectID, view: creationTarget || "overview" });
+            })
           }
         />
+      </Modal>
+      <Modal
+        open={dialog === "edit-project"}
+        onClose={() => setDialog("")}
+        title="编辑项目"
+      >
+        {project && (
+          <ProjectDetailsForm
+            project={project}
+            busy={!!busy}
+            error={error}
+            onSubmit={(name, description) =>
+              action("保存项目信息", async () => {
+                await api.updateProject(project.id, { name, description });
+                setDialog("");
+              })
+            }
+          />
+        )}
+      </Modal>
+      <Modal
+        open={dialog === "delete-project"}
+        onClose={() => setDialog("")}
+        title="删除当前项目"
+      >
+        {project && (
+          <ProjectDeleteForm
+            project={project}
+            input={projectInput}
+            busy={!!busy}
+            error={error}
+            onCancel={() => setDialog("")}
+            onConfirm={() =>
+              action("删除项目", async () => {
+                await api.deleteProject(project.id);
+                setDialog("");
+                navigate({ view: "projects" });
+              })
+            }
+          />
+        )}
       </Modal>
       <Modal
         open={dialog === "snapshot"}
@@ -1034,7 +1157,7 @@ function Connect({
 function Projects({
   api,
   revision,
-  projects,
+  entries,
   loading,
   canWrite,
   limitedTasks,
@@ -1044,7 +1167,7 @@ function Projects({
 }: {
   api: ApiClient;
   revision: number;
-  projects: Project[];
+  entries: ProjectDirectoryEntry[];
   loading: boolean;
   canWrite: boolean;
   limitedTasks: boolean;
@@ -1053,8 +1176,10 @@ function Projects({
   selectionLabel?: string;
 }) {
   const [query, setQuery] = useState("");
-  const selected = projects.filter((p) =>
-    `${p.name} ${p.source}`.toLowerCase().includes(query.toLowerCase()),
+  const selected = entries.filter(({ project }) =>
+    `${project.name} ${project.description || ""} ${project.source}`
+      .toLowerCase()
+      .includes(query.toLowerCase()),
   );
   return (
     <>
@@ -1083,7 +1208,7 @@ function Projects({
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
-        <span className="muted">{projects.length} 个项目</span>
+        <span className="muted">{entries.length} 个项目</span>
       </div>
       {loading ? (
         <Loading />
@@ -1107,14 +1232,14 @@ function Projects({
         </EmptyState>
       ) : (
         <div className="project-grid">
-          {selected.map((project) => (
+          {selected.map((entry) => (
             <ProjectCard
-              key={project.id}
+              key={entry.project.id}
               api={api}
-              project={project}
+              entry={entry}
               revision={revision}
               limitedTasks={limitedTasks}
-              onOpen={() => onOpen(project.id)}
+              onOpen={() => onOpen(entry.project.id)}
             />
           ))}
         </div>
@@ -1125,17 +1250,19 @@ function Projects({
 
 function ProjectCard({
   api,
-  project,
+  entry,
   revision,
   limitedTasks,
   onOpen,
 }: {
   api: ApiClient;
-  project: Project;
+  entry: ProjectDirectoryEntry;
   revision: number;
   limitedTasks: boolean;
   onOpen: () => void;
 }) {
+  const project = entry.project;
+  const input = effectiveProjectInput(entry.audit_input);
   const summary = useResource(
     async (signal) => {
       if (limitedTasks) return undefined;
@@ -1162,7 +1289,12 @@ function ProjectCard({
         <ArrowRight size={18} />
       </div>
       <h2>{project.name}</h2>
-      <p className="mono">{project.source}</p>
+      <p className="project-card-description">
+        {project.description || "尚未填写项目说明"}
+      </p>
+      <p className="mono">
+        {project.source || input?.source_name || "一份源码 · 一次审计"}
+      </p>
       <div className="project-card-stats">
         <span>{limitedTasks ? "知识模式 · 任务执行尚未接线" : `${summary.data?.tasks ?? "—"} 个任务`}</span>
         {!limitedTasks && <div className="grade-counts">
@@ -1180,9 +1312,8 @@ function ProjectCard({
         <small className="muted">漏洞统计为部分结果</small>
       )}
       <div className="project-card-footer">
-        <span>
-          <Network size={13} />
-          {limitedTasks ? "代码源与固定快照" : "项目共享图谱"}
+        <span className={`input-state ${projectInputState(input)}`}>
+          {projectInputLabel(input)}
         </span>
         <span>{dateLabel(project.updated_at)}</span>
       </div>
@@ -2379,17 +2510,33 @@ function ProjectSettings({
   project,
   identity,
   snapshots,
+  canWrite,
+  onEdit,
 }: {
   project: Project;
   identity: Identity;
   snapshots: Snapshot[];
+  canWrite: boolean;
+  onEdit: () => void;
 }) {
   return (
     <div className="two-columns">
-      <Panel title="项目配置">
+      <Panel
+        title="项目配置"
+        action={
+          canWrite && (
+            <button className="button secondary" onClick={onEdit}>
+              <Pencil size={14} />
+              编辑名称与说明
+            </button>
+          )
+        }
+      >
         <dl>
           <dt>项目名称</dt>
           <dd>{project.name}</dd>
+          <dt>项目说明</dt>
+          <dd>{project.description || "未填写"}</dd>
           <dt>代码仓库</dt>
           <dd className="mono">{project.source}</dd>
           <dt>代码版本</dt>
@@ -2440,17 +2587,134 @@ function FormFooter({ busy, label }: { busy: boolean; label: string }) {
     </div>
   );
 }
+function ProjectDetailsForm({
+  project,
+  busy,
+  error,
+  onSubmit,
+}: {
+  project: Project;
+  busy: boolean;
+  error: string;
+  onSubmit: (name: string, description: string) => void;
+}) {
+  const [name, setName] = useState(project.name);
+  const [description, setDescription] = useState(project.description || "");
+  const [localError, setLocalError] = useState("");
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!name.trim()) {
+          setLocalError("项目名称不能为空。");
+          return;
+        }
+        setLocalError("");
+        onSubmit(name.trim(), description.trim());
+      }}
+    >
+      <fieldset disabled={busy} className="source-fields">
+        <label>
+          项目名称
+          <input
+            required
+            maxLength={100}
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+          />
+        </label>
+        <label>
+          项目说明
+          <textarea
+            maxLength={2000}
+            rows={4}
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+            placeholder="本次审计的目标、边界或关注范围"
+          />
+          <small className="field-note">{description.length} / 2000</small>
+        </label>
+        <Hint>
+          保存时使用服务端版本校验，其他人刚改过会要求刷新后重试。
+          源码绑定不随名称或说明编辑改变；换一份代码请另建项目。
+        </Hint>
+        {(localError || error) && (
+          <div className="error-message" role="alert">
+            {localError || error}
+          </div>
+        )}
+      </fieldset>
+      <FormFooter busy={busy} label="保存修改" />
+    </form>
+  );
+}
+
+function ProjectDeleteForm({
+  project,
+  input,
+  busy,
+  error,
+  onCancel,
+  onConfirm,
+}: {
+  project: Project;
+  input?: ProjectInput;
+  busy: boolean;
+  error: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const state = projectInputState(input);
+  return (
+    <div className="delete-project">
+      <p>
+        删除「<strong>{project.name}</strong>」及它的源码输入、快照、任务、发现与报告。
+        其他项目共享的对象不会被删除；此操作不可撤销。
+      </p>
+      <dl>
+        <dt>源码输入</dt>
+        <dd>{projectInputLabel(input)}</dd>
+        <dt>项目说明</dt>
+        <dd>{project.description || "未填写"}</dd>
+      </dl>
+      {state === "importing" && (
+        <Hint>
+          源码仍在保存中。服务端会拒绝删除并说明冲突；等待导入结束、失败或中断后再试。
+        </Hint>
+      )}
+      {state === "ready" && (
+        <Hint>
+          删除前会核对运行中的任务、插件调用、验证环境和未完成分析；存在活动执行时不会删除任何数据。
+        </Hint>
+      )}
+      {error && (
+        <div className="error-message" role="alert">
+          {error}
+        </div>
+      )}
+      <div className="form-footer">
+        <button type="button" className="button secondary" disabled={busy} onClick={onCancel}>
+          取消
+        </button>
+        <button type="button" className="button danger" disabled={busy} onClick={onConfirm}>
+          {busy ? <Loader2 className="spin" size={16} /> : <Trash2 size={16} />}
+          {busy ? "正在删除…" : "删除项目"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function ProjectForm({
   busy,
   network,
-  buildKnowledge,
   onSubmit,
 }: {
   busy: boolean;
   network: boolean;
-  buildKnowledge: boolean;
   onSubmit: (values: {
     name: string;
+    description: string;
     source: string;
     ref: string;
     kind: string;
@@ -2495,6 +2759,7 @@ function ProjectForm({
         controller.current = new AbortController();
         onSubmit({
           name: String(form.get("name")),
+          description: String(form.get("description") || ""),
           source,
           ref: String(form.get("ref")),
           kind,
@@ -2516,6 +2781,15 @@ function ProjectForm({
         />
       </label>
       <label>
+        项目说明
+        <textarea
+          name="description"
+          maxLength={2000}
+          rows={2}
+          placeholder="本次审计的目标、边界或关注范围（可选）"
+        />
+      </label>
+      <label>
         代码源类型
         <select
           value={kind}
@@ -2526,9 +2800,8 @@ function ProjectForm({
         >
           <option value="uploaded_archive">本地代码 · 上传压缩包</option>
           <option value="uploaded_directory">本地代码 · 选择目录上传</option>
-          <option value="local_folder">本地代码 · 已登记的只读目录</option>
           <option value="git_repository">Git 仓库 · 固定提交</option>
-          <option value="legacy_auto">既有自动识别入口</option>
+          <option value="local_folder">高级 · 已登记的只读目录</option>
         </select>
       </label>
       {kind === "uploaded_archive" ? <ArchivePicker onChange={file => { setArchive(file); setSourceID(`src-${crypto.randomUUID()}`); }} /> : kind === "uploaded_directory" ? <DirectoryPicker onChange={next => { setDirectory(next); setSourceID(`src-${crypto.randomUUID()}`); }} /> : <>
@@ -2585,9 +2858,10 @@ function ProjectForm({
         </label>
       )}
       <Hint>
-        {buildKnowledge ? "创建项目后，将固定代码快照并构建共享图谱。" : "创建项目后，将固定代码快照并保存产物目录；研究功能尚未接线。"}分析过程只读取源码。
+        创建时自动保存一份源码和内部快照，不自动构建图谱，也不会启动 Agent。
+        名称与说明之后可编辑；换一份代码请另建项目。
         {kind === "local_folder" &&
-          "包含未提交修改；目录内的 .git 不会切换读取方式。"}
+          "本地目录包含未提交修改；目录内的 .git 不会切换读取方式。"}
       </Hint>
       {error && (
         <div className="error-message" role="alert">
@@ -2595,8 +2869,8 @@ function ProjectForm({
         </div>
       )}
       </fieldset>
-      {busy && kind.startsWith("uploaded_") && <div role="status"><progress /> 正在上传、校验并建立固定快照… <button type="button" className="text-button" onClick={() => controller.current?.abort()}>取消上传</button></div>}
-      <FormFooter busy={busy} label={buildKnowledge ? "创建项目并建立图谱" : "创建项目并固定快照"} />
+      {busy && kind.startsWith("uploaded_") && <div role="status"><progress /> 正在上传、校验并保存审计输入… <button type="button" className="text-button" onClick={() => controller.current?.abort()}>取消上传</button></div>}
+      <FormFooter busy={busy} label="创建项目并保存源码" />
     </form>
   );
 }

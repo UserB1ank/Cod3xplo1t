@@ -274,7 +274,10 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/auth/logout", s.handleAccountLogout)
 	mux.HandleFunc("GET /api/me", s.handleMe)
 	mux.HandleFunc("GET /api/agent/runtimes", s.handleAgentRuntimes)
+	mux.HandleFunc("GET /api/v1/projects", s.handleProjectDirectory)
 	mux.HandleFunc("POST /api/v1/projects", s.withIdempotency(s.handleCreateSourceProject))
+	mux.HandleFunc("DELETE /api/v1/projects/{projectID}", s.handleDeleteProject)
+	mux.HandleFunc("GET /api/v1/projects/{projectID}/audit-input", s.handleGetProjectInput)
 	mux.HandleFunc("POST /api/v1/projects/{projectID}/imports/{sourceID}", s.handleImportSource)
 	mux.HandleFunc("GET /api/v1/projects/{id}/sources", s.handleListSources)
 	mux.HandleFunc("POST /api/v1/projects/{projectID}/knowledge/views", s.handleOpenKnowledgeView)
@@ -389,8 +392,9 @@ type createProjectRequest struct {
 }
 
 type projectResponse struct {
-	Project  storage.Project `json:"project"`
-	Existing bool            `json:"existing"`
+	Project    storage.Project       `json:"project"`
+	Existing   bool                  `json:"existing"`
+	AuditInput *storage.ProjectInput `json:"audit_input,omitempty"`
 }
 
 func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
@@ -469,12 +473,27 @@ func (s *Server) handlePatchProject(w http.ResponseWriter, r *http.Request) {
 	if !s.decode(w, r, &req) {
 		return
 	}
-	name := strings.TrimSpace(req.Name)
-	if name == "" {
-		writeError(w, http.StatusBadRequest, "invalid_request", errors.New("name must not be empty"))
+	if req.Name == nil && req.Description == nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", errors.New("provide a name or a description to update"))
 		return
 	}
-	updated, err := s.Store.RenameProject(r.Context(), id, name, project.Version)
+	name := project.Name
+	if req.Name != nil {
+		name = strings.TrimSpace(*req.Name)
+		if name == "" || len([]rune(name)) > 100 {
+			writeError(w, http.StatusBadRequest, "invalid_request", errors.New("name must be 1–100 characters"))
+			return
+		}
+	}
+	description := project.Description
+	if req.Description != nil {
+		description = strings.TrimSpace(*req.Description)
+		if len([]rune(description)) > 2000 {
+			writeError(w, http.StatusBadRequest, "invalid_request", errors.New("description exceeds 2000 characters"))
+			return
+		}
+	}
+	updated, err := s.Store.UpdateProjectDetails(r.Context(), id, name, description, project.Version)
 	if errors.Is(err, storage.ErrConflict) {
 		writeError(w, http.StatusPreconditionFailed, "precondition_failed", err)
 		return
@@ -488,13 +507,15 @@ func (s *Server) handlePatchProject(w http.ResponseWriter, r *http.Request) {
 }
 
 type patchProjectRequest struct {
-	Name string `json:"name"`
+	// Pointers distinguish "not provided" from an intentional empty description.
+	Name        *string `json:"name,omitempty"`
+	Description *string `json:"description,omitempty"`
 }
 
 // projectETag is a strong validator over every mutable field of a project.
 func projectETag(p storage.Project) string {
-	sum := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%s\x00%s\x00%s\x00%d\x00%d",
-		p.ID, p.Name, p.Source, p.IdentityKind, p.Identity, p.UpdatedAt.UnixNano(), p.Version)))
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%d\x00%d",
+		p.ID, p.Name, p.Description, p.Source, p.IdentityKind, p.Identity, p.UpdatedAt.UnixNano(), p.Version)))
 	return `"` + hex.EncodeToString(sum[:8]) + `"`
 }
 
@@ -519,7 +540,18 @@ func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
 		writeStorageError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"projects": projects})
+	response := map[string]any{"projects": projects}
+	if inputs, err := s.Store.ListProjectInputs(r.Context()); err == nil {
+		now := time.Now().UTC()
+		byProject := make(map[string]storage.ProjectInput, len(inputs))
+		for _, input := range inputs {
+			byProject[input.ProjectID] = storage.EffectiveProjectInput(input, now)
+		}
+		response["audit_inputs"] = byProject
+	} else {
+		s.Logger.Warn("project inputs unavailable in project list", "error", err)
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (s *Server) handleGetProject(w http.ResponseWriter, r *http.Request) {

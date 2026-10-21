@@ -86,5 +86,9 @@
   {
     "file": "examples/knowledge-directory.json",
     "schema": "knowledge-directory.schema.json"
+  },
+  {
+    "file": "examples/project-input.json",
+    "schema": "project-input.schema.json"
   }
 ]

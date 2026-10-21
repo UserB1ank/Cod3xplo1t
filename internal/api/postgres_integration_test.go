@@ -91,7 +91,11 @@ func TestPostgresSourceSnapshotArtifactsAndCAS(t *testing.T) {
 		return rt, ts
 	}
 	rt, ts := open()
-	create := do(t, ts, "POST", "/api/v1/projects", map[string]any{"api_version": "codexploit/v1", "name": "Catalog sources"}, nil)
+	// This test covers the multi-source catalog surface. A project created
+	// through /api/v1/projects now owns exactly one implicit input (#63), so the
+	// legacy creation path is the compatible way to prepare a multi-source
+	// project here.
+	create := do(t, ts, "POST", "/api/projects", map[string]any{"source": root}, nil)
 	if create.status != 201 {
 		t.Fatalf("project: %s", create.body)
 	}
@@ -189,5 +193,50 @@ func TestPostgresProjectPersistsAcrossRuntimeRebuild(t *testing.T) {
 	read.decode(t, &got)
 	if read.status != 200 || got.ID != result.Project.ID || got.Name != result.Project.Name || got.Version != result.Project.Version {
 		t.Fatalf("reopened catalog changed: %d %s", read.status, read.body)
+	}
+}
+
+func TestPostgresProjectInputLifecycleAndDeletion(t *testing.T) {
+	cfg := postgresConfig(t)
+	open := func() (*app.Runtime, *httptest.Server) {
+		rt, err := app.Build(context.Background(), cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ts := httptest.NewServer(NewServer(rt.Store, rt.Manager, rt.Analyzer, WithAuth(testAuthenticator(t)), WithLocalSourceRoot(t.TempDir())).Handler())
+		t.Cleanup(func() { ts.Close(); rt.Close() })
+		return rt, ts
+	}
+	rt, ts := open()
+	created := do(t, ts, http.MethodPost, "/api/v1/projects", map[string]any{
+		"api_version": "codexploit/v1", "name": "PG single input", "description": "postgres lifecycle",
+	}, nil)
+	if created.status != http.StatusCreated {
+		t.Fatalf("create: %d %s", created.status, created.body)
+	}
+	var project projectResponse
+	created.decode(t, &project)
+	archive := zipImportFixture(t, map[string]string{"main.go": "package main\n"})
+	endpoint := "/api/v1/projects/" + project.Project.ID + "/imports/src-pg-life?name=PG&format=zip"
+	if imported := do(t, ts, http.MethodPost, endpoint, archive, map[string]string{"Content-Type": "application/octet-stream"}); imported.status != http.StatusCreated {
+		t.Fatalf("import: %d %s", imported.status, imported.body)
+	}
+	input := readAuditInput(t, ts, project.Project.ID)
+	if input.State != storage.ProjectInputReady || input.SnapshotID == "" {
+		t.Fatalf("ready input = %+v", input)
+	}
+	if deleted := doAs(t, ts, writerSecret, http.MethodDelete, "/api/v1/projects/"+project.Project.ID, nil, nil); deleted.status != http.StatusNoContent {
+		t.Fatalf("delete: %d %s", deleted.status, deleted.body)
+	}
+	ts.Close()
+	if err := rt.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_, reopened := open()
+	if read := do(t, reopened, http.MethodGet, "/api/projects/"+project.Project.ID, nil, nil); read.status != http.StatusNotFound {
+		t.Fatalf("project survived restart: %d %s", read.status, read.body)
+	}
+	if again := doAs(t, reopened, writerSecret, http.MethodDelete, "/api/v1/projects/"+project.Project.ID, nil, nil); again.status != http.StatusNoContent {
+		t.Fatalf("delete replay after restart: %d %s", again.status, again.body)
 	}
 }

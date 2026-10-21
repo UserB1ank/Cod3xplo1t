@@ -38,11 +38,19 @@ func (s *Server) handleImportSource(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
-	var upload *sourceimport.Upload
-	var err error
 	kind := "uploaded_archive"
 	if format == "directory" {
 		kind = "uploaded_directory"
+	}
+	// Bind before reading the body: an interrupted or invalid upload must still
+	// leave a failed input that can be retried or deleted, not an unbound ghost.
+	_, hasInput, err := s.bindProjectInput(ctx, project, id, kind, name)
+	if err != nil {
+		writeProjectInputError(w, err)
+		return
+	}
+	var upload *sourceimport.Upload
+	if kind == "uploaded_directory" {
 		upload, err = sourceimport.ExtractDirectory(ctx, r.Body, r.Header.Get("Content-Type"))
 	} else {
 		upload, err = sourceimport.Extract(ctx, r.Body, format)
@@ -55,6 +63,9 @@ func (s *Server) handleImportSource(w http.ResponseWriter, r *http.Request) {
 		if !errors.Is(err, sourceimport.ErrInvalid) && !errors.Is(err, sourceimport.ErrBudget) {
 			err = errors.New("源码上传未完成，请重试")
 		}
+		if hasInput {
+			s.failProjectInput(project, id, code, err)
+		}
 		writeError(w, status, code, err)
 		return
 	}
@@ -63,6 +74,9 @@ func (s *Server) handleImportSource(w http.ResponseWriter, r *http.Request) {
 	if err := repo.CreateSource(ctx, source); err != nil {
 		prior, readErr := repo.GetSource(ctx, id)
 		if !errors.Is(err, storage.ErrConflict) || readErr != nil || prior.ProjectID != project || prior.Kind != source.Kind || prior.Location != source.Location {
+			if hasInput && !errors.Is(err, storage.ErrConflict) {
+				s.failProjectInput(project, id, "source_failed", err)
+			}
 			writeStorageError(w, err)
 			return
 		}
@@ -70,12 +84,18 @@ func (s *Server) handleImportSource(w http.ResponseWriter, r *http.Request) {
 	}
 	root, err := os.OpenRoot(upload.Tree)
 	if err != nil {
+		if hasInput {
+			s.failProjectInput(project, id, "import_unavailable", err)
+		}
 		writeError(w, 503, "import_unavailable", errors.New("源码暂存不可用，请重新上传"))
 		return
 	}
 	defer root.Close()
 	snapshot, err := s.Manager.Create(ctx, repository.Source{Raw: "/uploaded", Kind: repository.KindDir, Files: root.FS(), NameOverride: fmt.Sprintf("projects/%s/sources/%s/v1", project, id)})
 	if err != nil {
+		if hasInput {
+			s.failProjectInput(project, id, "snapshot_failed", err)
+		}
 		s.writeSourceError(w, err)
 		return
 	}

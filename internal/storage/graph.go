@@ -119,6 +119,10 @@ type FullStore interface {
 	GraphStore
 	ASGStore
 	IdempotencyStore
+	// ProjectRepository is the single-source project lifecycle (#63). It is part
+	// of FullStore because both deployments that expose project management must
+	// persist the same input and deletion fences.
+	ProjectRepository
 
 	// AuditStore is the path engine's persistence contract (P4).
 	AuditStore

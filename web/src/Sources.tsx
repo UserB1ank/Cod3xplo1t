@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { FileCode2, FolderOpen, GitBranch, Loader2, Plus } from "lucide-react";
 import { ApiClient, ApiError } from "./api";
 import { EmptyState, Hint, Modal, Panel } from "./components";
-import type { Project } from "./types";
+import type { Project, ProjectInput } from "./types";
+import { projectInputLabel, projectInputState } from "./project-management";
 import { importArchive } from "./source-import";
 import { ArchivePicker } from "./ArchivePicker";
 import { DirectoryPicker } from "./DirectoryPicker";
@@ -108,6 +109,7 @@ export function Sources({
   revision,
   canWrite,
   canBuildKnowledge,
+  auditInput,
   canCreateTask,
   onRefresh,
   onTask,
@@ -119,6 +121,7 @@ export function Sources({
   revision: number;
   canWrite: boolean;
   canBuildKnowledge: boolean;
+  auditInput?: ProjectInput;
   canCreateTask: boolean;
   onRefresh: () => void;
   onTask: (snapshot: string) => void;
@@ -137,6 +140,10 @@ export function Sources({
   const [directory, setDirectory] = useState<DirectorySelection>();
   const [archive, setArchive] = useState<File>();
   const [sourceID, setSourceID] = useState(() => `src-${crypto.randomUUID()}`);
+  const inputState = projectInputState(auditInput);
+  const singleInput = inputState !== "legacy";
+  const inputReady = inputState === "ready";
+  const buildGraph = singleInput ? false : canBuildKnowledge;
   const importController = useRef<AbortController>();
   useEffect(() => () => importController.current?.abort(), []);
   const [selected, setSelected] = useState<string>();
@@ -196,24 +203,39 @@ export function Sources({
         </div>
       )}
       <Panel
-        title="项目代码源"
-        eyebrow="PROJECT CODE SOURCES"
+        title={singleInput ? "审计输入" : "项目代码源"}
+        eyebrow={singleInput ? "AUDIT INPUT" : "PROJECT CODE SOURCES"}
         action={
-          <button
-            className="button primary"
-            disabled={!canWrite || !!busy}
-            onClick={() => setAdding(true)}
-          >
-            <Plus size={15} />
-            添加代码源
-          </button>
+          (!singleInput || (!inputReady && (inputState === "failed" || !auditInput?.source_id))) && (
+            <button
+              className="button primary"
+              disabled={!canWrite || !!busy}
+              onClick={() => setAdding(true)}
+            >
+              <Plus size={15} />
+              {inputState === "failed" ? "重试导入" : "添加代码源"}
+            </button>
+          )
         }
       >
         <div className="source-description">
-          <Hint>
-            文件夹读取当前文件；Git
-            按分支、标签或提交固定版本。每次更新生成不可变快照。{canCreateTask ? "已有任务继续使用原版本。" : "可运行直接插件分析并发布图谱；任务执行尚未接线。"}
-          </Hint>
+          {singleInput && (
+            <span className={`input-state ${inputState}`}>
+              {projectInputLabel(auditInput)}
+            </span>
+          )}
+          {singleInput ? (
+            <Hint>
+              一个项目对应一份源码的一次审计。源码在创建时自动保存为不可变快照；
+              输入就绪后不再提供“更新代码”入口，其他代码请另建项目。
+              {auditInput?.failure_message && <><br />上次导入失败：{auditInput.failure_message}</>}
+            </Hint>
+          ) : (
+            <Hint>
+              文件夹读取当前文件；Git
+              按分支、标签或提交固定版本。每次更新生成不可变快照。{canCreateTask ? "已有任务继续使用原版本。" : "可运行直接插件分析并发布图谱；任务执行尚未接线。"}
+            </Hint>
+          )}
         </div>
         {loading ? (
           <p className="source-description" role="status">
@@ -290,7 +312,7 @@ export function Sources({
                       <div className="source-actions">
                         <button
                           className="button secondary"
-                          disabled={!canWrite || !!busy || (source.kind.startsWith("uploaded_") && !source.snapshot)}
+                          disabled={!canWrite || !!busy || inputReady || (source.kind.startsWith("uploaded_") && !source.snapshot)}
                           onClick={() =>
                             run(source.id, async () => {
                               const result = await api.post<{
@@ -300,8 +322,8 @@ export function Sources({
                                 {
                                   project_id: project.id,
                                   source_version: source.version,
-                                  build_graph: canBuildKnowledge,
-                                  build_asg: canBuildKnowledge,
+                                  build_graph: buildGraph,
+                                  build_asg: buildGraph,
                                 },
                               );
                               setNotice(
@@ -316,9 +338,11 @@ export function Sources({
                           ) : (
                             <GitBranch size={14} />
                           )}
-                          {source.kind.startsWith("uploaded_") ? "读取固定输入并重建" : source.snapshot
-                            ? canBuildKnowledge ? "更新快照与图谱" : "更新快照"
-                            : canBuildKnowledge ? "生成快照与图谱" : "生成快照"}
+                          {inputReady
+                            ? "源码已固定"
+                            : source.kind.startsWith("uploaded_") ? "读取固定输入" : source.snapshot
+                              ? canBuildKnowledge ? "更新快照与图谱" : "更新快照"
+                              : canBuildKnowledge ? "生成快照与图谱" : "生成快照"}
                         </button>
                         <button
                           className="button secondary"
@@ -338,7 +362,7 @@ export function Sources({
           </div>
         )}
       </Panel>
-      {project.source && (
+      {!singleInput && project.source && (
         <Panel
           title="原项目默认代码源"
           action={
@@ -377,11 +401,11 @@ export function Sources({
               if (kind === "uploaded_directory") {
                 if (!directory) throw new Error("请先选择目录并等待文件校验完成。");
                 importController.current = new AbortController();
-                await importDirectory(api, project.id, sourceID, String(data.get("name")), directory, canBuildKnowledge, importController.current.signal);
+                await importDirectory(api, project.id, sourceID, String(data.get("name")), directory, buildGraph, importController.current.signal);
               } else if (kind === "uploaded_archive") {
                 if (!archive) throw new Error("请先选择源码压缩包。");
                 importController.current = new AbortController();
-                await importArchive(api, project.id, sourceID, String(data.get("name")), archive, canBuildKnowledge, importController.current.signal);
+                await importArchive(api, project.id, sourceID, String(data.get("name")), archive, buildGraph, importController.current.signal);
               } else await api.post(
                 `/v1/projects/${encodeURIComponent(project.id)}/sources`,
                 sourceInput(

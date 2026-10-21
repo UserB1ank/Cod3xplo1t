@@ -61,6 +61,9 @@ func (m *Memory) RegisterSourceSnapshot(_ context.Context, source SourceDefiniti
 	if current.Version != source.Version || current.ProjectID != source.ProjectID {
 		return ErrConflict
 	}
+	if _, deleted := m.projectDeletions[source.ProjectID]; deleted {
+		return fmt.Errorf("%w: project %s is being deleted", ErrConflict, source.ProjectID)
+	}
 	if pending, deleted := m.deleting[snapshot.SnapshotID]; deleted {
 		if pending {
 			return ErrConflict
@@ -110,6 +113,9 @@ func (m *Memory) CreateSource(_ context.Context, source SourceDefinition) error 
 	defer m.mu.Unlock()
 	if _, ok := m.projects[source.ProjectID]; !ok {
 		return ErrNotFound
+	}
+	if _, deleted := m.projectDeletions[source.ProjectID]; deleted {
+		return fmt.Errorf("%w: project %s is being deleted", ErrConflict, source.ProjectID)
 	}
 	if _, ok := m.sources[source.ID]; ok {
 		return fmt.Errorf("%w: source already exists", ErrConflict)

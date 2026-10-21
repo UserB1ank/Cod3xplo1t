@@ -137,10 +137,10 @@ func TestLocalSourceSnapshotCanBeCapturedAgainAfterDeletion(t *testing.T) {
 	}
 }
 
-func TestProjectCanStartWithExplicitSourcesWithoutLegacyInput(t *testing.T) {
+func TestNewProjectKeepsOneFixedSourceInput(t *testing.T) {
 	t.Parallel()
 	env := newTestEnv(t, false)
-	created := do(t, env.ts, http.MethodPost, "/api/v1/projects", map[string]any{"api_version": "codexploit/v1", "name": "Multi-source project"}, nil)
+	created := do(t, env.ts, http.MethodPost, "/api/v1/projects", map[string]any{"api_version": "codexploit/v1", "name": "Single-source project"}, nil)
 	if created.status != 201 {
 		t.Fatalf("create project: %d %s", created.status, created.body)
 	}
@@ -154,18 +154,29 @@ func TestProjectCanStartWithExplicitSourcesWithoutLegacyInput(t *testing.T) {
 	if project.Project.ID == "" || project.Project.Source != "" {
 		t.Fatalf("unexpected default input: %s", created.body)
 	}
-	for _, id := range []string{"src-first", "src-second"} {
-		if r := addLocalSource(t, env.ts, project.Project.ID, id, "/repos/"+id); r.status != 201 {
-			t.Fatalf("add source: %d %s", r.status, r.body)
-		}
+	if r := addLocalSource(t, env.ts, project.Project.ID, "src-first", "/repos/src-first"); r.status != 201 {
+		t.Fatalf("first source: %d %s", r.status, r.body)
+	}
+	// #63 makes a new project one source, one audit. The second definition is
+	// refused while the first import is still unready.
+	if r := addLocalSource(t, env.ts, project.Project.ID, "src-second", "/repos/src-second"); r.status != 409 {
+		t.Fatalf("second source: %d %s", r.status, r.body)
 	}
 	read := do(t, env.ts, http.MethodGet, "/api/v1/projects/"+project.Project.ID+"/sources", nil, nil)
 	var listing struct {
 		Sources []map[string]any `json:"sources"`
 	}
 	read.decode(t, &listing)
-	if read.status != 200 || len(listing.Sources) != 2 {
-		t.Fatalf("multiple sources unavailable: %d %s", read.status, read.body)
+	if read.status != 200 || len(listing.Sources) != 1 {
+		t.Fatalf("single input unavailable: %d %s", read.status, read.body)
+	}
+	// Legacy projects retain their multi-source history; the new lifecycle only
+	// applies to projects created with an implicit input.
+	legacy := createProject(t, env.ts, env.source)
+	for _, id := range []string{"src-legacy-first", "src-legacy-second"} {
+		if r := addLocalSource(t, env.ts, legacy.Project.ID, id, "/repos/"+id); r.status != 201 {
+			t.Fatalf("legacy source: %d %s", r.status, r.body)
+		}
 	}
 }
 

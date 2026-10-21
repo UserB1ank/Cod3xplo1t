@@ -1,5 +1,7 @@
 # Project and task workbench
 
+> 2026-10-21 target UI: one-source project creation, one-click four-stage preparation, entry-point local graph, review paths, and a supervisor/child workbench with free conversation and MCP-selected actions. See [current architecture](design/project-agent-architecture.md) and [development sequence](design/deepseek-handoff.md). These are prototype-accepted targets in #63–#69, not claims that the production routes below already implement them. Existing advanced features and deep links remain compatible.
+
 Fixed report delivery is now available from both the project navigation and each
 task's Report tab. The formal UI pins real inputs, follows the saved reporter
 invocation, and verifies the same immutable artifact for preview and download.
@@ -258,9 +260,13 @@ document outside the repository. Its structure for HTTPS is:
 ```
 
 The origin must exactly match scheme/host/port; project IDs are an explicit
-allowlist. A new project can be created before configuring its private credential
-and adding a source on its **代码源** page. Failed initial capture retains the
-project and source so it can be retried after correcting deployment access.
+allowlist. The official create form imports one archive, browser directory or Git
+repository and saves its internal snapshot automatically; once the input is ready
+the **代码源** page is read-only and no update-code action is shown. A failed
+initial import records its real reason, and the project can be retried or deleted
+from the project overview. Legacy multi-source projects keep the previous code
+source page. For a private Git repository, create the project with its source,
+then correct deployment access and retry the failed capture if needed.
 
 For SSH, use the same `origin` and `project_ids`, omit `authorization`, and provide
 `ssh_user`, `ssh_identity_file` and `ssh_known_hosts_file` (absolute container paths).

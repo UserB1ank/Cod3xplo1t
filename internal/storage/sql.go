@@ -118,19 +118,26 @@ func (s *SQL) PutProject(ctx context.Context, p Project) error {
 		p.CreatedAt = now
 	}
 	p.UpdatedAt = now
-	_, err := s.db.ExecContext(ctx, s.rebind(`
-INSERT INTO projects (id, name, source, identity_kind, identity, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?)
+	result, err := s.db.ExecContext(ctx, s.rebind(`
+INSERT INTO projects (id, name, description, source, identity_kind, identity, created_at, updated_at)
+SELECT ?, ?, ?, ?, ?, ?, ?, ?
+WHERE NOT EXISTS (SELECT 1 FROM project_deletions WHERE project_id = ?)
 ON CONFLICT (id) DO UPDATE SET
     name = excluded.name,
+    description = excluded.description,
     source = excluded.source,
     identity_kind = excluded.identity_kind,
     identity = excluded.identity,
     updated_at = excluded.updated_at,
     version = projects.version + 1`),
-		p.ID, p.Name, p.Source, p.IdentityKind, p.Identity, formatTime(p.CreatedAt), formatTime(p.UpdatedAt))
+		p.ID, p.Name, p.Description, p.Source, p.IdentityKind, p.Identity, formatTime(p.CreatedAt), formatTime(p.UpdatedAt), p.ID)
 	if err != nil {
 		return mapSQLError(err)
+	}
+	if n, err := result.RowsAffected(); err != nil {
+		return err
+	} else if n == 0 {
+		return fmt.Errorf("%w: project %s is being deleted or no longer exists", ErrConflict, p.ID)
 	}
 	return nil
 }
@@ -138,10 +145,10 @@ ON CONFLICT (id) DO UPDATE SET
 // GetProject implements Store.
 func (s *SQL) GetProject(ctx context.Context, id string) (Project, error) {
 	row := s.db.QueryRowContext(ctx, s.rebind(`
-SELECT id, name, source, identity_kind, identity, created_at, updated_at, version FROM projects WHERE id = ?`), id)
+SELECT id, name, description, source, identity_kind, identity, created_at, updated_at, version FROM projects WHERE id = ?`), id)
 	var p Project
 	var created, updated string
-	if err := row.Scan(&p.ID, &p.Name, &p.Source, &p.IdentityKind, &p.Identity, &created, &updated, &p.Version); err != nil {
+	if err := row.Scan(&p.ID, &p.Name, &p.Description, &p.Source, &p.IdentityKind, &p.Identity, &created, &updated, &p.Version); err != nil {
 		return Project{}, mapSQLError(err)
 	}
 	p.CreatedAt = parseStoredTime(created)
@@ -152,7 +159,7 @@ SELECT id, name, source, identity_kind, identity, created_at, updated_at, versio
 // ListProjects implements Store.
 func (s *SQL) ListProjects(ctx context.Context) ([]Project, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT id, name, source, identity_kind, identity, created_at, updated_at, version FROM projects ORDER BY id`)
+SELECT id, name, description, source, identity_kind, identity, created_at, updated_at, version FROM projects ORDER BY id`)
 	if err != nil {
 		return nil, mapSQLError(err)
 	}
@@ -161,7 +168,7 @@ SELECT id, name, source, identity_kind, identity, created_at, updated_at, versio
 	for rows.Next() {
 		var p Project
 		var created, updated string
-		if err := rows.Scan(&p.ID, &p.Name, &p.Source, &p.IdentityKind, &p.Identity, &created, &updated, &p.Version); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.Source, &p.IdentityKind, &p.Identity, &created, &updated, &p.Version); err != nil {
 			return nil, err
 		}
 		p.CreatedAt = parseStoredTime(created)
@@ -176,9 +183,9 @@ func (s *SQL) RenameProject(ctx context.Context, id, name string, expectedVersio
 	var p Project
 	var created, updated string
 	err := s.db.QueryRowContext(ctx, s.rebind(`UPDATE projects SET name = ?, updated_at = ?, version = version + 1
-WHERE id = ? AND version = ? RETURNING id, name, source, identity_kind, identity, created_at, updated_at, version`),
+WHERE id = ? AND version = ? RETURNING id, name, description, source, identity_kind, identity, created_at, updated_at, version`),
 		name, formatTime(time.Now().UTC()), id, expectedVersion).Scan(
-		&p.ID, &p.Name, &p.Source, &p.IdentityKind, &p.Identity, &created, &updated, &p.Version)
+		&p.ID, &p.Name, &p.Description, &p.Source, &p.IdentityKind, &p.Identity, &created, &updated, &p.Version)
 	if errors.Is(err, sql.ErrNoRows) {
 		if _, lookupErr := s.GetProject(ctx, id); lookupErr != nil {
 			return Project{}, lookupErr
@@ -210,6 +217,13 @@ func (s *SQL) PutSnapshot(ctx context.Context, projectID string, snap *repositor
 		return mapSQLError(err)
 	}
 	defer tx.Rollback()
+	var projectDeleted int
+	if err := tx.QueryRowContext(ctx, s.rebind(`SELECT COUNT(*) FROM project_deletions WHERE project_id = ?`), projectID).Scan(&projectDeleted); err != nil {
+		return mapSQLError(err)
+	}
+	if projectDeleted != 0 {
+		return fmt.Errorf("%w: project %s is being deleted", ErrConflict, projectID)
+	}
 	if err := s.snapshotRegistrationTx(ctx, tx, snap); err != nil {
 		return err
 	}

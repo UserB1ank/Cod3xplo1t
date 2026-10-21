@@ -38,6 +38,11 @@ single-finding DTO.
 fixed selection, candidate policy and independent verdict / severity counts.
 See [fixed reports](../../docs/reports.md) for capture, download and restart semantics.
 
+`project-input.schema.json` defines the single implicit audit input of a project
+created after #63: `importing`, `ready`, `failed` or `legacy`, with the bound
+source/snapshot and a bounded failure reason. A legacy project has no stored
+input and must not be reported as having a latest one.
+
 `discovery.schema.json` defines normalized semantic facts and path observations.
 Candidates have an immutable `candidate` status and an optional high/medium/low
 severity hint. Invocation `analysis` follows `analysis.schema.json`; observed

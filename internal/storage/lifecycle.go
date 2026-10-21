@@ -20,6 +20,9 @@ func (m *Memory) EnsureProject(_ context.Context, p Project) error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if _, deleted := m.projectDeletions[p.ID]; deleted {
+		return fmt.Errorf("%w: project %s is being deleted", ErrConflict, p.ID)
+	}
 	if _, ok := m.projects[p.ID]; ok {
 		return nil
 	}
@@ -39,9 +42,11 @@ func (s *SQL) EnsureProject(ctx context.Context, p Project) error {
 		p.CreatedAt = time.Now().UTC()
 	}
 	_, err := s.db.ExecContext(ctx, s.rebind(`INSERT INTO projects
-(id, name, source, identity_kind, identity, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`),
-		p.ID, p.Name, p.Source, p.IdentityKind, p.Identity, formatTime(p.CreatedAt), formatTime(p.CreatedAt))
+(id, name, description, source, identity_kind, identity, created_at, updated_at)
+SELECT ?, ?, ?, ?, ?, ?, ?, ?
+WHERE NOT EXISTS (SELECT 1 FROM project_deletions WHERE project_id = ?)
+ON CONFLICT (id) DO NOTHING`),
+		p.ID, p.Name, p.Description, p.Source, p.IdentityKind, p.Identity, formatTime(p.CreatedAt), formatTime(p.CreatedAt), p.ID)
 	return mapSQLError(err)
 }
 

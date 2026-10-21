@@ -25,13 +25,15 @@ import (
 // faithful target for API tests and for `--db memory` runs.
 type Memory struct {
 	// Presence blocks writes; true means pending cleanup, false means completed.
-	deleting        map[string]bool
-	mu              sync.RWMutex
-	projects        map[string]Project
-	sources         map[string]SourceDefinition
-	sourceSnapshots map[string]SourceSnapshot
-	taskCategories  map[string]TaskCategories
-	artifacts       map[string]artifact.Ref
+	deleting         map[string]bool
+	mu               sync.RWMutex
+	projects         map[string]Project
+	projectInputs    map[string]ProjectInput
+	projectDeletions map[string]ProjectDeletion
+	sources          map[string]SourceDefinition
+	sourceSnapshots  map[string]SourceSnapshot
+	taskCategories   map[string]TaskCategories
+	artifacts        map[string]artifact.Ref
 	// knowledge holds the immutable publication revisions of each project
 	// snapshot: the revision documents, their batch index and the outbox.
 	knowledge         map[string]*knowledgeScopeState
@@ -100,6 +102,8 @@ func NewMemory() *Memory {
 	return &Memory{
 		deleting:               map[string]bool{},
 		projects:               map[string]Project{},
+		projectInputs:          map[string]ProjectInput{},
+		projectDeletions:       map[string]ProjectDeletion{},
 		snapshots:              map[string]memorySnapshot{},
 		manifests:              map[string][]byte{},
 		analyses:               map[string]string{},
@@ -130,6 +134,9 @@ func (m *Memory) PutProject(_ context.Context, p Project) error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if _, deleted := m.projectDeletions[p.ID]; deleted {
+		return fmt.Errorf("%w: project %s is being deleted", ErrConflict, p.ID)
+	}
 	if existing, ok := m.projects[p.ID]; ok && !existing.CreatedAt.IsZero() {
 		p.CreatedAt = existing.CreatedAt
 		p.Version = existing.Version + 1
@@ -200,6 +207,9 @@ func (m *Memory) PutSnapshot(_ context.Context, projectID string, snap *reposito
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if _, deleted := m.projectDeletions[projectID]; deleted {
+		return fmt.Errorf("%w: project %s is being deleted", ErrConflict, projectID)
+	}
 	if pending, deleted := m.deleting[snap.SnapshotID]; deleted {
 		if pending {
 			return fmt.Errorf("%w: snapshot %s is being deleted; retry deletion", ErrConflict, snap.SnapshotID)

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/open-mcp-ai/Codexploit/internal/app"
+	"github.com/open-mcp-ai/Codexploit/internal/storage"
 	"github.com/open-mcp-ai/Codexploit/internal/testgit"
 )
 
@@ -181,5 +182,53 @@ func TestGitSourceTaskRemainsPinnedWhenRemoteBranchMoves(t *testing.T) {
 	read.decode(t, &details)
 	if read.status != 200 || details.Snapshot.Commit != firstCommit {
 		t.Fatalf("original commit changed: %d %s", read.status, read.body)
+	}
+}
+
+func TestGitSourceCompletesSingleProjectInput(t *testing.T) {
+	t.Parallel()
+	remote := testgit.New(t, "")
+	remote.Commit(t, "package main\nfunc main() {}\n")
+	workspace := t.TempDir()
+	config := app.Config{Workspace: workspace, DBPath: filepath.Join(workspace, "store.db"), AllowNetwork: true, GitCAFile: remote.CAFile}
+	runtime, err := app.Build(context.Background(), config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := serveTestEnv(t, runtime, true)
+	created := do(t, env.ts, http.MethodPost, "/api/v1/projects", map[string]any{
+		"api_version": "codexploit/v1", "name": "Git input",
+	}, nil)
+	if created.status != http.StatusCreated {
+		t.Fatalf("project: %d %s", created.status, created.body)
+	}
+	var project projectResponse
+	created.decode(t, &project)
+	source := do(t, env.ts, http.MethodPost, "/api/v1/projects/"+project.Project.ID+"/sources", map[string]any{
+		"api_version": "codexploit/v1", "id": "src-git-input", "project_id": project.Project.ID,
+		"name": "Remote service", "kind": "git_repository", "location": remote.URL, "ref": "main",
+	}, nil)
+	if source.status != http.StatusCreated {
+		t.Fatalf("source: %d %s", source.status, source.body)
+	}
+	captured := do(t, env.ts, http.MethodPost, "/api/v1/sources/src-git-input/snapshots", map[string]any{
+		"project_id": project.Project.ID, "source_version": 1, "skip_analysis": true,
+	}, nil)
+	if captured.status != http.StatusCreated {
+		t.Fatalf("capture: %d %s", captured.status, captured.body)
+	}
+	var snapshot snapshotResponse
+	captured.decode(t, &snapshot)
+	input := readAuditInput(t, env.ts, project.Project.ID)
+	if input.State != storage.ProjectInputReady || input.SnapshotID != snapshot.Snapshot.SnapshotID || input.SourceKind != "git_repository" {
+		t.Fatalf("git input = %+v", input)
+	}
+	// A completed project refuses a recapture: another code version is another
+	// project, not an in-place update of this audit.
+	again := do(t, env.ts, http.MethodPost, "/api/v1/sources/src-git-input/snapshots", map[string]any{
+		"project_id": project.Project.ID, "source_version": 1, "skip_analysis": true,
+	}, nil)
+	if again.status != http.StatusConflict {
+		t.Fatalf("recapture on ready input = %d %s", again.status, again.body)
 	}
 }

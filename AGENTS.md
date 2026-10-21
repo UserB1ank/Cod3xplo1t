@@ -99,6 +99,8 @@
 
 - 2026-10-20 — #62 真实模型对照评测与默认切换：新增 `cmd/bench-corpus`（固定四组、每组 20 个合成任务：播种 SQLi / 参数化安全 / 动态不可判定 / 带校验边界，ground truth 由构造可知）与 `cmd/bench-eval`（API 驱动：每任务建项目与 ASG 快照、暂停任务、经 `POST /api/paths/{id}/runs` 只跑一条路径、按 runtime × 重复次数采集回答/usage/请求/工具/修复/novelty/义务，`--allow-real` 才消耗预算，`--grant-tokens` 提升审计额度，`--concurrency` 并行且逐条增量写样本）。用 DeepSeek `deepseek-chat` 完成 480 次真实运行（80 任务 × 2 runtime × 3 次，约 484 万 tokens），报告见 `docs/bench-runtime-report.md`：Pi 召回 0.92 / 误报 0.65 / tokens p50 2624，llm 召回 0.90 / 误报 0.71 / tokens p50 13399，成功率 0.97 / 0.98；语料为合成集、验证执行器未启用，成本/确认发现为 N/A，报告不自称真实世界胜出。按维护者决定把三个 Compose 部署的默认 runtime 从 llm 切到 pi（`CODEXPLOIT_AGENT_RUNTIME=llm` 回退，`--agent-runtimes=llm,pi` 仍允许逐任务选择，旧 run 保留 pin），并新增部署默认断言。此前还完成 SQLite 与 PostgreSQL 栈的页面级暂停/续跑/预算验收（含两次 PG 专有修复：先写检查点再释放路径、PAUSED 对租约恢复为终态），修复设置端点被误粘贴完整 `/chat/completions` 导致的 404（规范化并加载时纠正）。已知限制：评测产生的暂停任务会留下排队路径（无项目删除 API，需手工取消），合成语料的高误报需要真实世界标注集复评；真实 PG 页面登录使用隔离库+匿名管理验收，主部署账号密码未知。已通过 llm/bench/scripts 测试、staticcheck、真实评测与页面验收；按交付流程提交并关闭；未 push。
 
+- 2026-10-21 — #63 项目创建隐含保存单份源码并接通项目管理与删除：新项目创建时在同一事务写入项目与 `importing` 审计输入，归档、浏览器目录、Git 与本地目录 capture 在快照和产物发布后原子置 `ready`，失败记录真实 code/message 并可重试；五分钟未活动的导入展示为 `failed/import_interrupted`，可重试或删除。新项目只允许一个绑定源，第二份源码返回 `409 input_fixed`，活跃导入返回 `409 import_in_progress`；旧多来源项目无输入行，保持原有代码源、快照和任务引用，不猜测 latest。`GET /api/v1/projects` 返回真实目录与输入状态，`GET .../audit-input` 对旧项目返回 `legacy`；名称/说明编辑使用 `If-Match` 版本 CAS，源码绑定不在编辑 DTO 内。新增 writer 可恢复删除：活动路径/分析/Agent/workflow/plugin/验证/待审批计划/环境租约/活跃导入均明确 409，tombstone、snapshot 栅栏、filesystem 清理和最终行删除可重试续跑，完成后重复 DELETE 幂等 204，迟到项目/来源/快照写入被拒绝；产物对象内容寻址共享，不随项目删除误删他项目引用。正式项目目录、概览、输入状态、编辑/删除对话框与单输入代码源页接通真实 API；概览明确显示“开始图谱化分析”入口但不伪称 #64 的四阶段执行已完成。SQLite `0035` / PostgreSQL `0017` 迁移；新增 `project-input.schema.json` 与示例。已按公开边界完成 TDD：Memory/SQLite 双实现、真实 PostgreSQL 输入/删除/重启、幂等创建、跨项目隔离、导入失败/重试/目录与 Git ready、删除活动冲突与恢复、浏览器创建→ready→编辑→源码只读→删除→重启后 404；三轮 `storage`/`lifecycle`/`api` 乱序竞态、除 `internal/app` 外全量 `go test -race -shuffle`、真实 `make test-postgres`、`make check-contracts`、前端 28 项测试/构建均通过；`go vet` 与 pinned staticcheck 在排除他人 #27 WIP `internal/app/example_test.go` 后通过，`make fmt-check` 仍被 HEAD 既有 `internal/api/verification_execute_test.go` 的 gofmt 差异阻塞（本单未改该文件）。浏览器验收见本轮本地截图，未加入仓库。按交付流程独立提交并关闭 Issue；未 push。
+
 ## Agent skills
 
 ### Issue tracker
@@ -137,6 +139,7 @@ races — run `make test-stress` locally before pushing. Assume concurrency, a
 fresh runner, and dirty state from other tests or processes. Never hardcode a
 shared absolute path; `t.TempDir()` is the default. See
 `docs/agents/testing.md`.
+
 
 Static analysis is a gate too: the `lint` job runs `make lint` (gofmt over the
 files `git ls-files` returns, `go vet`, and Staticcheck at the version pinned in

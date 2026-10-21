@@ -26,6 +26,7 @@ var (
 type Project struct {
 	ID           string    `json:"id"`
 	Name         string    `json:"name"`
+	Description  string    `json:"description"`
 	Source       string    `json:"source"`
 	IdentityKind string    `json:"identity_kind"`
 	Identity     string    `json:"identity"`

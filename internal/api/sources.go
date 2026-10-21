@@ -20,29 +20,34 @@ import (
 
 func (s *Server) handleCreateSourceProject(w http.ResponseWriter, r *http.Request) {
 	var request struct {
-		APIVersion string `json:"api_version"`
-		Name       string `json:"name"`
+		APIVersion  string `json:"api_version"`
+		Name        string `json:"name"`
+		Description string `json:"description"`
 	}
 	if !s.decode(w, r, &request) {
 		return
 	}
 	request.Name = strings.TrimSpace(request.Name)
-	if request.APIVersion != "codexploit/v1" || request.Name == "" || len([]rune(request.Name)) > 100 {
-		writeError(w, http.StatusBadRequest, "invalid_request", errors.New("codexploit/v1 and a project name of 1–100 characters are required"))
+	request.Description = strings.TrimSpace(request.Description)
+	if request.APIVersion != "codexploit/v1" || request.Name == "" || len([]rune(request.Name)) > 100 || len([]rune(request.Description)) > 2000 {
+		writeError(w, http.StatusBadRequest, "invalid_request", errors.New("codexploit/v1, a project name of 1–100 characters and a description of at most 2000 characters are required"))
 		return
 	}
 	id := "proj-" + rand.Text()
-	if err := s.Store.PutProject(r.Context(), storage.Project{ID: id, Name: request.Name, IdentityKind: "project", Identity: id}); err != nil {
+	project, err := s.Store.CreateProject(r.Context(), storage.Project{
+		ID: id, Name: request.Name, Description: request.Description, IdentityKind: "project", Identity: id,
+	})
+	if err != nil {
 		writeStorageError(w, err)
 		return
 	}
-	project, err := s.Store.GetProject(r.Context(), id)
+	input, err := s.projectInput(r.Context(), id)
 	if err != nil {
 		writeStorageError(w, err)
 		return
 	}
 	w.Header().Set("ETag", projectETag(project))
-	writeJSON(w, http.StatusCreated, projectResponse{Project: project})
+	writeJSON(w, http.StatusCreated, projectResponse{Project: project, AuditInput: &input})
 }
 
 func WithLocalSourceRoot(root string) Option { return func(s *Server) { s.LocalSourceRoot = root } }
@@ -81,8 +86,21 @@ func (s *Server) handleCaptureSource(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
+	input, hasInput, err := s.bindProjectInput(ctx, source.ProjectID, source.ID, source.Kind, source.Name)
+	if err != nil {
+		writeProjectInputError(w, err)
+		return
+	}
+	if hasInput && input.State == storage.ProjectInputReady {
+		writeError(w, http.StatusConflict, "input_fixed",
+			errors.New("this project already has a fixed source input; create a new project for another source"))
+		return
+	}
 	snapshot, err := s.captureSourceSnapshot(ctx, source)
 	if err != nil {
+		if hasInput {
+			s.failProjectInput(source.ProjectID, source.ID, "capture_failed", err)
+		}
 		s.writeSourceError(w, err)
 		return
 	}
@@ -91,11 +109,19 @@ func (s *Server) handleCaptureSource(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) finishSourceCapture(w http.ResponseWriter, r *http.Request, repo storage.SourceRepository, source storage.SourceDefinition, snapshot *repository.Snapshot, request captureSourceRequest) {
 	if err := repo.RegisterSourceSnapshot(r.Context(), source, snapshot); err != nil {
+		if !errors.Is(err, storage.ErrConflict) {
+			s.failProjectInput(source.ProjectID, source.ID, "snapshot_failed", err)
+		}
 		writeStorageError(w, err)
 		return
 	}
 	if err := s.publishSourceArtifacts(r.Context(), source.ProjectID, snapshot); err != nil {
+		s.failProjectInput(source.ProjectID, source.ID, "artifacts_failed", err)
 		writeArtifactError(w, err)
+		return
+	}
+	if err := s.completeProjectInput(r.Context(), source.ProjectID, source.ID, snapshot.SnapshotID, snapshot.Stats.Files, snapshot.Stats.Bytes); err != nil {
+		writeError(w, http.StatusConflict, "input_state_conflict", err)
 		return
 	}
 	response := snapshotResponse{Snapshot: summaryOf(snapshot, source.ProjectID)}
@@ -291,7 +317,15 @@ func (s *Server) handleCreateSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	source := storage.SourceDefinition{APIVersion: request.APIVersion, ID: request.ID, ProjectID: project, Name: request.Name, Kind: request.Kind, Location: request.Location, Ref: request.Ref, CredentialRef: request.CredentialRef, Version: 1}
+	_, hasInput, err := s.bindProjectInput(r.Context(), project, request.ID, request.Kind, request.Name)
+	if err != nil {
+		writeProjectInputError(w, err)
+		return
+	}
 	if err := repo.CreateSource(r.Context(), source); err != nil {
+		if hasInput && !errors.Is(err, storage.ErrConflict) {
+			s.failProjectInput(project, request.ID, "source_failed", err)
+		}
 		writeStorageError(w, err)
 		return
 	}
@@ -313,6 +347,22 @@ func (s *Server) handleListSources(w http.ResponseWriter, r *http.Request) {
 	sources, err := repo.ListSources(r.Context(), project.ID, r.URL.Query().Get("cursor"), limit+1)
 	if err != nil {
 		writeStorageError(w, err)
+		return
+	}
+	// A new project exposes only its one bound audit input. Failed attempts may
+	// leave an unreferenced source definition, but that must not look like a
+	// second selectable code source in the official page.
+	if input, inputErr := s.Store.GetProjectInput(r.Context(), project.ID); inputErr == nil {
+		bound := storage.EffectiveProjectInput(input, time.Now().UTC())
+		filtered := sources[:0]
+		for _, source := range sources {
+			if source.ID == bound.SourceID {
+				filtered = append(filtered, source)
+			}
+		}
+		sources = filtered
+	} else if !errors.Is(inputErr, storage.ErrNotFound) {
+		writeStorageError(w, inputErr)
 		return
 	}
 	cursor := ""

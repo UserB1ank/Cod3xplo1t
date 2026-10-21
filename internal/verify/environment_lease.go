@@ -214,6 +214,20 @@ func (m *MemoryEnvironmentLeases) GetEnvironmentLease(ctx context.Context, id st
 	return lease, nil
 }
 
+// RemoveProjectLeases forgets every terminal lease of a project after the
+// project itself has been deleted. Active leases are rejected by the deletion
+// guard before this runs; the method exists so the in-memory backend does not
+// leak records the durable backend removes with the project.
+func (m *MemoryEnvironmentLeases) RemoveProjectLeases(projectID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for id, lease := range m.leases {
+		if lease.ProjectID == projectID {
+			delete(m.leases, id)
+		}
+	}
+}
+
 func (m *MemoryEnvironmentLeases) ListEnvironmentLeases(ctx context.Context, q EnvironmentLeaseQuery) ([]EnvironmentLease, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err

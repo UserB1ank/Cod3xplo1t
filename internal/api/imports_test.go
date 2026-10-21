@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 	contracts "github.com/open-mcp-ai/Codexploit/contracts/v1"
+	"github.com/open-mcp-ai/Codexploit/internal/storage"
 )
 
 func zipImportFixture(t *testing.T, files map[string]string) []byte {
@@ -85,6 +86,9 @@ func testImportPersistence(t *testing.T, config app.Config, rebuild bool, direct
 	result.decode(t, &initial)
 	if initial.Snapshot.Files != 1 {
 		t.Fatalf("excluded files entered snapshot: %s", result.body)
+	}
+	if input := readAuditInput(t, env.ts, project.ID); input.State != storage.ProjectInputReady || input.SnapshotID != initial.Snapshot.SnapshotID || input.Files != 1 {
+		t.Fatalf("archive/directory import did not complete the input: %+v", input)
 	}
 	if replay := do(t, env.ts, "POST", endpoint, archive, headers); replay.status != 201 {
 		t.Fatalf("replay: %d %s", replay.status, replay.body)
