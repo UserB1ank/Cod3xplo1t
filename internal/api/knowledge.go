@@ -210,6 +210,7 @@ func (s *Server) handleKnowledgeNodes(w http.ResponseWriter, r *http.Request) {
 	page, err := reader.Nodes(r.Context(), scope, r.PathValue("viewID"), knowledge.NodeQuery{
 		Kinds:   r.URL.Query()["kind"],
 		Subject: r.URL.Query().Get("subject"),
+		Query:   r.URL.Query().Get("q"),
 		Cursor:  r.URL.Query().Get("cursor"),
 		Limit:   limit,
 	})
@@ -222,6 +223,33 @@ func (s *Server) handleKnowledgeNodes(w http.ResponseWriter, r *http.Request) {
 		nodes = []asg.Node{}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"api_version": "codexploit/v1", "nodes": nodes, "next_cursor": page.NextCursor, "meta": page.Meta})
+}
+
+func (s *Server) handleKnowledgeASGNeighborhood(w http.ResponseWriter, r *http.Request) {
+	reader, ok := s.knowledgeReader(w)
+	if !ok {
+		return
+	}
+	scope, ok := s.knowledgeScope(w, r)
+	if !ok {
+		return
+	}
+	depth, ok := knowledgePageLimit(w, r, "depth", 2)
+	if !ok {
+		return
+	}
+	maxNodes, ok := knowledgePageLimit(w, r, "max_nodes", 40)
+	if !ok {
+		return
+	}
+	page, err := reader.ASGNeighborhood(r.Context(), scope, r.PathValue("viewID"), knowledge.ASGNeighborhoodQuery{
+		NodeID: r.URL.Query().Get("node_id"), Depth: depth, MaxNodes: maxNodes,
+	})
+	if err != nil {
+		writeKnowledgeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"api_version": "codexploit/v1", "neighborhood": page.Neighborhood, "meta": page.Meta})
 }
 
 func (s *Server) handleKnowledgePaths(w http.ResponseWriter, r *http.Request) {

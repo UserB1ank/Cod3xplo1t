@@ -114,5 +114,9 @@
   {
     "file": "examples/analysis-run.json",
     "schema": "analysis-run.schema.json"
+  },
+  {
+    "file": "examples/path-selection.json",
+    "schema": "path-selection.schema.json"
   }
 ]

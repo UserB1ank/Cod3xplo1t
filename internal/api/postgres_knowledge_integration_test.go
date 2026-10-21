@@ -10,6 +10,7 @@ import (
 
 	"github.com/open-mcp-ai/Codexploit/internal/app"
 	"github.com/open-mcp-ai/Codexploit/internal/artifact"
+	"github.com/open-mcp-ai/Codexploit/internal/asg"
 	"github.com/open-mcp-ai/Codexploit/internal/knowledge"
 	"github.com/open-mcp-ai/Codexploit/internal/plugin"
 )
@@ -339,6 +340,18 @@ func main() { http.HandleFunc("/run", Handler) }
 	provenance := doAs(t, env.ts, readerSecret, "GET", provenanceURL, nil, nil)
 	if provenance.status != 200 || !bytes.Contains(provenance.body, []byte(limited.ID)) {
 		t.Fatalf("direct provenance: %d %s", provenance.status, provenance.body)
+	}
+	entryPage := doAs(t, env.ts, readerSecret, "GET", base+"/"+view.View.ID+"/nodes?kind=EntryPoint&q=run&limit=5", nil, nil)
+	var entryNodes struct {
+		Nodes []asg.Node `json:"nodes"`
+	}
+	entryPage.decode(t, &entryNodes)
+	if entryPage.status != 200 || len(entryNodes.Nodes) == 0 {
+		t.Fatalf("PostgreSQL entry search: %d %s", entryPage.status, entryPage.body)
+	}
+	local := doAs(t, env.ts, readerSecret, "GET", base+"/"+view.View.ID+"/asg-neighborhood?node_id="+url.QueryEscape(entryNodes.Nodes[0].ID)+"&depth=2&max_nodes=20", nil, nil)
+	if local.status != 200 || !bytes.Contains(local.body, []byte(`"edges"`)) {
+		t.Fatalf("PostgreSQL local graph: %d %s", local.status, local.body)
 	}
 	env.ts.Close()
 	if err := env.rt.Close(); err != nil {

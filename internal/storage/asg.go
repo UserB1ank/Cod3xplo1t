@@ -12,7 +12,9 @@ type ASGNodeQuery struct {
 	Kinds      []asg.NodeKind
 	// Subject matches exactly; it is how a caller asks for one route or one sink
 	// class without knowing its id.
-	Subject   string
+	Subject string
+	// Query matches a case-insensitive substring of Subject or Label.
+	Query     string
 	Generator string
 	File      string
 	Limit     int

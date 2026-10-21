@@ -97,6 +97,7 @@ func (s *ASGService) Summary(ctx context.Context, snapshotID string) (*asg.Summa
 type ASGNodeQuery struct {
 	Kinds     []asg.NodeKind
 	Subject   string
+	Query     string
 	Generator string
 	File      string
 	Limit     int
@@ -127,6 +128,7 @@ func (s *ASGService) Nodes(ctx context.Context, snapshotID string, q ASGNodeQuer
 		SnapshotID: snapshotID,
 		Kinds:      q.Kinds,
 		Subject:    q.Subject,
+		Query:      q.Query,
 		Generator:  q.Generator,
 		File:       q.File,
 		Limit:      limit,
@@ -481,4 +483,115 @@ func mapASGError(err error, snapshotID string) error {
 		return fmt.Errorf("graph: attack-surface query on snapshot %s exceeded its budget: %w", snapshotID, err)
 	}
 	return err
+}
+
+// ASGNeighborhood is a bounded view of the attack-surface edges around one
+// node. It follows outgoing relationships only: DERIVED_FROM points back to the
+// source graph and is reported as provenance, not as a call edge.
+type ASGNeighborhood struct {
+	Root            asg.Node   `json:"root"`
+	Nodes           []asg.Node `json:"nodes"`
+	Edges           []asg.Edge `json:"edges"`
+	UnresolvedEdges int        `json:"unresolved_edges"`
+	Meta            ASGMeta    `json:"meta"`
+	Limitations     []string   `json:"limitations"`
+}
+
+// Neighborhood expands a node to a bounded depth. Callers cannot ask for an
+// unbounded graph walk: the depth is capped at two and the node budget is
+// explicit so a page can always explain a truncation.
+func (s *ASGService) Neighborhood(ctx context.Context, snapshotID, nodeID string, depth, maxNodes int) (*ASGNeighborhood, error) {
+	started := s.now()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := s.requireASG(ctx, snapshotID); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(nodeID) == "" {
+		return nil, fmt.Errorf("%w: node id is required", ErrInvalidArgument)
+	}
+	if depth <= 0 {
+		depth = 2
+	}
+	if depth > 2 {
+		depth = 2
+	}
+	if maxNodes <= 0 {
+		maxNodes = 40
+	}
+	if maxNodes > 100 {
+		maxNodes = 100
+	}
+	root, err := s.Store.GetASGNode(ctx, snapshotID, nodeID)
+	if err != nil {
+		return nil, mapASGError(err, snapshotID)
+	}
+	nodes := map[string]asg.Node{root.ID: root}
+	order := []string{root.ID}
+	edges := []asg.Edge{}
+	seenEdge := map[string]bool{}
+	unresolved := 0
+	truncated := false
+	type frontierNode struct {
+		id    string
+		depth int
+	}
+	queue := []frontierNode{{id: root.ID}}
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		if current.depth >= depth {
+			continue
+		}
+		page, err := s.Store.ListASGEdges(ctx, storage.ASGEdgeQuery{
+			SnapshotID: snapshotID, From: []string{current.id}, Limit: maxNodes * 4,
+		})
+		if err != nil {
+			return nil, mapASGError(err, snapshotID)
+		}
+		for _, edge := range page {
+			if edge.Kind == asg.EdgeDerivedFrom || seenEdge[edge.ID] {
+				continue
+			}
+			seenEdge[edge.ID] = true
+			edges = append(edges, edge)
+			if _, ok := nodes[edge.To]; ok {
+				continue
+			}
+			if len(nodes) >= maxNodes {
+				unresolved++
+				truncated = true
+				continue
+			}
+			next, err := s.Store.GetASGNode(ctx, snapshotID, edge.To)
+			if err != nil {
+				unresolved++
+				continue
+			}
+			nodes[next.ID] = next
+			order = append(order, next.ID)
+			queue = append(queue, frontierNode{id: next.ID, depth: current.depth + 1})
+		}
+	}
+	out := make([]asg.Node, 0, len(order))
+	for _, id := range order {
+		out = append(out, nodes[id])
+	}
+	meta := s.meta(ctx, snapshotID, "asg_neighborhood", map[string]string{
+		"node_id": nodeID, "depth": fmt.Sprint(depth), "max_nodes": fmt.Sprint(maxNodes),
+	}, started)
+	meta.Total = len(out)
+	if truncated {
+		meta.Truncated = true
+		meta.TruncationReason = "node budget reached; expand a smaller neighborhood"
+	}
+	limitations := []string{
+		"Only outgoing attack-surface edges are expanded; DERIVED_FROM is source provenance, not a call edge.",
+		"Call reachability is not dataflow or proof of exploitability.",
+	}
+	if unresolved > 0 {
+		limitations = append(limitations, fmt.Sprintf("%d edge endpoint(s) could not be resolved within the node budget", unresolved))
+	}
+	return &ASGNeighborhood{Root: root, Nodes: out, Edges: edges, UnresolvedEdges: unresolved, Meta: meta, Limitations: limitations}, nil
 }

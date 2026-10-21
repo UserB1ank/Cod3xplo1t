@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codexploit.invalid/contracts/v1/path-selection.schema.json",
+  "title": "Selecting candidate paths as Agent subtasks",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["api_version", "selections", "reused"],
+  "properties": {
+    "api_version": { "const": "codexploit/v1" },
+    "reused": { "type": "boolean" },
+    "selections": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["selection_id", "project_id", "snapshot_id", "audit_id", "path_id", "state", "source", "reused"],
+        "properties": {
+          "selection_id": { "type": "string", "pattern": "^selection-[a-f0-9]{32}$" },
+          "project_id": { "$ref": "common.schema.json#/$defs/ID" },
+          "snapshot_id": { "$ref": "common.schema.json#/$defs/ID" },
+          "audit_id": { "$ref": "common.schema.json#/$defs/ID" },
+          "path_id": { "$ref": "common.schema.json#/$defs/ID" },
+          "run_id": { "$ref": "common.schema.json#/$defs/ID" },
+          "state": { "type": "string", "minLength": 1, "maxLength": 40 },
+          "source": { "const": "agent" },
+          "reused": { "type": "boolean" }
+        }
+      }
+    }
+  }
+}

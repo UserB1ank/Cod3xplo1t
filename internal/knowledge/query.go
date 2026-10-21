@@ -85,6 +85,60 @@ type SlicePage struct {
 	Meta  Meta             `json:"meta"`
 }
 
+// ASGNeighborhoodQuery asks for a bounded local attack-surface graph around one
+// entry or node.
+type ASGNeighborhoodQuery struct {
+	NodeID   string
+	Depth    int
+	MaxNodes int
+}
+
+// ASGNeighborhoodPage pins the local graph to the view's versions.
+type ASGNeighborhoodPage struct {
+	Neighborhood *graph.ASGNeighborhood `json:"neighborhood"`
+	Meta         Meta                   `json:"meta"`
+}
+
+// ASGNeighborhood expands one attack-surface node with explicit depth and node
+// budgets. The layer must be mounted; a missing ASG is an error, not an empty
+// graph.
+func (r *Reader) ASGNeighborhood(ctx context.Context, scope Scope, viewID string, q ASGNeighborhoodQuery) (*ASGNeighborhoodPage, error) {
+	view, _, err := r.loadView(ctx, scope, viewID)
+	if err != nil {
+		return nil, err
+	}
+	if err := requireLayer(view, LayerASG); err != nil {
+		return nil, err
+	}
+	if r.ASG == nil {
+		return nil, ErrLayerUnavailable
+	}
+	if q.Depth <= 0 {
+		q.Depth = 2
+	}
+	if q.Depth > 2 {
+		q.Depth = 2
+	}
+	if q.MaxNodes <= 0 {
+		q.MaxNodes = 40
+	}
+	if q.MaxNodes > 100 {
+		q.MaxNodes = 100
+	}
+	neighborhood, err := r.ASG.Neighborhood(ctx, scope.SnapshotID, q.NodeID, q.Depth, q.MaxNodes)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	meta := metaFor(view, LayerASG, len(neighborhood.Nodes))
+	meta.Truncated = neighborhood.Meta.Truncated
+	meta.TruncationReason = neighborhood.Meta.TruncationReason
+	meta.ElapsedMS = neighborhood.Meta.ElapsedMS
+	if len(neighborhood.Limitations) > 0 {
+		meta.Limitations = append(append([]string{}, meta.Limitations...), neighborhood.Limitations...)
+	}
+	return &ASGNeighborhoodPage{Neighborhood: neighborhood, Meta: meta}, nil
+}
+
 // PathQuery filters the path layer. Every path is pinned to the view's snapshot
 // and layer versions.
 type PathQuery struct {
@@ -331,6 +385,7 @@ func auditByID(audits []path.Audit, id string) (path.Audit, bool) {
 type NodeQuery struct {
 	Kinds   []string
 	Subject string
+	Query   string
 	Cursor  string
 	Limit   int
 }
@@ -363,6 +418,7 @@ func (r *Reader) Nodes(ctx context.Context, scope Scope, viewID string, q NodeQu
 	page, err := r.ASG.Nodes(ctx, scope.SnapshotID, graph.ASGNodeQuery{
 		Kinds:   kinds,
 		Subject: q.Subject,
+		Query:   q.Query,
 		Limit:   limit,
 		Offset:  offset,
 	})

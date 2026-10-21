@@ -620,6 +620,8 @@ export default function App() {
                   projectID={project.id}
                   snapshots={snapshots.data || []}
                   revision={revision}
+                  canWrite={canWrite}
+                  agentAvailable={!!identity.features.agent}
                 />
               ) : route.view === "reports" ? (
                 <Reports

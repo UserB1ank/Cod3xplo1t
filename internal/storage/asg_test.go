@@ -231,6 +231,11 @@ func TestASGRoundTrip(t *testing.T) {
 				t.Fatalf("file filter returned %d/%d nodes, err %v", len(byFile), fileTotal, err)
 			}
 
+			byQuery, queryTotal, err := tc.store.ListASGNodes(ctx, ASGNodeQuery{SnapshotID: asgSnapshotID, Kinds: []asg.NodeKind{asg.NodeEntryPoint}, Query: "users"})
+			if err != nil || queryTotal != 1 || len(byQuery) != 1 || byQuery[0].Kind != asg.NodeEntryPoint {
+				t.Fatalf("query filter returned %+v (%d total), err %v", byQuery, queryTotal, err)
+			}
+
 			paged, pagedTotal, err := tc.store.ListASGNodes(ctx, ASGNodeQuery{SnapshotID: asgSnapshotID, Limit: 2})
 			if err != nil || len(paged) != 2 || pagedTotal != len(doc.Nodes) {
 				t.Fatalf("paging returned %d nodes and total %d, err %v", len(paged), pagedTotal, err)

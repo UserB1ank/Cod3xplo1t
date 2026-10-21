@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/open-mcp-ai/Codexploit/internal/asg"
 )
@@ -96,6 +97,9 @@ func (m *Memory) ListASGNodes(_ context.Context, q ASGNodeQuery) ([]asg.Node, in
 			continue
 		}
 		if q.Subject != "" && n.Subject != q.Subject {
+			continue
+		}
+		if q.Query != "" && !strings.Contains(strings.ToLower(n.Subject+"\x00"+n.Label), strings.ToLower(q.Query)) {
 			continue
 		}
 		if q.Generator != "" && n.Generator != q.Generator {

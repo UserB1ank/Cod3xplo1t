@@ -243,6 +243,11 @@ func asgNodeFilter(q ASGNodeQuery) (string, []any) {
 		where = append(where, "subject = ?")
 		args = append(args, q.Subject)
 	}
+	if q.Query != "" {
+		like := "%" + strings.ToLower(q.Query) + "%"
+		where = append(where, "(LOWER(subject) LIKE ? OR LOWER(label) LIKE ?)")
+		args = append(args, like, like)
+	}
 	if q.Generator != "" {
 		where = append(where, "generator = ?")
 		args = append(args, q.Generator)

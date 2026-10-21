@@ -302,6 +302,18 @@ func requiredCapability(method, path string) (Capability, bool) {
 		if strings.HasPrefix(action, "imports/") && method == http.MethodPost {
 			return CapWrite, true
 		}
+		if action == "analysis-runs" || strings.HasPrefix(action, "analysis-runs/") {
+			if method == http.MethodGet {
+				return CapRead, true
+			}
+			return CapWrite, true
+		}
+		if action == "path-selections" || strings.HasPrefix(action, "path-selections/") {
+			if method == http.MethodGet {
+				return CapRead, true
+			}
+			return CapWrite, true
+		}
 		if strings.HasPrefix(action, "verification-plans") {
 			if method == http.MethodGet {
 				return CapRead, true

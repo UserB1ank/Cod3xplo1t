@@ -8,6 +8,9 @@ import {
 import {
   ArrowDown,
   ArrowUp,
+  ChevronRight,
+  GitBranch,
+  ListChecks,
   Loader2,
   Network,
   RefreshCw,
@@ -15,11 +18,11 @@ import {
 } from "lucide-react";
 import { ApiClient, ApiError } from "./api";
 import { CodeBlock, EmptyState, Hint, Modal, Panel } from "./components";
-import type { Snapshot } from "./types";
+import type { PathSubtask, Snapshot } from "./types";
 import { latestSnapshot } from "./workbench";
 import { readRevisionDirectory } from "./knowledgeData";
 
-type Layer = "scg" | "asg" | "paths";
+type Layer = "entries" | "scg" | "asg" | "paths";
 
 interface LayerInfo {
   status: "available" | "not_built" | "unavailable";
@@ -72,6 +75,31 @@ interface AttackNode {
   line?: number;
   confidence?: string;
   generator?: string;
+  module_id?: string;
+  detail?: Record<string, string>;
+  scg_refs?: string[];
+  evidence_status?: string;
+}
+
+interface ASGEdge {
+  edge_id: string;
+  from: string;
+  to: string;
+  kind: string;
+  evidence_status?: string;
+  confidence?: string;
+  generator?: string;
+  scg_refs?: string[];
+  detail?: Record<string, string>;
+}
+
+interface Neighborhood {
+  root: AttackNode;
+  nodes: AttackNode[];
+  edges: ASGEdge[];
+  unresolved_edges: number;
+  meta: Meta;
+  limitations: string[];
 }
 
 interface AuditRef {
@@ -84,9 +112,13 @@ interface AuditRef {
 interface AuditPath {
   path_id: string;
   audit_id: string;
+  snapshot_id: string;
   entry_subject: string;
+  entry_node_id?: string;
   target_subject: string;
   target_kind: string;
+  path_kind: string;
+  path_status: string;
   status: string;
   steps?: {
     layer: string;
@@ -94,9 +126,28 @@ interface AuditPath {
     file?: string;
     line?: number;
     kind: string;
+    evidence?: string;
   }[];
   scg_refs?: string[];
-  entry_node_id?: string;
+  limitations?: string[];
+  score?: {
+    priority: number;
+    support: number;
+    risk: number;
+    utility: number;
+    score_version?: number;
+    weights?: Record<string, number>;
+  };
+  selection?: {
+    selection: "selected" | "filtered";
+    reason: string;
+    filter_code?: string;
+    score_version: number;
+    weights_digest: string;
+    source_path_id: string;
+    producer_plugin?: string;
+  };
+  features?: { reasons?: Record<string, string> };
 }
 
 interface AnalysisRef {
@@ -147,15 +198,17 @@ interface Slice {
 }
 
 const layerLabels: Record<Layer, string> = {
+  entries: "程序入口",
   scg: "源码图谱",
   asg: "攻击面",
   paths: "候选路径",
 };
 
 const layerHints: Record<Layer, string> = {
+  entries: "按入口查看 1–2 跳模块与调用关系，再进入源码与证据。",
   scg: "符号、调用关系与真实源码位置。",
   asg: "从源码事实提取的入口、敏感操作与控制。",
-  paths: "固定快照的任务与直接插件分析发布的候选路径。",
+  paths: "固定快照的任务与直接插件分析发布的候选路径，可选择交给 Agent。",
 };
 
 function failureText(error: unknown) {
@@ -223,24 +276,29 @@ export function Knowledge({
   projectID,
   snapshots,
   revision,
+  canWrite,
+  agentAvailable,
 }: {
   api: ApiClient;
   projectID: string;
   snapshots: Snapshot[];
   revision: number;
+  canWrite: boolean;
+  agentAvailable: boolean;
 }) {
   const [selectedSnapshot, setSelectedSnapshot] = useState("");
   const snapshot =
     snapshots.find((item) => item.snapshot_id === selectedSnapshot) ||
     latestSnapshot(snapshots);
   const snapshotID = snapshot?.snapshot_id || "";
-  const [layer, setLayer] = useState<Layer>("scg");
+  const [layer, setLayer] = useState<Layer>("entries");
   const [view, setView] = useState<View>();
   const [viewError, setViewError] = useState("");
   const [viewLoading, setViewLoading] = useState(false);
   const [openCount, setOpenCount] = useState(0);
   const [selectedSymbol, setSelectedSymbol] = useState<Symbol>();
   const [selectedNode, setSelectedNode] = useState<AttackNode>();
+  const [selectedEntry, setSelectedEntry] = useState<AttackNode>();
   const [selectedPath, setSelectedPath] = useState<AuditPath>();
 
   const openView = useCallback(() => {
@@ -264,6 +322,7 @@ export function Knowledge({
     setView(undefined);
     setSelectedSymbol(undefined);
     setSelectedNode(undefined);
+    setSelectedEntry(undefined);
     setSelectedPath(undefined);
     openView();
   }, [openView, revision, openCount]);
@@ -276,7 +335,8 @@ export function Knowledge({
     );
   }
 
-  const layerState = view?.layers[layer];
+  const layerState =
+    layer === "entries" ? view?.layers.asg : view?.layers[layer];
   const layerReady = layerState?.status === "available";
 
   return (
@@ -370,6 +430,14 @@ export function Knowledge({
                     : null}
               </EmptyState>
             </Panel>
+          ) : layer === "entries" ? (
+            <EntryPanel
+              api={api}
+              projectID={projectID}
+              view={view}
+              onSelect={setSelectedEntry}
+              selected={selectedEntry}
+            />
           ) : layer === "scg" ? (
             <SymbolPanel
               api={api}
@@ -393,6 +461,8 @@ export function Knowledge({
               view={view}
               onSelect={setSelectedPath}
               selected={selectedPath}
+              canWrite={canWrite}
+              agentAvailable={agentAvailable}
             />
           )}
           {view.limitations.length ? (
@@ -421,6 +491,22 @@ export function Knowledge({
             projectID={projectID}
             view={view}
             symbol={selectedSymbol}
+          />
+        ) : null}
+      </Modal>
+      <Modal
+        open={!!selectedEntry}
+        onClose={() => setSelectedEntry(undefined)}
+        title="入口局部图谱"
+        wide
+        variant="drawer"
+      >
+        {selectedEntry && view ? (
+          <EntryInspector
+            api={api}
+            projectID={projectID}
+            view={view}
+            entry={selectedEntry}
           />
         ) : null}
       </Modal>
@@ -721,6 +807,343 @@ function usePager() {
   return { cursor, page: cursors.length - 1, next, back, reset };
 }
 
+function EntryPanel({
+  api,
+  projectID,
+  view,
+  onSelect,
+  selected,
+}: {
+  api: ApiClient;
+  projectID: string;
+  view: View;
+  onSelect: (node: AttackNode) => void;
+  selected?: AttackNode;
+}) {
+  const [query, setQuery] = useState("");
+  const [search, setSearch] = useState("");
+  const { cursor, page, next, back, reset } = usePager();
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearch(query);
+      reset();
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [query, reset]);
+  const data = useQuery(
+    (signal) =>
+      api.get<{ nodes: AttackNode[]; next_cursor: string; meta: Meta }>(
+        `/v1/projects/${projectID}/knowledge/views/${view.view_id}/nodes?kind=EntryPoint&q=${encodeURIComponent(search)}&limit=20&cursor=${encodeURIComponent(cursor)}`,
+        signal,
+      ),
+    [api, projectID, view.view_id, search, cursor],
+  );
+  return (
+    <Panel
+      title="程序入口"
+      action={
+        <div className="search-input">
+          <Search size={15} />
+          <input
+            aria-label="搜索入口"
+            placeholder="搜索路由、命令或输入入口…"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </div>
+      }
+    >
+      {data.error ? (
+        <Hint>{data.error}</Hint>
+      ) : data.loading ? (
+        <div className="knowledge-loading">
+          <Loader2 className="spin" size={16} /> 读取入口目录…
+        </div>
+      ) : !data.data?.nodes.length ? (
+        <EmptyState title="没有匹配的入口">
+          该快照没有构建攻击面，或搜索词没有命中入口。入口缺失不会用示例图替代。
+        </EmptyState>
+      ) : (
+        <>
+          <div className="table-scroll">
+            <table className="standard-table knowledge-table">
+              <thead>
+                <tr>
+                  <th>入口</th>
+                  <th>标识</th>
+                  <th>源码位置</th>
+                  <th>置信</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.data.nodes.map((node) => (
+                  <tr
+                    key={node.node_id}
+                    data-guide-row
+                    tabIndex={0}
+                    aria-selected={selected?.node_id === node.node_id}
+                    className={
+                      selected?.node_id === node.node_id ? "selected" : ""
+                    }
+                    onClick={() => onSelect(node)}
+                    onKeyDown={guideKeys}
+                  >
+                    <td>
+                      <strong>{node.label}</strong>
+                      <span className="mono muted">{node.subject}</span>
+                    </td>
+                    <td className="mono muted">{node.module_id || "入口"}</td>
+                    <td className="mono">
+                      {node.file ? `${node.file}:${node.line || 0}` : "未解析"}
+                    </td>
+                    <td>{node.confidence || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="knowledge-pager">
+            <button className="button" disabled={page === 0} onClick={back}>
+              上一页
+            </button>
+            <span>第 {page + 1} 页</span>
+            <button
+              className="button"
+              disabled={!data.data.next_cursor}
+              onClick={() => next(data.data?.next_cursor || "")}
+            >
+              下一页
+            </button>
+          </div>
+          <MetaBar meta={data.data.meta} />
+        </>
+      )}
+    </Panel>
+  );
+}
+
+function EntryInspector({
+  api,
+  projectID,
+  view,
+  entry,
+}: {
+  api: ApiClient;
+  projectID: string;
+  view: View;
+  entry: AttackNode;
+}) {
+  const base = `/v1/projects/${projectID}/knowledge/views/${view.view_id}`;
+  const [focus, setFocus] = useState(entry);
+  const [edge, setEdge] = useState<ASGEdge>();
+  const neighborhood = useQuery(
+    (signal) =>
+      api.get<{ neighborhood: Neighborhood; meta: Meta }>(
+        `${base}/asg-neighborhood?node_id=${encodeURIComponent(focus.node_id)}&depth=2&max_nodes=30`,
+        signal,
+      ),
+    [api, base, focus.node_id],
+  );
+  const symbolRef = focus.scg_refs?.find((id) => id.startsWith("sym-"));
+  const slice = useQuery<Slice | undefined>(
+    (signal) =>
+      symbolRef
+        ? api.get<Slice>(
+            `${base}/code-slice?symbol_id=${encodeURIComponent(symbolRef)}&max_lines=80&max_sections=2`,
+            signal,
+          )
+        : focus.file
+          ? api
+              .post<{ sections: { start_line: number; lines: string[] }[] }>(
+                `/snapshots/${view.scope.snapshot_id}/graph/slice`,
+                {
+                  file: focus.file,
+                  start_line: Math.max(1, (focus.line || 1) - 5),
+                  end_line: (focus.line || 1) + 15,
+                  max_lines: 25,
+                },
+                signal,
+              )
+              .then((value) => ({
+                slice: {
+                  sections: value.sections.map((section) => ({
+                    reason: "focus",
+                    file: focus.file || "",
+                    start_line: section.start_line,
+                    end_line:
+                      section.start_line + (section.lines?.length || 1) - 1,
+                    lines: section.lines || [],
+                    truncated: false,
+                  })),
+                  limitations: [],
+                },
+                meta: {
+                  view_id: view.view_id,
+                  revision: view.revision,
+                  layer: "asg",
+                  versions: {},
+                  total: 0,
+                  truncated: false,
+                  snapshot_id: view.scope.snapshot_id,
+                  coverage: {},
+                } as Meta,
+              }))
+          : Promise.resolve(undefined),
+    [api, base, symbolRef, focus.file, focus.line, view.scope.snapshot_id, view.view_id, view.revision],
+  );
+  const nodes = neighborhood.data?.neighborhood.nodes || [];
+  const edges = neighborhood.data?.neighborhood.edges || [];
+  const nodeByID = new Map(nodes.map((node) => [node.node_id, node]));
+  return (
+    <>
+      <div className="inspector-heading">
+        <strong>{focus.label}</strong>
+        <span className="muted mono">{focus.subject}</span>
+      </div>
+      <div className="entry-focus-bar">
+        <span className="mono">
+          {focus.file ? `${focus.file}:${focus.line || 0}` : "源码位置未解析"}
+        </span>
+        <span className="muted">
+          1–2 跳 · {edges.length} 条关系 · {nodes.length} 个节点
+        </span>
+      </div>
+      {neighborhood.error ? (
+        <Hint>{neighborhood.error}</Hint>
+      ) : neighborhood.loading ? (
+        <div className="knowledge-loading">
+          <Loader2 className="spin" size={16} /> 展开局部图谱…
+        </div>
+      ) : (
+        <>
+          {neighborhood.data?.neighborhood.meta.truncated && (
+            <Hint>
+              局部图谱被节点预算截断；请从较小的节点继续展开，未显示不代表不存在。
+            </Hint>
+          )}
+          {!!neighborhood.data?.neighborhood.unresolved_edges && (
+            <Hint>
+              有 {neighborhood.data.neighborhood.unresolved_edges} 条关系端点未能在预算内解析。
+            </Hint>
+          )}
+          <Panel title="相邻节点" className="knowledge-inspector-panel">
+            {!nodes.filter((node) => node.node_id !== focus.node_id).length ? (
+              <Hint>该入口没有可展开的出边。</Hint>
+            ) : (
+              <div className="entry-node-list">
+                {nodes
+                  .filter((node) => node.node_id !== focus.node_id)
+                  .map((node) => (
+                    <button
+                      key={node.node_id}
+                      className="entry-node"
+                      onClick={() => {
+                        setEdge(undefined);
+                        setFocus(node);
+                      }}
+                    >
+                      <span>
+                        <strong>{node.label || node.subject}</strong>
+                        <small className="mono">{node.subject}</small>
+                      </span>
+                      <span className="muted mono">
+                        {node.file ? `${node.file}:${node.line || 0}` : "未解析"}
+                      </span>
+                      <ChevronRight size={14} />
+                    </button>
+                  ))}
+              </div>
+            )}
+          </Panel>
+          <Panel title="关系与证据" className="knowledge-inspector-panel">
+            {!edges.length ? (
+              <Hint>没有可展示的攻击面关系。</Hint>
+            ) : (
+              <>
+                <div className="entry-edge-list">
+                  {edges.map((item) => (
+                    <button
+                      key={item.edge_id}
+                      className={edge?.edge_id === item.edge_id ? "active" : ""}
+                      onClick={() => setEdge(item)}
+                    >
+                      <span className="mono">{item.kind}</span>
+                      <span>
+                        {nodeByID.get(item.from)?.label || item.from} →{" "}
+                        {nodeByID.get(item.to)?.label || item.to}
+                      </span>
+                      <span className="muted">
+                        {item.evidence_status || "—"} / {item.confidence || "—"}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                {edge && (
+                  <dl className="knowledge-provenance">
+                    <div>
+                      <dt>关系</dt>
+                      <dd className="mono">{edge.kind}</dd>
+                    </div>
+                    <div>
+                      <dt>证据</dt>
+                      <dd>{edge.evidence_status || "未记录"}</dd>
+                    </div>
+                    <div>
+                      <dt>置信</dt>
+                      <dd>{edge.confidence || "未记录"}</dd>
+                    </div>
+                    <div>
+                      <dt>SCG 引用</dt>
+                      <dd className="mono">
+                        {edge.scg_refs?.join(" · ") || "无"}
+                      </dd>
+                    </div>
+                  </dl>
+                )}
+              </>
+            )}
+          </Panel>
+          <Panel title="源码与静态证据" className="knowledge-inspector-panel">
+            {slice.error ? (
+              <Hint>{slice.error}</Hint>
+            ) : slice.loading ? (
+              <div className="knowledge-loading">
+                <Loader2 className="spin" size={16} /> 读取源码…
+              </div>
+            ) : slice.data?.slice.sections.length ? (
+              slice.data.slice.sections.map((section, index) => (
+                <CodeBlock
+                  key={index}
+                  file={section.file}
+                  lines={section.lines.map((content, offset) => ({
+                    line: section.start_line + offset,
+                    content,
+                    highlight:
+                      !!focus.line &&
+                      section.start_line + offset === focus.line,
+                  }))}
+                />
+              ))
+            ) : (
+              <Hint>该节点没有可读取的源码位置；证据状态为 {focus.evidence_status || "未记录"}。</Hint>
+            )}
+          </Panel>
+          <details className="limitations">
+            <summary>局部图谱局限</summary>
+            <ul>
+              {(neighborhood.data?.neighborhood.limitations || []).map(
+                (item) => (
+                  <li key={item}>{item}</li>
+                ),
+              )}
+            </ul>
+          </details>
+        </>
+      )}
+    </>
+  );
+}
+
 function SymbolPanel({
   api,
   projectID,
@@ -945,16 +1368,35 @@ function PathPanel({
   view,
   onSelect,
   selected,
+  canWrite,
+  agentAvailable,
 }: {
   api: ApiClient;
   projectID: string;
   view: View;
   onSelect: (row: AuditPath) => void;
   selected?: AuditPath;
+  canWrite: boolean;
+  agentAvailable: boolean;
 }) {
   const [audit, setAudit] = useState("");
+  const [checked, setChecked] = useState<string[]>([]);
+  const [subtasks, setSubtasks] = useState<PathSubtask[]>([]);
+  const [selecting, setSelecting] = useState(false);
+  const [selectionError, setSelectionError] = useState("");
   const { cursor, page, next, back, reset } = usePager();
   useEffect(() => reset(), [audit, reset]);
+  const existing = useQuery(
+    (signal) =>
+      agentAvailable
+        ? api.pathSelections(projectID, undefined, signal)
+        : Promise.resolve({ selections: [] as PathSubtask[] }),
+    [api, projectID, view.view_id, agentAvailable],
+  );
+  const existingByPath = new Map(
+    (existing.data?.selections || []).map((item) => [item.path_id, item]),
+  );
+  for (const item of subtasks) existingByPath.set(item.path_id, item);
   const data = useQuery(
     (signal) =>
       api.get<{
@@ -973,29 +1415,60 @@ function PathPanel({
     <Panel
       title="候选分析路径"
       action={
-        <select
-          aria-label="路径来源"
-          value={audit}
-          onChange={(event) => setAudit(event.target.value)}
-        >
-          <option value="">全部任务与直接分析</option>
-          {(data.data?.audits || []).map((item) => (
-            <option value={item.audit_id} key={item.audit_id}>
-              {item.name || item.audit_id}（{item.paths} 条）
-            </option>
-          ))}
-          {(data.data?.analyses || [])
-            .filter((item) => item.has_paths)
-            .map((item) => (
-              <option
-                value={`analysis:${item.analysis_id}`}
-                key={item.analysis_id}
-              >
-                {item.producer.plugin_id} · {item.analysis_id}（
-                {item.path_count} 条）
+        <div className="path-selection-actions">
+          <select
+            aria-label="路径来源"
+            value={audit}
+            onChange={(event) => setAudit(event.target.value)}
+          >
+            <option value="">全部任务与直接分析</option>
+            {(data.data?.audits || []).map((item) => (
+              <option value={item.audit_id} key={item.audit_id}>
+                {item.name || item.audit_id}（{item.paths} 条）
               </option>
             ))}
-        </select>
+            {(data.data?.analyses || [])
+              .filter((item) => item.has_paths)
+              .map((item) => (
+                <option
+                  value={`analysis:${item.analysis_id}`}
+                  key={item.analysis_id}
+                >
+                  {item.producer.plugin_id} · {item.analysis_id}（
+                  {item.path_count} 条）
+                </option>
+              ))}
+          </select>
+          <button
+            className="button primary"
+            disabled={!canWrite || !agentAvailable || !checked.length || selecting}
+            title={
+              agentAvailable
+                ? "为所选路径生成可独立控制的 Agent 运行"
+                : "当前部署未配置可用 Agent"
+            }
+            onClick={() => {
+              if (!checked.length) return;
+              setSelecting(true);
+              setSelectionError("");
+              api
+                .selectPaths(projectID, checked)
+                .then((result) => {
+                  setSubtasks(result.selections);
+                  setChecked([]);
+                })
+                .catch((error) => setSelectionError(failureText(error)))
+                .finally(() => setSelecting(false));
+            }}
+          >
+            {selecting ? (
+              <Loader2 size={14} className="spin" />
+            ) : (
+              <ListChecks size={14} />
+            )}
+            生成审查子任务
+          </button>
+        </div>
       }
     >
       {data.error ? (
@@ -1014,9 +1487,11 @@ function PathPanel({
             <table className="standard-table knowledge-table">
               <thead>
                 <tr>
-                  <th>入口</th>
-                  <th>目标</th>
-                  <th>类型</th>
+                  <th aria-label="选择路径" />
+                  <th>入口 / 目标</th>
+                  <th>证据等级</th>
+                  <th>优先级</th>
+                  <th>筛选与来源</th>
                   <th>状态</th>
                 </tr>
               </thead>
@@ -1033,9 +1508,41 @@ function PathPanel({
                     onClick={() => onSelect(row)}
                     onKeyDown={guideKeys}
                   >
-                    <td className="mono">{row.entry_subject}</td>
-                    <td className="mono">{row.target_subject}</td>
-                    <td>{row.target_kind}</td>
+                    <td>
+                      <input
+                        type="checkbox"
+                        aria-label={"选择路径 " + row.path_id}
+                        checked={checked.includes(row.path_id)}
+                        onClick={(event) => event.stopPropagation()}
+                        onChange={(event) =>
+                          setChecked((current) =>
+                            event.target.checked
+                              ? [...current, row.path_id]
+                              : current.filter((id) => id !== row.path_id),
+                          )
+                        }
+                      />
+                    </td>
+                    <td>
+                      <strong className="mono">{row.entry_subject}</strong>
+                      <span className="mono muted">{row.target_subject}</span>
+                    </td>
+                    <td>
+                      {row.path_status || row.path_kind}
+                      <small className="muted">
+                        {row.target_kind} · {row.steps?.length || 0} 步
+                      </small>
+                    </td>
+                    <td>{row.score ? row.score.priority.toFixed(1) : "—"}</td>
+                    <td>
+                      <span className="muted">
+                        {row.selection?.reason || "旧路径未记录筛选原因"}
+                      </span>
+                      <small className="muted mono">
+                        {row.selection?.producer_plugin || "工具 / 人工路径"} ·{" "}
+                        {existingByPath.get(row.path_id)?.state || row.audit_id}
+                      </small>
+                    </td>
                     <td>{row.status}</td>
                   </tr>
                 ))}
@@ -1056,6 +1563,23 @@ function PathPanel({
             </button>
           </div>
           <MetaBar meta={data.data.meta} />
+          {selectionError && <Hint>{selectionError}</Hint>}
+          {!agentAvailable && (
+            <Hint>当前部署未配置可用 Agent，仍可浏览路径和源码，但不能生成审查子任务。</Hint>
+          )}
+          {subtasks.length > 0 && (
+            <div className="path-subtasks">
+              <span className="subtle-label">已生成的审查子任务</span>
+              {subtasks.map((item) => (
+                <div key={item.selection_id}>
+                  <span className="mono">{item.selection_id}</span>
+                  <span>{item.path_id}</span>
+                  <span>{item.state}</span>
+                  <span className="mono">{item.run_id}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </>
       )}
     </Panel>
@@ -1173,7 +1697,7 @@ function SymbolInspector({
   symbol: Symbol;
 }) {
   const base = `/v1/projects/${projectID}/knowledge/views/${view.view_id}`;
-  const slice = useQuery(
+  const slice = useQuery<Slice | undefined>(
     (signal) =>
       api.get<Slice>(
         `${base}/code-slice?symbol_id=${encodeURIComponent(symbol.symbol_id)}&max_lines=80&max_sections=3`,
@@ -1336,6 +1860,48 @@ function PathInspector({
           {row.target_kind} · {row.status}
         </span>
       </div>
+      <Panel title="证据等级与评分" className="knowledge-inspector-panel">
+        <dl className="knowledge-provenance">
+          <div>
+            <dt>路径类型</dt>
+            <dd>{row.path_kind || "—"} · {row.path_status || "—"}</dd>
+          </div>
+          <div>
+            <dt>优先级</dt>
+            <dd>
+              {row.score ? row.score.priority.toFixed(4) : "旧路径未记录评分"}
+              {row.score?.score_version ? ` · 评分版本 ${row.score.score_version}` : ""}
+            </dd>
+          </div>
+          <div>
+            <dt>筛选</dt>
+            <dd>{row.selection?.reason || "旧路径未记录筛选来源"}</dd>
+          </div>
+          {row.selection?.filter_code ? (
+            <div>
+              <dt>过滤代码</dt>
+              <dd className="mono">{row.selection.filter_code}</dd>
+            </div>
+          ) : null}
+          <div>
+            <dt>任务映射</dt>
+            <dd className="mono">{row.audit_id}</dd>
+          </div>
+        </dl>
+        <Hint>
+          优先级只用于调度；调用可达不是污点流；筛选不是安全证明。
+        </Hint>
+        {row.limitations?.length ? (
+          <details className="limitations">
+            <summary>局限与未决</summary>
+            <ul>
+              {row.limitations.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </details>
+        ) : null}
+      </Panel>
       <Panel title="路径步骤" className="knowledge-inspector-panel">
         {!row.steps?.length ? (
           <Hint>该路径没有记录的步骤。</Hint>

@@ -1,0 +1,17 @@
+{
+  "api_version": "codexploit/v1",
+  "reused": false,
+  "selections": [
+    {
+      "selection_id": "selection-0123456789abcdef0123456789abcdef",
+      "project_id": "proj-example",
+      "snapshot_id": "snap-example",
+      "audit_id": "task-example",
+      "path_id": "path-example",
+      "run_id": "run-example",
+      "state": "SUCCEEDED",
+      "source": "agent",
+      "reused": false
+    }
+  ]
+}

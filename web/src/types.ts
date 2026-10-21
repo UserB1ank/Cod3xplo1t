@@ -2,6 +2,10 @@ export type View = 'overview' | 'projects' | 'graph' | 'surface' | 'paths' | 'ru
 export type PathFilter = 'all' | 'queued' | 'active' | 'attention';
 export type FindingStatus = 'candidate' | 'confirmed' | 'refuted' | 'inconclusive' | 'blocked';
 
+export interface PathSubtask {
+  selection_id: string; project_id: string; snapshot_id: string; audit_id: string; path_id: string;
+  run_id?: string; state: string; source: string; reused: boolean;
+}
 export interface AnalysisKnowledge { revision: string; digest: string }
 export interface AnalysisArtifact { id: string; kind: string; schema_id: string; bytes?: number }
 export interface AnalysisRunStage {

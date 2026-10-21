@@ -26,8 +26,9 @@ Issue #5 在现有 `graph.Service`、`graph.ASGService` 与 `path.Service` 之�
 | 方法与后缀 | 参数 | 行为 |
 |---|---|---|
 | `GET /symbols` | `q`、`kind`、`cursor`、`limit` | SCG 符号分页，按名称子串匹配 |
-| `GET /neighborhood` | `symbol_id`、`direction=callers\|callees`、`depth`、`max_nodes` | 调用邻居与未解析调用点 |
-| `GET /nodes` | `kind`、`subject`、`cursor`、`limit` | ASG 节点分页 |
+| `GET /neighborhood` | `symbol_id`、`direction=callers\|callees`、`depth`、`max_nodes` | SCG 调用邻居与未解析调用点 |
+| `GET /asg-neighborhood` | `node_id`、`depth=1\|2`、`max_nodes` | 有界 ASG 局部图；只展开出边，`DERIVED_FROM` 作为来源而非调用边；返回 `unresolved_edges`、截断与局限 |
+| `GET /nodes` | `kind`、`subject`、`q`、`cursor`、`limit` | ASG 节点分页；`q` 对 subject / label 做大小写不敏感子串匹配，正式入口目录使用 `kind=EntryPoint` |
 | `GET /paths` | `audit_id`、`entry_node_id`、`target_node_id`、`cursor`、`limit` | 固定快照的 AuditPath 分页 |
 | `GET /code-slice` | `symbol_id`、`max_lines`、`max_sections`、`context_lines` | 有界源码切片 |
 | `GET /provenance` | `fact_id` | 事实来源 |
@@ -38,6 +39,20 @@ Issue #5 在现有 `graph.Service`、`graph.ASGService` 与 `path.Service` 之�
 - `truncated` 只表示预算截断，`truncation_reason` 说明来源；`omitted` 给出因版本不符而跳过的路径条数（原因为 `stale_layer_version`）。
 - 路径查询始终按视图的快照过滤，并丢弃 SCG / ASG 版本与 pin 不一致的路径，因此不同快照与旧构建不会混入一页。
 - `provenance` 返回 producer（插件、版本、调用 ID、配置摘要）、代码位置、共享该快照版本的任务，以及已发布的源码产物引用；`fact_id` 可以是符号或 ASG 节点，未知事实返回 404 而不是空结果。
+
+## 入口与路径选择
+
+正式页面先列出固定视图的 ASG `EntryPoint`，搜索与分页都由服务端完成；选中入口后读取 `asg-neighborhood` 的 1–2 跳节点和出边。节点抽屉读取固定视图的源码切片、节点文件位置、SCG 引用、边证据/置信和 `provenance`，不展示示例图。无入口、未构建攻击面、旧视图失效或节点不存在分别返回真实空态 / 409 / 404。
+
+候选路径页读取固定视图的 `path.Path`：入口、目标、调用/数据证据等级、源文件位置、优先级、评分与筛选原因、任务/插件/Agent 来源和覆盖局限。勾选若干路径（1–5 条）后调用：
+
+`POST /api/v1/projects/{projectID}/path-selections`（writer）
+
+```json
+{"api_version":"codexploit/v1","path_ids":["path-…","path-…"]}
+```
+
+返回稳定的 `selection_id`（由 project + 规范 path_id 派生）、`audit_id`、`path_id`、`run_id`、状态与来源。选择通过现有 Agent 应用服务为每条路径创建独立运行；重复选择返回已记录的 run，不按标题合并，也不创建第二个调度器。`GET .../path-selections?path_id=…` 是同一映射的只读投影。路径不存在、跨项目/跨快照和权限不足分别返回 404/403；优先级不是漏洞严重度，调用可达不是污点流，过滤不是安全证明。
 
 ## 错误
 
