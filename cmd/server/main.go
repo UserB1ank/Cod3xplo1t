@@ -265,6 +265,7 @@ func run() error {
 		api.WithWorkflowRunner(rt.WorkflowRunner),
 		api.WithPluginCatalog(rt.PluginCatalog),
 		api.WithPlugins(rt.Plugins),
+		api.WithPluginPackageRoot(*pluginPackages),
 		api.WithLocalSourceRoot(*localSourceRoot),
 		api.WithAllowNetwork(*allowNetwork),
 		api.WithGraph(rt.Graph),

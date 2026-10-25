@@ -54,6 +54,27 @@ func (m *Memory) CreateInvocation(ctx context.Context, inv plugin.Invocation) (p
 		}
 		return prior, false, nil
 	}
+	{
+		worker := inv.Request.WorkerID
+		if worker == "" {
+			worker = "local"
+		}
+		allowed := false
+		matched := false
+		for _, raw := range m.pluginInstallations {
+			var row plugin.Installation
+			if json.Unmarshal(raw, &row) != nil {
+				return plugin.Invocation{}, false, plugin.ErrInvalid
+			}
+			if row.WorkerID == worker && row.Release.PluginID == inv.Request.PluginID && row.Release.PluginVersion == inv.Request.PluginVersion && row.Release.PackageDigest == inv.Request.PackageDigest {
+				matched = true
+				allowed = row.Installed && row.Enabled && row.Integrity == "verified"
+			}
+		}
+		if !allowed && (matched || inv.Request.OperationID != "") {
+			return plugin.Invocation{}, false, plugin.ErrUnsupported
+		}
+	}
 	raw, err := json.Marshal(inv)
 	if err != nil {
 		return plugin.Invocation{}, false, err

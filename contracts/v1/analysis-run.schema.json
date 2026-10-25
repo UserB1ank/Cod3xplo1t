@@ -4,96 +4,390 @@
   "title": "Project one-click four-stage analysis",
   "type": "object",
   "additionalProperties": false,
-  "required": ["api_version", "analysis_run"],
+  "required": [
+    "api_version",
+    "analysis_run"
+  ],
   "properties": {
-    "api_version": { "const": "codexploit/v1" },
-    "reused": { "type": "boolean" },
-    "analysis_run": { "$ref": "#/$defs/AnalysisRun" }
+    "api_version": {
+      "const": "codexploit/v1"
+    },
+    "reused": {
+      "type": "boolean"
+    },
+    "analysis_run": {
+      "$ref": "#/$defs/AnalysisRun"
+    }
   },
   "$defs": {
     "Knowledge": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["revision", "digest"],
+      "required": [
+        "revision",
+        "digest"
+      ],
       "properties": {
-        "revision": { "type": "string", "minLength": 1, "maxLength": 80 },
-        "digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+        "revision": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
       }
     },
     "Stage": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["key", "label", "status"],
+      "required": [
+        "key",
+        "label",
+        "status"
+      ],
       "properties": {
-        "key": { "enum": ["parse", "semantic", "paths", "enhance", "publish", "analyze"] },
-        "label": { "type": "string", "minLength": 1, "maxLength": 80 },
-        "status": { "enum": ["PENDING", "RUNNING", "SUCCEEDED", "PARTIAL", "FAILED", "SKIPPED", "CANCELLED"] },
-        "node_id": { "type": "string", "minLength": 1, "maxLength": 80 },
-        "plugin_id": { "type": "string", "minLength": 1, "maxLength": 200 },
-        "plugin_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
-        "invocation_id": { "type": "string", "minLength": 1, "maxLength": 160 },
-        "inputs": { "type": "array", "maxItems": 32, "items": { "$ref": "common.schema.json#/$defs/ArtifactRef" } },
-        "outputs": { "type": "array", "maxItems": 32, "items": { "$ref": "common.schema.json#/$defs/ArtifactRef" } },
-        "knowledge": { "type": "array", "maxItems": 32, "items": { "$ref": "#/$defs/Knowledge" } },
-        "agent_run_ids": { "type": "array", "maxItems": 256, "items": { "type": "string", "minLength": 1, "maxLength": 160 } },
-        "error_code": { "type": "string", "maxLength": 120 },
-        "note": { "type": "string", "maxLength": 2000 },
-        "started_at": { "type": "string", "format": "date-time" },
-        "finished_at": { "type": "string", "format": "date-time" }
+        "key": {
+          "enum": [
+            "parse",
+            "semantic",
+            "paths",
+            "enhance",
+            "publish",
+            "analyze"
+          ]
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "status": {
+          "enum": [
+            "PENDING",
+            "RUNNING",
+            "SUCCEEDED",
+            "PARTIAL",
+            "FAILED",
+            "SKIPPED",
+            "CANCELLED"
+          ]
+        },
+        "node_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "plugin_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "plugin_version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "invocation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "inputs": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "common.schema.json#/$defs/ArtifactRef"
+          }
+        },
+        "outputs": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "common.schema.json#/$defs/ArtifactRef"
+          }
+        },
+        "knowledge": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/Knowledge"
+          }
+        },
+        "agent_run_ids": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        },
+        "error_code": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "started_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "finished_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "operation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        }
       }
     },
     "AnalysisRun": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "analysis_run_id", "project_id", "snapshot_id", "task_id", "workflow_run_id", "plan_id",
-        "plan_digest", "workflow_id", "workflow_version", "state", "agent_assisted", "stages",
-        "coverage", "limitations", "path_count", "knowledge", "created_at", "updated_at", "version"
+        "analysis_run_id",
+        "project_id",
+        "snapshot_id",
+        "task_id",
+        "workflow_run_id",
+        "plan_id",
+        "plan_digest",
+        "workflow_id",
+        "workflow_version",
+        "state",
+        "agent_assisted",
+        "stages",
+        "coverage",
+        "limitations",
+        "path_count",
+        "knowledge",
+        "created_at",
+        "updated_at",
+        "version"
       ],
       "properties": {
-        "analysis_run_id": { "type": "string", "pattern": "^analysis-[A-Za-z0-9]+$" },
-        "project_id": { "$ref": "common.schema.json#/$defs/ID" },
-        "snapshot_id": { "$ref": "common.schema.json#/$defs/ID" },
-        "task_id": { "$ref": "common.schema.json#/$defs/ID" },
-        "workflow_run_id": { "$ref": "common.schema.json#/$defs/ID" },
-        "plan_id": { "type": "string", "pattern": "^plan-[a-f0-9]{32}$" },
-        "plan_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
-        "workflow_id": { "type": "string", "minLength": 1, "maxLength": 160 },
-        "workflow_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
-        "state": { "enum": ["QUEUED", "RUNNING", "PAUSED", "CANCELLING", "SUCCEEDED", "PARTIAL", "FAILED", "CANCELLED"] },
-        "agent_assisted": { "type": "boolean" },
-        "idempotency_key": { "type": "string", "maxLength": 160 },
-        "stages": { "type": "array", "maxItems": 6, "items": { "$ref": "#/$defs/Stage" } },
+        "analysis_run_id": {
+          "type": "string",
+          "pattern": "^analysis-[A-Za-z0-9]+$"
+        },
+        "project_id": {
+          "$ref": "common.schema.json#/$defs/ID"
+        },
+        "snapshot_id": {
+          "$ref": "common.schema.json#/$defs/ID"
+        },
+        "task_id": {
+          "$ref": "common.schema.json#/$defs/ID"
+        },
+        "workflow_run_id": {
+          "$ref": "common.schema.json#/$defs/ID"
+        },
+        "plan_id": {
+          "type": "string",
+          "pattern": "^plan-[a-f0-9]{32}$"
+        },
+        "plan_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "workflow_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "workflow_version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "state": {
+          "enum": [
+            "QUEUED",
+            "RUNNING",
+            "PAUSED",
+            "CANCELLING",
+            "SUCCEEDED",
+            "PARTIAL",
+            "FAILED",
+            "CANCELLED"
+          ]
+        },
+        "agent_assisted": {
+          "type": "boolean"
+        },
+        "idempotency_key": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "stages": {
+          "type": "array",
+          "maxItems": 6,
+          "items": {
+            "$ref": "#/$defs/Stage"
+          }
+        },
         "coverage": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["entry_points_examined", "chains_resolved", "chains_unresolved", "truncated"],
+          "required": [
+            "entry_points_examined",
+            "chains_resolved",
+            "chains_unresolved",
+            "truncated"
+          ],
           "properties": {
-            "entry_points_examined": { "type": "integer", "minimum": 0 },
-            "entry_points_skipped": { "type": "integer", "minimum": 0 },
-            "sinks_examined": { "type": "integer", "minimum": 0 },
-            "sinks_skipped": { "type": "integer", "minimum": 0 },
-            "chains_resolved": { "type": "integer", "minimum": 0 },
-            "chains_unresolved": { "type": "integer", "minimum": 0 },
-            "chain_queries": { "type": "integer", "minimum": 0 },
-            "chain_query_budget": { "type": "integer", "minimum": 0 },
-            "paths_considered": { "type": "integer", "minimum": 0 },
-            "paths_emitted": { "type": "integer", "minimum": 0 },
-            "paths_skipped": { "type": "integer", "minimum": 0 },
-            "duplicate_paths": { "type": "integer", "minimum": 0 },
-            "clusters": { "type": "integer", "minimum": 0 },
-            "truncated": { "type": "boolean" },
-            "truncation_reasons": { "type": "array", "maxItems": 32, "items": { "type": "string", "maxLength": 500 } }
+            "entry_points_examined": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "entry_points_skipped": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "sinks_examined": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "sinks_skipped": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "chains_resolved": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "chains_unresolved": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "chain_queries": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "chain_query_budget": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "paths_considered": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "paths_emitted": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "paths_skipped": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "duplicate_paths": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "clusters": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "truncated": {
+              "type": "boolean"
+            },
+            "truncation_reasons": {
+              "type": "array",
+              "maxItems": 32,
+              "items": {
+                "type": "string",
+                "maxLength": 500
+              }
+            }
           }
         },
-        "limitations": { "type": "array", "maxItems": 128, "items": { "type": "string", "maxLength": 2000 } },
-        "path_count": { "type": "integer", "minimum": 0 },
-        "knowledge": { "type": "array", "maxItems": 32, "items": { "$ref": "#/$defs/Knowledge" } },
-        "failure_code": { "type": "string", "maxLength": 120 },
-        "failure_message": { "type": "string", "maxLength": 2000 },
-        "created_at": { "type": "string", "format": "date-time" },
-        "updated_at": { "type": "string", "format": "date-time" },
-        "version": { "type": "integer", "minimum": 1 }
+        "limitations": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "path_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "knowledge": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/Knowledge"
+          }
+        },
+        "failure_code": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "failure_message": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "engine": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "profile_version",
+            "plugin_id",
+            "plugin_version",
+            "package_digest",
+            "manifest_digest"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "profile_version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "plugin_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "plugin_version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "package_digest": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "manifest_digest": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        }
       }
     }
   }

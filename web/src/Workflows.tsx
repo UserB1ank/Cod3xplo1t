@@ -18,6 +18,8 @@ import type { PluginRecord } from "./Plugins";
 import { latestSnapshot } from "./workbench";
 
 type Node = {
+	operation_id?: string;
+	input_bindings?: {[port: string]: {source: string; from: string; port?: string}};
   id: string;
   plugin_id: string;
   plugin_version: string;
@@ -242,10 +244,10 @@ export function Workflows({
           plugins: PluginRecord[];
           next_cursor: string;
         }>(
-          `/v1/plugins?limit=100&cursor=${encodeURIComponent(cursor)}`,
+          `/v2/plugins?limit=100&cursor=${encodeURIComponent(cursor)}`,
           controller.signal,
         );
-        result.push(...page.plugins);
+        result.push(...page.plugins.map(row => ({ ...row, manifest: { ...row.manifest, consumes: row.manifest.consumes || [], produces: row.manifest.produces || [], config_schema: row.manifest.config_schema || {} } })));
         cursor = page.next_cursor;
       } while (cursor && result.length < 1000);
       if (cursor)
@@ -689,13 +691,16 @@ export function Workflows({
                       <label>
                         插件与版本
                         <select
-                          value={`${node.plugin_id}@${node.plugin_version}`}
+                          value={`${node.plugin_id}@${node.plugin_version}${node.operation_id ? `#${node.operation_id}` : ""}`}
                           onChange={(e) => {
+                            const [identity, operation_id] = e.target.value.split("#");
                             const [plugin_id, plugin_version] =
-                              e.target.value.split("@");
+                              identity.split("@");
                             updateNode({
                               plugin_id,
                               plugin_version,
+                              operation_id,
+                              input_bindings: undefined,
                               config: {},
                             });
                           }}
@@ -709,7 +714,7 @@ export function Workflows({
                               {node.plugin_id}@{node.plugin_version}
                             </option>
                           )}
-                          {catalog.map((p) => (
+                          {catalog.flatMap((p) => p.manifest.operations?.length ? p.manifest.operations.map(operation => <option key={`${p.manifest.id}@${p.manifest.version}#${operation.id}`} value={`${p.manifest.id}@${p.manifest.version}#${operation.id}`}>{p.manifest.id}@{p.manifest.version} · {operation.id} / {operation.stage}{p.executable ? "" : "（执行器未安装）"}</option>) : [
                             <option
                               key={`${p.manifest.id}@${p.manifest.version}`}
                               value={`${p.manifest.id}@${p.manifest.version}`}
@@ -717,7 +722,7 @@ export function Workflows({
                               {p.manifest.id}@{p.manifest.version}
                               {p.executable ? "" : "（执行器未安装）"}
                             </option>
-                          ))}
+                          ])}
                         </select>
                       </label>
                       <label>
@@ -771,7 +776,7 @@ export function Workflows({
                               (p) =>
                                 p.manifest.id === node.plugin_id &&
                                 p.manifest.version === node.plugin_version,
-                            )?.manifest.config_schema || {},
+                            )?.manifest.operations?.find(op => op.id === node.operation_id)?.config_schema || catalog.find(p => p.manifest.id === node.plugin_id && p.manifest.version === node.plugin_version)?.manifest.config_schema || {},
                           )}
                         </pre>
                       </details>

@@ -1,5 +1,7 @@
 # 从交互原型到正式功能：Issues 草案
 
+> 历史已批准拆分草案；本轮产品/开发修订以 [当前实施索引](interaction-issues.md)和各GitHub最新正文为准。不要据本草案恢复显式快照/更新代码流程或SQLite维护路线。
+
 状态：已由用户确认，22 项均已发布。真实编号见 [实施 Issues 索引](implementation-issues.md)。
 
 目标仓库：[UserB1ank/Cod3xplo1t](https://github.com/UserB1ank/Cod3xplo1t)。

@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import {
   Archive,
+  Check,
   ChevronRight,
   Pause,
   Pin,
   Play,
   Plus,
   Search,
+  Square,
   Tags,
   Undo2,
   X,
@@ -16,10 +18,12 @@ import { Badge, EmptyState, Hint, Modal, Panel } from "./components";
 import { flowStatus } from "./WorkflowRun";
 import { ProjectActivity } from "./Activity";
 import { dateLabel, shortId } from "./domain";
+import { organizeTask } from "./task-actions";
 import {
   gradeNames,
   taskGradeCounts,
   taskState,
+  taskSchedulingControl,
   type Grade,
   type ProjectFinding,
   type Task,
@@ -165,17 +169,7 @@ export function ProjectTasks({
     task: Task,
     patch: { pinned?: boolean; category?: string; archived?: boolean },
   ) =>
-    run(() => {
-      if (!task.etag) throw new Error("任务缺少版本标识，请刷新重试。");
-      return api.response(
-        `${endpoint}/tasks/${encodeURIComponent(task.audit_id)}`,
-        {
-          method: "PATCH",
-          body: JSON.stringify(patch),
-          headers: { "If-Match": task.etag },
-        },
-      );
-    }, "任务整理结果已保存。");
+    run(() => organizeTask(api, projectID, task, patch), "任务整理结果已保存。");
   const scheduling = (task: Task) =>
     run(
       () => {
@@ -336,6 +330,7 @@ export function ProjectTasks({
                 {data.tasks.map((task) => {
                   const name = task.name || `任务 ${shortId(task.audit_id)}`;
                   const grades = taskGradeCounts(findings, task.audit_id);
+                  const control = taskSchedulingControl(task);
                   const complete =
                     (task.counts_by_status.CONCLUDED || 0) +
                     (task.counts_by_status.HYPOTHESIS_FORMED || 0) +
@@ -377,10 +372,10 @@ export function ProjectTasks({
                         <Badge
                           status={taskState(task)}
                           label={
-                            task.workflow_status
-                              ? flowStatus[task.workflow_status]
-                              : task.archived
-                                ? "已归档"
+                            task.archived
+                              ? "已归档"
+                              : task.workflow_status
+                                ? flowStatus[task.workflow_status]
                                 : taskState(task) === "EMPTY"
                                   ? "无候选路径"
                                   : undefined
@@ -421,25 +416,12 @@ export function ProjectTasks({
                           </button>
                           <button
                             className="icon-button"
-                            aria-label={`${task.paused ? "恢复调度" : "暂停调度"} ${name}`}
-                            title={
-                              task.archived
-                                ? "先恢复归档任务"
-                                : task.paused
-                                  ? "恢复调度"
-                                  : "暂停调度"
-                            }
-                            disabled={
-                              !canWrite ||
-                              busy ||
-                              task.archived ||
-                              ["CREATED", "RUNNING"].includes(
-                                task.workflow_status || "",
-                              )
-                            }
+                            aria-label={`${control.label} ${name}`}
+                            title={control.label}
+                            disabled={!canWrite || busy || !control.enabled}
                             onClick={() => scheduling(task)}
                           >
-                            {task.paused ? (
+                            {control.state === "archived" ? <Archive size={16} /> : control.state === "complete" ? <Check size={16} /> : control.state === "stopped" ? <Square size={16} /> : task.paused ? (
                               <Play size={16} />
                             ) : (
                               <Pause size={16} />
@@ -449,7 +431,7 @@ export function ProjectTasks({
                             title={
                               task.archived
                                 ? "恢复后仍保持暂停"
-                                : task.can_archive
+                                : task.can_archive || ["complete", "stopped"].includes(control.state)
                                   ? "归档并保留全部数据"
                                   : "先暂停调度，并等待活动路径和运行结束"
                             }
@@ -460,7 +442,7 @@ export function ProjectTasks({
                               disabled={
                                 !canWrite ||
                                 busy ||
-                                (!task.archived && !task.can_archive)
+                                (!task.archived && !task.can_archive && !["complete", "stopped"].includes(control.state))
                               }
                               onClick={() =>
                                 edit(task, { archived: !task.archived })

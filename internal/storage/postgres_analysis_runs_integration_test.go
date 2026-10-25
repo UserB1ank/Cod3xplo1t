@@ -29,6 +29,7 @@ func TestPostgresAnalysisRunSurvivesRestartAndRejectsASecondActiveRun(t *testing
 		t.Fatal(err)
 	}
 	run := analysisRunFixture(project.ID, "analysis-pg", time.Now())
+	run.Engine = &AnalysisEnginePin{ID: "joern", ProfileVersion: "2.0.0", PluginID: "codexploit.joern", PluginVersion: "2.1.0", PackageDigest: "package", ManifestDigest: "manifest"}
 	run.Knowledge = []AnalysisKnowledge{{Revision: "rev-3", Digest: "digest-3"}}
 	created, err := store.CreateAnalysisRun(ctx, run, "pg-key")
 	if err != nil {
@@ -49,7 +50,7 @@ func TestPostgresAnalysisRunSurvivesRestartAndRejectsASecondActiveRun(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stored.State != "RUNNING" || len(stored.Stages) != 1 || len(stored.Knowledge) != 1 || stored.Knowledge[0].Revision != "rev-3" {
+	if stored.Engine == nil || *stored.Engine != *run.Engine || stored.State != "RUNNING" || len(stored.Stages) != 1 || len(stored.Knowledge) != 1 || stored.Knowledge[0].Revision != "rev-3" {
 		t.Fatalf("analysis run after restart = %+v", stored)
 	}
 	if active, ok, err := reopened.ActiveAnalysisRun(ctx, project.ID); err != nil || !ok || active.ID != created.ID {

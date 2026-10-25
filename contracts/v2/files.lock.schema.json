@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codexploit.invalid/contracts/v2/files.lock.schema.json",
+  "type": "object",
+  "properties": {
+    "api_version": {
+      "const": "codexploit/plugin-files/v2"
+    },
+    "files": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "规范 job/output 相对路径；宿主必须另外拒绝绝对路径、逃逸、链接及重复路径。"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "executable": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "path",
+          "bytes",
+          "sha256",
+          "executable"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "api_version",
+    "files"
+  ],
+  "additionalProperties": false,
+  "title": "Plugin file integrity"
+}

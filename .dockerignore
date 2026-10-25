@@ -7,6 +7,11 @@
 !migrations
 !web
 !contracts
+!pkg
+!plugins
+!scripts
+scripts/*
+!scripts/package-joern.py
 !runtime
 !runtime/pi-worker
 !runtime/pi-worker/package.json
@@ -27,3 +32,8 @@ web/dist
 **/.DS_Store
 runtime/pi-worker/node_modules
 runtime/pi-worker/dist
+
+# Never send nested local CLI workspaces or Python caches as build inputs.
+**/.codexploit
+**/__pycache__
+**/*.pyc

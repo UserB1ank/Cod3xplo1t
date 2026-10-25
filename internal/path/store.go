@@ -118,6 +118,10 @@ type AuditQuery struct {
 type PathQuery struct {
 	AuditID    string
 	SnapshotID string
+	// Layer versions filter before sorting and pagination, so stale paths cannot
+	// consume a current knowledge view's page.
+	SCGVersion string
+	ASGVersion string
 	Status     []Status
 	PathStatus []PathStatus
 	// EntryNodeID and TargetNodeID pin a path to one attack-surface element.

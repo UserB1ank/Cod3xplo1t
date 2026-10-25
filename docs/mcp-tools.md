@@ -1,5 +1,7 @@
 # Codexploit MCP tools
 
+> Scope: this page describes the implemented nine-tool read-only stdio server. The 2026-10-21 [project supervisor MCP design](design/interfaces/v1/11-project-supervisor.md) adds a separate authenticated/project-scoped surface in #66–#68. It is not implemented by merely exposing these tools or renaming native functions. Keep existing read-only defaults; share domain handlers and ToolDescriptor validation. User conversation has no intent enum or keyword router.
+
 `codexploit-mcp` (or `cmd/mcp`) serves the Source Code Graph over the Model
 Context Protocol on stdio:
 
@@ -66,3 +68,20 @@ parsing prose:
 - Coverage is per snapshot and per rule set. `meta.graph_version` changes when
   the frontends change, and results from different graph versions are not
   comparable.
+
+
+## 项目工作台诊断工具（2026-10-24）
+
+受认证的主 Agent 会话使用私有 MCP server，在原图谱工具之外登记以下只读工具；原 stdio 工具面保持兼容。宿主绑定 project/snapshot，模型不能更换归属。
+
+| 工具 | 行为 |
+| --- | --- |
+| `inspect_project` | `section=source/analysis/workflow/plugins/invocations/tasks/paths/agent_runs/findings/reports/artifacts/system`；读取真实目录、阶段与错误码、工作流事件、产物摘要和脱敏存储 readiness。`id` 定位分析、工作流或调用；`limit/cursor/offset` 按适用目录分页。报告目录在当前调用页内筛选，继续读取需使用返回的 cursor。 |
+| `list_source_files` | 冻结源码路径分页，支持 contains/offset/limit；不依赖已发布图谱。 |
+| `read_source_file` | 文件相对路径、start_line/max_lines；最多 200 行、16 KB，拒绝逃逸、链接、敏感文件和非文本，不依赖图谱。 |
+
+source 元数据、物理源码树和图谱是否就绪分别报告；`graph_not_ready` 不等于快照丢失。先检查 source/analysis，再按 workflow_run_id 和 invocation_id 追踪实际错误。新 file-job 的已知错误码保留；历史调用没有保存的底层日志不会被补造。工具结果超过 32 KiB 返回可缩小查询的完整错误，不截断 JSON。配置值、凭据、宿主路径、任意日志、SQL 和 Shell 不在此工具面。对话保留模型请求与 MCP 结果的配对记录，仍不改变漏洞裁定。
+
+工作台输入：回车发送，Ctrl+回车在光标/选区插入换行。输入法确认和长按回车不触发发送；同一发送过程有并发栅栏。
+
+插件诊断使用当前执行 worker 的同一 Catalog 读取启用、完整性与实测策略，禁用立即体现在 executable 中。未绑定 worker 的目录查询只报告登记信息，不据此声称可执行。

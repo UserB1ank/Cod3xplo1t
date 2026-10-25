@@ -296,8 +296,9 @@ func (r *Runner) Events(ctx context.Context, project, id string, after int64, li
 	}
 	return events, nil
 }
-func bindNode(plan Plan, run Run, node CompiledNode) ([]artifact.Ref, error) {
+func bindNode(plan Plan, run Run, node CompiledNode) ([]artifact.Ref, []string, error) {
 	inputs := []artifact.Ref{}
+	ports := []string{}
 	for _, binding := range node.Inputs {
 		candidates := []artifact.Ref{}
 		if binding.Source == "root" {
@@ -311,16 +312,25 @@ func bindNode(plan Plan, run Run, node CompiledNode) ([]artifact.Ref, error) {
 		}
 		matches := []artifact.Ref{}
 		for _, ref := range candidates {
-			if ref.Kind == binding.Kind && ref.SchemaID == binding.SchemaID && (binding.ProducerPlugin == "" || ref.Producer.PluginID == binding.ProducerPlugin) {
+			if ref.Kind == binding.Kind && ref.SchemaID == binding.SchemaID && (binding.ProducerPlugin == "" || ref.Producer.PluginID == binding.ProducerPlugin) && (binding.OutputPort == "" || ref.Producer.OutputPort == binding.OutputPort) {
 				matches = append(matches, ref)
 			}
 		}
-		if len(matches) != 1 {
-			return nil, ErrInvalid
+		if len(matches) == 0 && binding.Optional {
+			continue
 		}
-		inputs = append(inputs, matches[0])
+		if len(matches) != 1 && binding.Cardinality != "many" {
+			return nil, nil, ErrInvalid
+		}
+		if len(matches) == 0 {
+			return nil, nil, ErrInvalid
+		}
+		inputs = append(inputs, matches...)
+		for range matches {
+			ports = append(ports, binding.Port)
+		}
 	}
-	return inputs, nil
+	return inputs, ports, nil
 }
 
 type nodeCompletion struct {
@@ -343,29 +353,53 @@ func (r *Runner) validOutputs(ctx context.Context, plan Plan, node CompiledNode,
 		return false
 	}
 	seen := map[string]bool{}
+	ports := map[string]int{}
+	limit := int64(64 << 20)
+	if node.Operation != nil {
+		limit = artifact.MaxBytes
+	}
 	var total int64
 	for _, ref := range result.Outputs {
 		if ref.Scope != plan.Scope || ref.Producer.PluginID != node.PluginID || ref.Producer.PluginVersion != node.PluginVersion || ref.Producer.InvocationID != id || ref.Producer.ConfigDigest != node.ConfigDigest {
 			return false
 		}
 		allowed := false
+		if node.Operation != nil {
+			if ref.Producer.OperationID != node.OperationID || ref.Producer.PackageDigest != node.Plugin.PackageDigest {
+				return false
+			}
+			for _, port := range node.Operation.Outputs {
+				if ref.Producer.OutputPort == port.Name && ref.Kind == port.Kind && ref.SchemaID == port.SchemaID {
+					allowed = true
+					ports[port.Name]++
+				}
+			}
+		}
 		for _, kind := range node.Outputs {
-			if ref.Kind == kind {
+			if ref.Kind == kind && node.Operation == nil {
 				allowed = true
 			}
 		}
 		if !allowed {
 			return false
 		}
-		actual, err := r.Artifacts.Stat(ctx, plan.Scope, ref.ID, 64<<20)
+		actual, err := r.Artifacts.Stat(ctx, plan.Scope, ref.ID, limit)
 		if err != nil || actual != ref {
 			return false
 		}
 		total += ref.Bytes
-		if total > 64<<20 {
+		if total > limit {
 			return false
 		}
 		seen[ref.Kind] = true
+	}
+	if node.Operation != nil {
+		for _, port := range node.Operation.Outputs {
+			if (port.Required && ports[port.Name] == 0) || (port.Cardinality == "one" && ports[port.Name] > 1) {
+				return false
+			}
+		}
+		return true
 	}
 	for _, kind := range node.Outputs {
 		if !seen[kind] {

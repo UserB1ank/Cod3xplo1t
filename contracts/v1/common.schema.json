@@ -125,6 +125,24 @@
         "config_digest": {
           "type": "string",
           "pattern": "^[a-f0-9]{64}$"
+        },
+        "operation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "output_port": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "package_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "normalizer_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
         }
       },
       "required": [
@@ -145,7 +163,17 @@
         "discovery.paths",
         "discovery.findings",
         "knowledge.view",
-        "report.document"
+        "report.document",
+        "source.request",
+        "report.input",
+        "tool.native",
+        "path.enhancement",
+        "agent.task",
+        "agent.answer",
+        "environment.request",
+        "environment.receipt",
+        "verification.plan",
+        "verification.evidence"
       ]
     },
     "ArtifactRef": {
@@ -167,7 +195,17 @@
             "discovery.paths",
             "discovery.findings",
             "knowledge.view",
-            "report.document"
+            "report.document",
+            "source.request",
+            "report.input",
+            "tool.native",
+            "path.enhancement",
+            "agent.task",
+            "agent.answer",
+            "environment.request",
+            "environment.receipt",
+            "verification.plan",
+            "verification.evidence"
           ]
         },
         "scope": {
@@ -241,6 +279,18 @@
             "config_digest": {
               "type": "string",
               "pattern": "^[a-f0-9]{64}$"
+            },
+            "operation_id": {
+              "type": "string"
+            },
+            "package_digest": {
+              "type": "string"
+            },
+            "normalizer_digest": {
+              "type": "string"
+            },
+            "output_port": {
+              "type": "string"
             }
           },
           "required": [

@@ -1,5 +1,9 @@
 # L6 工作流层
 
+> 2026-10-23：项目正式默认链路统一为 Joern `parse → taint → paths → enhance`，固定版本和包摘要，保留整体 provider 替换接口。运行、升级与失败语义见 [主图谱引擎](../../../analysis-engine.md)。
+
+> 2026-10-21：默认四阶段由#64固定计划自动运行，用户不必先编辑DAG。工作流页是高级入口；主Agent自由对话的工具组合不是预设工作流或用户意图类型。已实现的Pause/Resume/Cancel见执行文档，旧方案中的“后续”不作为当前状态。
+
 已实现：`WorkflowCatalog`、`WorkflowCompiler`（版本、校验、不可变编译计划与正式页面，见 [工作流 API](../../../workflows.md)）及 `WorkflowRunner`（固定计划、真实 DAG、知识发布、可选模型分析、节点事件与正式任务详情，见[执行协议](../../../workflow-execution.md)）。Memory / SQLite 已接入；下文暂停、租约、重试和崩溃恢复仍为后续设计约束。
 
 接口：`WorkflowCompiler`、`WorkflowRunner`。Schema：[workflow.schema.json](../../../../contracts/v1/workflow.schema.json)。示例：[workflow.json](../../../../contracts/v1/examples/workflow.json)。

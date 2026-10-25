@@ -128,3 +128,35 @@ test("remote sources are blocked before a project is created when network is off
   );
   assert.equal(sourceNetworkError("local_folder", "/repos/service", false), "");
 });
+
+test("completed tasks show a completed control instead of an active pause toggle", async () => {
+  const { taskSchedulingControl } = await import("../src/workbench.ts");
+  const task = { paused: false, status: "READY", path_count: 4, counts_by_status: { CONCLUDED: 4 } } as Task;
+  assert.equal(taskSchedulingControl(task).state, "complete");
+  assert.equal(taskSchedulingControl(task).enabled, false);
+  task.counts_by_status = { HYPOTHESIS_FORMED: 4 };
+  assert.equal(taskSchedulingControl(task).state, "complete");
+  task.paused = true;
+  assert.equal(taskSchedulingControl(task).state, "complete");
+  task.paused = false;
+  task.counts_by_status = { QUEUED: 4 };
+  assert.equal(taskSchedulingControl(task).state, "pause");
+  assert.equal(taskSchedulingControl(task).enabled, true);
+  task.paused = true;
+  assert.equal(taskSchedulingControl(task).state, "resume");
+  task.workflow_status = "RUNNING";
+  assert.equal(taskSchedulingControl(task).enabled, false);
+});
+
+test("cancelled paths remain stopped instead of being labelled completed", async () => {
+  const { taskSchedulingControl } = await import("../src/workbench.ts");
+  const task = { paused: true, status: "READY", path_count: 4, counts_by_status: { CANCELLED: 4 } } as Task;
+  assert.equal(taskState(task), "CANCELLED");
+  assert.equal(taskSchedulingControl(task).label, "已停止");
+  assert.equal(taskSchedulingControl(task).enabled, false);
+});
+
+test("completed partial graph preparation is distinct from blocked review", () => {
+  const task = { workflow_status: "PARTIAL", path_count: 100 } as Task;
+  assert.equal(taskState(task), "PARTIAL");
+});

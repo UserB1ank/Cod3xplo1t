@@ -1,0 +1,51 @@
+{
+  "api_version": "codexploit/plugin/v2",
+  "id": "example.report",
+  "version": "0.1.0",
+  "name": "报告开发模板",
+  "description": "仅为接口声明模板；未提供可执行实现，不可登记为已实测。",
+  "languages": [
+    "Go"
+  ],
+  "runtime": {
+    "kind": "process",
+    "protocol": "codexploit/file-job/v1",
+    "entrypoint": "bin/adapter"
+  },
+  "permissions": {
+    "network": "none",
+    "source_write": false,
+    "target_execution": false
+  },
+  "operations": [
+    {
+      "id": "execute",
+      "stage": "report",
+      "capability": "report",
+      "profile": "standard",
+      "inputs": [
+        {
+          "name": "input",
+          "kind": "report.input",
+          "schema_id": "codexploit/report-input/v1",
+          "cardinality": "one",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "document",
+          "kind": "report.document",
+          "schema_id": "codexploit/report/v1",
+          "cardinality": "one",
+          "required": true
+        }
+      ],
+      "config_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      }
+    }
+  ]
+}

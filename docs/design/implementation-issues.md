@@ -1,5 +1,7 @@
 # 实施 Issues 索引
 
+> 本表保留首次22项规划/发布历史，不代表全部仍开放。当前产品路线及18个开放单修订以 [当前实施索引](interaction-issues.md)为准；#1–#18已关闭不重做，#19–#22仍开放并已修订。
+
 状态：已由用户确认，并发布到 GitHub。共 22 项：20 项 AFK，2 项 HITL。
 
 仓库：[UserB1ank/Cod3xplo1t](https://github.com/UserB1ank/Cod3xplo1t)。实现基线：`f2867db`。

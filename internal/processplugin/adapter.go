@@ -14,6 +14,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -40,6 +41,7 @@ var (
 // Adapter is one installed process package. It never interprets manifest
 // entrypoints through a shell.
 type Adapter struct {
+	Package          *plugin.Package
 	Executable       string
 	Directory        string
 	Args             []string
@@ -84,6 +86,29 @@ func (a Adapter) Run(ctx context.Context, inv plugin.Invocation, inputs [][]byte
 	if a.Manifest.Runtime.Kind != "process" || a.Manifest.Permissions.SourceWrite || a.Manifest.Permissions.Network != "none" {
 		return nil, plugin.ErrUnsupported
 	}
+	if a.Package != nil {
+		work, err := os.MkdirTemp("", "codexploit-plugin-legacy-")
+		if err != nil {
+			return nil, err
+		}
+		defer os.RemoveAll(work)
+		verified, err := copyRelease(ctx, *a.Package, filepath.Join(work, "package"))
+		if err != nil {
+			return nil, &plugin.ExecutionError{Code: "integrity_mismatch"}
+		}
+		a.Package = nil
+		a.Executable = verified.Executable
+		a.Directory = verified.Directory
+		raw, err := a.Run(ctx, inv, inputs)
+		if err != nil {
+			return nil, err
+		}
+		final, err := plugin.LoadPackage(verified.Directory)
+		if err != nil || final.PackageDigest != verified.PackageDigest {
+			return nil, &plugin.ExecutionError{Code: "integrity_mismatch"}
+		}
+		return raw, nil
+	}
 	if a.Executable == "" || !a.executableIntact() {
 		return nil, plugin.ErrUnsupported
 	}
@@ -94,6 +119,7 @@ func (a Adapter) Run(ctx context.Context, inv plugin.Invocation, inputs [][]byte
 	command := exec.Command(a.Executable, a.Args...)
 	command.Dir = a.Directory
 	command.Env = a.environment()
+	configureJobProcess(command)
 	stdin, err := command.StdinPipe()
 	if err != nil {
 		return nil, plugin.ErrUnsupported
@@ -110,7 +136,7 @@ func (a Adapter) Run(ctx context.Context, inv plugin.Invocation, inputs [][]byte
 	defer func() {
 		_ = stdin.Close()
 		if command.Process != nil {
-			_ = command.Process.Kill()
+			_ = killJobProcess(command)
 		}
 		_ = command.Wait()
 	}()
@@ -295,7 +321,7 @@ func (a Adapter) cancel(command *exec.Cmd, stdin io.WriteCloser, conn *rpc.Conn,
 	}
 	_ = stdin.Close()
 	if command != nil && command.Process != nil {
-		timer := time.AfterFunc(cancelGrace, func() { _ = command.Process.Kill() })
+		timer := time.AfterFunc(cancelGrace, func() { _ = killJobProcess(command) })
 		_ = command.Wait()
 		timer.Stop()
 	}
@@ -314,7 +340,7 @@ func (a Adapter) release(command *exec.Cmd, stdin io.WriteCloser) {
 	select {
 	case <-done:
 	case <-time.After(exitGrace):
-		_ = command.Process.Kill()
+		_ = killJobProcess(command)
 		<-done
 	}
 }

@@ -22,12 +22,20 @@ var (
 )
 
 type Node struct {
-	ID             string          `json:"id"`
-	PluginID       string          `json:"plugin_id"`
-	PluginVersion  string          `json:"plugin_version"`
-	Needs          []string        `json:"needs"`
-	Config         json.RawMessage `json:"config"`
-	TimeoutSeconds int             `json:"timeout_seconds"`
+	OperationID    string                `json:"operation_id,omitempty"`
+	InputBindings  map[string]PortSource `json:"input_bindings,omitempty"`
+	ID             string                `json:"id"`
+	PluginID       string                `json:"plugin_id"`
+	PluginVersion  string                `json:"plugin_version"`
+	Needs          []string              `json:"needs"`
+	Config         json.RawMessage       `json:"config"`
+	TimeoutSeconds int                   `json:"timeout_seconds"`
+}
+
+type PortSource struct {
+	Source string `json:"source"`
+	From   string `json:"from"`
+	Port   string `json:"port,omitempty"`
 }
 type Spec struct {
 	APIVersion  string   `json:"api_version"`

@@ -5,6 +5,21 @@ export type FindingStatus = 'candidate' | 'confirmed' | 'refuted' | 'inconclusiv
 export interface PathSubtask {
   selection_id: string; project_id: string; snapshot_id: string; audit_id: string; path_id: string;
   run_id?: string; state: string; source: string; reused: boolean;
+  entry_subject?: string; target_subject?: string; target_kind?: string;
+}
+export interface AnswerEvidence {
+  kind: string; ref?: string; file?: string; line?: number; quote?: string; summary?: string;
+}
+export interface ObligationVerdict {
+  kind: string; verdict: string; blocker?: string; reason?: string;
+}
+export interface AgentAnswer {
+  schema_version: number; security_goal: string;
+  hypothesis: { statement: string; status: string; confidence?: string };
+  supporting_evidence: AnswerEvidence[]; contradicting_evidence: AnswerEvidence[];
+  next_action: string; finding_candidate: boolean; severity_hint?: string; notes?: string;
+  obligations?: ObligationVerdict[];
+  falsifier?: { claim: string; checked: boolean; how?: string[] };
 }
 export interface SupervisorCall { call_id: string; name: string; arguments: string }
 export interface SupervisorMessage {
@@ -29,12 +44,16 @@ export interface SupervisorSession {
 }
 export interface AnalysisKnowledge { revision: string; digest: string }
 export interface AnalysisArtifact { id: string; kind: string; schema_id: string; bytes?: number }
+export interface AnalysisEnginePin { id: string; profile_version: string; plugin_id: string; plugin_version: string; package_digest: string; manifest_digest: string }
+export interface AnalysisEngineStatus { engine: AnalysisEnginePin; ready: boolean; reason?: string; languages: string[] }
 export interface AnalysisRunStage {
+ operation_id?: string;
   key: string; label: string; status: string; node_id?: string; plugin_id?: string; plugin_version?: string;
   invocation_id?: string; inputs?: AnalysisArtifact[]; outputs?: AnalysisArtifact[]; knowledge?: AnalysisKnowledge[];
   agent_run_ids?: string[]; error_code?: string; note?: string; started_at?: string; finished_at?: string;
 }
 export interface AnalysisRun {
+ engine?: AnalysisEnginePin;
   analysis_run_id: string; project_id: string; snapshot_id: string; task_id: string; workflow_run_id: string;
   plan_id: string; plan_digest: string; workflow_id: string; workflow_version: string; state: string;
   agent_assisted: boolean; idempotency_key?: string; stages: AnalysisRunStage[];
@@ -65,7 +84,7 @@ export interface EnhancementSummary {
 }
 export interface AuditPath {
   path_id: string; audit_id: string; snapshot_id: string; entry_subject: string; target_subject: string; target_kind: string;
-  path_kind: string; path_status: string; status: string; steps: Step[]; objectives: string[]; controls: string[];
+  evidence_refs?: string[]; path_kind: string; path_status: string; status: string; steps: Step[]; objectives: string[]; controls: string[];
   limitations: string[]; open_questions: string[]; scg_refs: string[]; score: { priority: number; support: number; risk: number; utility: number; score_version?: number; weights?: Record<string, number> };
   features?: { reasons?: Record<string, string>; [key: string]: unknown };
   selection?: PathSelection;
@@ -105,7 +124,7 @@ export interface Run {
   pin?: RuntimePin;
   started_at: string; heartbeat_at: string; tool_calls: number; input_tokens: number; output_tokens: number;
   elapsed_ms: number; stop_reason?: string; task?: { security_goal: string }; error?: string;
-  tool_schema_digest?: string;
+  tool_schema_digest?: string; answer?: AgentAnswer;
   metrics?: RunMetrics;
 }
 export interface AuditEvent { event_id: string; path_id?: string; run_id?: string; seq: number; type: string; actor?: string; reason?: string; summary?: string; created_at: string }

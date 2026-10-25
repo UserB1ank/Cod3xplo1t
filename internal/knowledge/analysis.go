@@ -77,7 +77,7 @@ func (r *Reader) analysisPaths(ctx context.Context, scope Scope, view *View, d d
 	for _, a := range tasks {
 		refs = append(refs, AuditRef{ID: a.ID, Name: a.Name, Status: a.Status, Paths: a.PathCount})
 	}
-	work, workTotal, err := r.Queue.Paths(path.PathQuery{SnapshotID: scope.SnapshotID, EntryNodeID: q.EntryNodeID, TargetNodeID: q.TargetNodeID, Limit: budget + 1})
+	work, workTotal, err := r.Queue.Paths(path.PathQuery{SnapshotID: scope.SnapshotID, SCGVersion: d.SCG, ASGVersion: d.ASG, EntryNodeID: q.EntryNodeID, TargetNodeID: q.TargetNodeID, Limit: budget + 1})
 	if err != nil {
 		return nil, true, err
 	}

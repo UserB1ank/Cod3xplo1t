@@ -333,8 +333,9 @@ func fixtureManifest() plugin.Manifest {
 		Consumes: []string{"source.snapshot"},
 		Produces: []string{"scanner.alerts"},
 		Permissions: struct {
-			Network     string `json:"network"`
-			SourceWrite bool   `json:"source_write"`
+			Network         string `json:"network"`
+			SourceWrite     bool   `json:"source_write"`
+			TargetExecution *bool  `json:"target_execution,omitempty"`
 		}{Network: "none", SourceWrite: false},
 	}
 }
@@ -524,7 +525,7 @@ func TestAdapterRejectsATamperedPackageExecutable(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if _, err := executors[0].Run(ctx, fixtureInvocation(), [][]byte{[]byte("0123456789")}); !errors.Is(err, plugin.ErrUnsupported) {
-		t.Fatalf("tampered executable = %v, want ErrUnsupported", err)
+	if _, err := executors[0].Run(ctx, fixtureInvocation(), [][]byte{[]byte("0123456789")}); !errors.Is(err, plugin.ErrExecutionFailed) {
+		t.Fatalf("tampered executable = %v, want ErrExecutionFailed", err)
 	}
 }

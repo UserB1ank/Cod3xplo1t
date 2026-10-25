@@ -11,6 +11,7 @@ import (
 	"time"
 
 	contracts "github.com/open-mcp-ai/Codexploit/contracts/v1"
+	"github.com/open-mcp-ai/Codexploit/internal/agent"
 	"github.com/open-mcp-ai/Codexploit/internal/app"
 	"github.com/open-mcp-ai/Codexploit/internal/artifact"
 	"github.com/open-mcp-ai/Codexploit/internal/plugin"
@@ -278,6 +279,39 @@ func TestPluginCapabilitiesListEveryStage(t *testing.T) {
 	if scan := byKey["scan"]; scan.Available {
 		t.Fatalf("scan capability claimed availability without the scanner: %+v", scan)
 	}
+}
+
+func TestCapabilityCatalogAcceptsLegacyRuntimeProtocol(t *testing.T) {
+	env := newTestEnv(t, false)
+	srv := NewServer(env.rt.Store, env.rt.Manager, env.rt.Analyzer,
+		WithAuth(testAuthenticator(t)),
+		WithPluginCatalog(env.rt.PluginCatalog),
+		WithAgentRuntimes(func() []agent.RuntimeInfo {
+			return []agent.RuntimeInfo{{Name: "llm", Version: "1", ProtocolVersion: "1", Ready: true}}
+		}),
+	)
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+	read := doAs(t, ts, readerSecret, http.MethodGet, "/api/v1/plugins/capabilities", nil, nil)
+	if read.status != http.StatusOK {
+		t.Fatalf("legacy integer runtime protocol: %d %s", read.status, read.body)
+	}
+	var page struct {
+		Capabilities []pluginCapabilityView `json:"capabilities"`
+	}
+	read.decode(t, &page)
+	for _, capability := range page.Capabilities {
+		if capability.Key != "agent" {
+			continue
+		}
+		for _, adapter := range capability.Adapters {
+			if adapter.ID == "agent/llm" && adapter.ProtocolVersion != "1" {
+				t.Fatalf("legacy protocol = %q", adapter.ProtocolVersion)
+			}
+		}
+		return
+	}
+	t.Fatal("agent capability missing")
 }
 
 func TestRegisterPluginRejectsReservedSource(t *testing.T) {

@@ -239,7 +239,7 @@ func serveTestEnv(t *testing.T, rt *app.Runtime, allowNetwork bool) *testEnv {
 	srv := NewServer(rt.Store, rt.Manager, rt.Analyzer, options...)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
-	return &testEnv{ts: ts, rt: rt, source: newTestSource(t), workspace: rt.Workspace}
+	return &testEnv{server: srv, ts: ts, rt: rt, source: newTestSource(t), workspace: rt.Workspace}
 }
 
 // startRun posts a run request and returns the raw response.

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cyberphone/json-canonicalization/go/src/webpki.org/jsoncanonicalizer"
 	"io"
 	"os"
 	"path"
@@ -19,9 +20,11 @@ import (
 // files it declares. The package digest binds the canonical manifest and every
 // other regular file, so two installs of one version cannot silently differ.
 const (
-	MaxPackageFiles  = 1000
-	MaxPackageBytes  = 128 << 20
-	maxManifestBytes = 256 << 10
+	MaxPackageFiles      = 1000
+	MaxPackageBytes      = 128 << 20
+	MaxStagePackageBytes = int64(4 << 30)
+	MaxStagePackageFiles = 64000
+	maxManifestBytes     = 256 << 10
 )
 
 // Package is one verified, locally installed process plugin package.
@@ -41,7 +44,7 @@ type Package struct {
 // missing entrypoint is reported as unsupported; a malformed or escaping one is
 // invalid.
 func LoadPackage(directory string) (Package, error) {
-	info, err := os.Stat(directory)
+	info, err := os.Lstat(directory)
 	if err != nil || !info.IsDir() {
 		return Package{}, ErrInvalid
 	}
@@ -58,7 +61,7 @@ func LoadPackage(directory string) (Package, error) {
 	if json.Unmarshal(raw, &value) != nil {
 		return Package{}, ErrInvalid
 	}
-	schema, err := manifestSchema()
+	schema, err := schemaForManifest(raw)
 	if err != nil {
 		return Package{}, err
 	}
@@ -73,10 +76,13 @@ func LoadPackage(directory string) (Package, error) {
 	if json.Unmarshal(canonical, &manifest) != nil {
 		return Package{}, ErrInvalid
 	}
-	if _, err := resolveConfig(manifest.ConfigSchema); err != nil {
-		return Package{}, err
+	if manifest.APIVersion == DefinitionVersion {
+		canonical, err = jsoncanonicalizer.Transform(raw)
+		if err != nil {
+			return Package{}, ErrInvalid
+		}
 	}
-	if err := ValidateManifestContracts(manifest); err != nil {
+	if err := ValidateDefinition(manifest); err != nil {
 		return Package{}, err
 	}
 	if manifest.Runtime.Kind != "process" {
@@ -87,9 +93,28 @@ func LoadPackage(directory string) (Package, error) {
 		return Package{}, err
 	}
 
-	files, err := packageFiles(directory, manifestPath)
+	var files []packageFile
+	if manifest.APIVersion == DefinitionVersion {
+		files, err = packageFilesBounded(directory, MaxStagePackageBytes, MaxStagePackageFiles)
+	} else {
+		files, err = packageFiles(directory, manifestPath)
+	}
 	if err != nil {
 		return Package{}, err
+	}
+	var releaseDigest string
+	if manifest.APIVersion == DefinitionVersion {
+		var payload []packageFile
+		for _, file := range files {
+			if file.name != "files.lock.json" {
+				payload = append(payload, file)
+			}
+		}
+		releaseDigest, err = verifyFilesLock(directory, canonical, payload)
+		if err != nil {
+			return Package{}, err
+		}
+		files = payload
 	}
 	hasher := sha256.New()
 	_, _ = io.WriteString(hasher, "codexploit/plugin-package/v1\n")
@@ -107,6 +132,11 @@ func LoadPackage(directory string) (Package, error) {
 	if err != nil {
 		return Package{}, err
 	}
+	for _, tool := range manifest.Tools {
+		if _, err := resolveEntrypoint(directory, tool.Entrypoint); err != nil {
+			return Package{}, err
+		}
+	}
 	relative, err := filepath.Rel(directory, executable)
 	if err != nil {
 		return Package{}, ErrInvalid
@@ -122,12 +152,16 @@ func LoadPackage(directory string) (Package, error) {
 	if executableDigest == "" {
 		return Package{}, ErrInvalid
 	}
+	packageDigest := hex.EncodeToString(hasher.Sum(nil))
+	if releaseDigest != "" {
+		packageDigest = releaseDigest
+	}
 	return Package{
 		Directory:        directory,
 		Manifest:         manifest,
 		RawManifest:      canonical,
 		ManifestDigest:   digest(canonical),
-		PackageDigest:    hex.EncodeToString(hasher.Sum(nil)),
+		PackageDigest:    packageDigest,
 		Entrypoint:       entrypoint,
 		Executable:       executable,
 		ExecutableSHA256: executableDigest,
@@ -136,15 +170,20 @@ func LoadPackage(directory string) (Package, error) {
 }
 
 type packageFile struct {
-	name   string
-	size   int64
-	digest string
+	name       string
+	size       int64
+	digest     string
+	executable bool
 }
 
 // packageFiles walks the package once. Symlinks, special files, duplicate
 // case-folded names and names outside the package are rejected rather than
 // followed.
 func packageFiles(directory, manifestPath string) ([]packageFile, error) {
+	return packageFilesBounded(directory, MaxPackageBytes, MaxPackageFiles)
+}
+
+func packageFilesBounded(directory string, maxBytes int64, maxFiles int) ([]packageFile, error) {
 	var files []packageFile
 	seen := map[string]bool{}
 	var total int64
@@ -166,6 +205,11 @@ func packageFiles(directory, manifestPath string) ([]packageFile, error) {
 		if relative == "" || strings.HasPrefix(relative, "../") || strings.HasPrefix(relative, "/") || strings.ContainsAny(relative, "\\\x00\n\r:") {
 			return ErrInvalid
 		}
+		folded := strings.ToLower(relative)
+		if seen[folded] {
+			return ErrInvalid
+		}
+		seen[folded] = true
 		if entry.IsDir() {
 			return nil
 		}
@@ -173,26 +217,22 @@ func packageFiles(directory, manifestPath string) ([]packageFile, error) {
 		if err != nil || !info.Mode().IsRegular() || info.Size() < 0 {
 			return ErrInvalid
 		}
-		folded := strings.ToLower(relative)
-		if seen[folded] {
-			return ErrInvalid
-		}
-		seen[folded] = true
-		total += info.Size()
-		if total > MaxPackageBytes || len(files) >= MaxPackageFiles {
+		if info.Size() > maxBytes-total || len(files) >= maxFiles {
 			return ErrBudget
 		}
+		total += info.Size()
 		file, err := os.Open(filepath.Join(directory, filepath.FromSlash(relative)))
 		if err != nil {
 			return ErrInvalid
 		}
 		hasher := sha256.New()
-		written, copyErr := io.Copy(hasher, io.LimitReader(file, MaxPackageBytes+1))
+		written, copyErr := io.Copy(hasher, io.LimitReader(file, info.Size()+1))
 		closeErr := file.Close()
 		if copyErr != nil || closeErr != nil || written != info.Size() {
 			return ErrInvalid
 		}
-		files = append(files, packageFile{name: relative, size: info.Size(), digest: hex.EncodeToString(hasher.Sum(nil))})
+		executable := info.Mode().Perm()&0111 != 0 || (runtime.GOOS == "windows" && strings.EqualFold(filepath.Ext(relative), ".exe"))
+		files = append(files, packageFile{name: relative, size: info.Size(), digest: hex.EncodeToString(hasher.Sum(nil)), executable: executable})
 		return nil
 	})
 	if err != nil {

@@ -71,7 +71,7 @@ func TestPutPluginKeepsInstalledPackagesImmutable(t *testing.T) {
 }
 
 func pluginFixtureRecord(source, packageDigest, manifestDigest string) plugin.Record {
-	return plugin.Record{
+	record := plugin.Record{
 		Manifest: plugin.Manifest{
 			APIVersion: "codexploit/v1",
 			ID:         "builtin.test",
@@ -81,6 +81,11 @@ func pluginFixtureRecord(source, packageDigest, manifestDigest string) plugin.Re
 		ManifestDigest: manifestDigest,
 		Source:         source,
 	}
+	record.Manifest.Runtime.Kind = "process"
+	if source == "compiled builtin" {
+		record.Manifest.Runtime.Kind = "builtin"
+	}
+	return record
 }
 
 // pluginStore is the persistence surface these tests exercise, declared locally so
@@ -90,9 +95,9 @@ type pluginStore interface {
 	GetPlugin(context.Context, string, string) (plugin.Record, error)
 }
 
-// The scanner has been bundled with this host since it was first installed as a
-// local package; the upgrade must replace the package digest, not refuse to boot.
-func TestPutPluginAcceptsABundledPackageUpgrade(t *testing.T) {
+// Bundling a third-party binary does not authorize replacing a fixed version.
+// A changed scanner binary must be shipped under a new version.
+func TestPutPluginRejectsSameVersionBundledBinaryReplacement(t *testing.T) {
 	for _, tc := range fullStores(t) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -106,14 +111,14 @@ func TestPutPluginAcceptsABundledPackageUpgrade(t *testing.T) {
 				t.Fatalf("first register: %v", err)
 			}
 			rebuild := pluginFixtureRecord("compiled package codexploit.static-patterns@1.0.6", "b", "m1")
-			if err := store.PutPlugin(ctx, rebuild); err != nil {
-				t.Fatalf("a bundled package upgrade was refused: %v", err)
+			if err := store.PutPlugin(ctx, rebuild); !errors.Is(err, plugin.ErrConflict) {
+				t.Fatalf("a fixed binary was replaced: %v", err)
 			}
 			got, err := store.GetPlugin(ctx, first.Manifest.ID, first.Manifest.Version)
 			if err != nil {
 				t.Fatalf("GetPlugin: %v", err)
 			}
-			if got.PackageDigest != "b" {
+			if got.PackageDigest != "a" {
 				t.Fatalf("package digest = %q", got.PackageDigest)
 			}
 			changed := pluginFixtureRecord("compiled package codexploit.static-patterns@1.0.6", "c", "m2")

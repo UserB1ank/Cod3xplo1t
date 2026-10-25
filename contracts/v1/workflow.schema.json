@@ -77,7 +77,36 @@
           "timeout_seconds": {
             "type": "integer",
             "minimum": 5,
-            "maximum": 600
+            "maximum": 3600
+          },
+          "operation_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "input_bindings": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "source": {
+                  "enum": [
+                    "root",
+                    "node"
+                  ]
+                },
+                "from": {
+                  "type": "string"
+                },
+                "port": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "source",
+                "from"
+              ],
+              "additionalProperties": false
+            }
           }
         },
         "required": [
@@ -88,7 +117,25 @@
           "config",
           "timeout_seconds"
         ],
-        "additionalProperties": false
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "not": {
+                "required": [
+                  "operation_id"
+                ]
+              }
+            },
+            "then": {
+              "properties": {
+                "timeout_seconds": {
+                  "maximum": 600
+                }
+              }
+            }
+          }
+        ]
       },
       "minItems": 1,
       "maxItems": 32

@@ -9,13 +9,14 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/storage"
 )
 
-func TestPostgresOneClickAnalysisRunRestartAndLineage(t *testing.T) {
+func TestPostgresLegacyAnalysisRunRestartAndLineage(t *testing.T) {
 	cfg := postgresConfig(t)
 	runtime, err := app.Build(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	env := serveTestEnv(t, runtime, false)
+	useLegacyAnalysisFixture(env)
 	projectID := createAnalysisProject(t, env, asgFixtureSource(t))
 	started := do(t, env.ts, http.MethodPost, "/api/v1/projects/"+projectID+"/analysis-runs", map[string]any{
 		"api_version": "codexploit/v1", "idempotency_key": "pg-one-click",

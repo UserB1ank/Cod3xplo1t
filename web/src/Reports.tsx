@@ -12,6 +12,7 @@ import { EmptyState, Hint, Panel } from "./components";
 import { dateLabel, shortId } from "./domain";
 import type { Snapshot } from "./types";
 import { latestSnapshot, type Task } from "./workbench";
+import { readRevisionDirectory } from "./knowledgeData";
 import {
   readVerifiedReport,
   reportActive,
@@ -122,16 +123,13 @@ export function Reports({
         { api_version: "codexploit/v1", snapshot_id: snapshot },
         controller.signal,
       ),
-      api.get<{ revisions: Revision[] }>(
-        `${prefix}/knowledge/revisions?snapshot_id=${encodeURIComponent(snapshot)}&limit=200`,
-        controller.signal,
-      ),
+      readRevisionDirectory(api, projectID, snapshot, controller.signal),
     ])
       .then(([pin, versions]) => {
         if (controller.signal.aborted) return;
         setView(pin.view);
         setRevisions(versions.revisions || []);
-        setKnowledgeRevision(versions.revisions[0]?.revision || "rev-0");
+        setKnowledgeRevision(versions.head_revision || "rev-0");
       })
       .catch((error) => {
         if (!controller.signal.aborted) setError(errorText(error));

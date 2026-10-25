@@ -94,8 +94,28 @@ export function readRoute(hash: string): Route {
       .replace(/^#\/?/, "")
       .split("/")
       .map(decodeURIComponent);
-    if (root === "configuration") return { view: "configuration", section: project === "storage" ? "storage" : "models" };
-    if (root === "workspace" && ["overview", "assistant", "tasks", "sources", "knowledge", "findings", "reports", "artifacts", "plugins", "workflows", "settings"].includes(project))
+    if (root === "configuration")
+      return {
+        view: "configuration",
+        section: project === "storage" ? "storage" : "models",
+      };
+    if (
+      root === "workspace" &&
+      [
+        "overview",
+        "assistant",
+        "paths",
+        "tasks",
+        "sources",
+        "knowledge",
+        "findings",
+        "reports",
+        "artifacts",
+        "plugins",
+        "workflows",
+        "settings",
+      ].includes(project)
+    )
       return { view: project, selecting: true };
     if (root === "settings") return { view: "settings" };
     if (root === "storage") return { view: "storage" };
@@ -113,6 +133,8 @@ export function readRoute(hash: string): Route {
       view: [
         "overview",
         "assistant",
+        "paths",
+        "tasks",
         "sources",
         "knowledge",
         "findings",
@@ -123,15 +145,17 @@ export function readRoute(hash: string): Route {
         "settings",
       ].includes(page)
         ? page
-        : "tasks",
+        : "overview",
     };
   } catch {
     return { view: "projects" };
   }
 }
 export function routeHash(route: Route): string {
-  if (!route.project && route.view === "configuration") return `#/configuration/${route.section === "storage" ? "storage" : "models"}`;
-  if (!route.project && route.selecting) return `#/workspace/${encodeURIComponent(route.view)}`;
+  if (!route.project && route.view === "configuration")
+    return `#/configuration/${route.section === "storage" ? "storage" : "models"}`;
+  if (!route.project && route.selecting)
+    return `#/workspace/${encodeURIComponent(route.view)}`;
   if (!route.project && route.view === "settings") return "#/settings";
   if (!route.project && route.view === "storage") return "#/storage";
   if (!route.project) return "#/projects";
@@ -163,6 +187,25 @@ export function liveStage(
   return undefined;
 }
 
+export function taskSchedulingControl(task: Task) {
+  if (task.archived)
+    return { state: "archived", label: "已归档", enabled: false } as const;
+  const counts = task.counts_by_status || {};
+  if (!task.workflow_status && task.path_count > 0 && counts.CANCELLED === task.path_count)
+    return { state: "stopped", label: "已停止", enabled: false } as const;
+  const complete = !task.workflow_status && task.path_count > 0 &&
+    (counts.CONCLUDED || 0) + (counts.HYPOTHESIS_FORMED || 0) + (counts.CANCELLED || 0) === task.path_count;
+  if (complete || task.workflow_status === "SUCCEEDED")
+    return { state: "complete", label: counts.CANCELLED ? "已结束" : "已完成", enabled: false } as const;
+  if (task.workflow_status === "CANCELLED")
+    return { state: "stopped", label: "已停止", enabled: false } as const;
+  if (task.workflow_status)
+    return { state: "workflow", label: "在工作流面板控制执行", enabled: false } as const;
+  return task.paused
+    ? { state: "resume", label: "恢复调度", enabled: true } as const
+    : { state: "pause", label: "暂停调度", enabled: true } as const;
+}
+
 export function taskState(task: Task) {
   if (task.archived) return "ARCHIVED";
   if (task.workflow_status)
@@ -175,12 +218,15 @@ export function taskState(task: Task) {
         : task.workflow_status === "SUCCEEDED"
           ? "CONCLUDED"
           : task.workflow_status === "PARTIAL"
-            ? "BLOCKED"
+            ? "PARTIAL"
+            : task.workflow_status === "CANCELLED" ? "CANCELLED"
             : "FAILED";
   const counts = task.counts_by_status || {};
   if (task.status === "FAILED") return "FAILED";
   if (["ANALYZING", "LOCAL_EXPLORING", "VERIFYING"].some((s) => counts[s] > 0))
     return "RUNNING";
+  if (taskSchedulingControl(task).state === "complete") return "CONCLUDED";
+  if (taskSchedulingControl(task).state === "stopped") return "CANCELLED";
   if (task.paused) return "PAUSED";
   if (!task.path_count) return "EMPTY";
   if (counts.QUEUED > 0) return "QUEUED";

@@ -50,3 +50,40 @@ test("report download authenticates and refuses corrupt or incomplete bytes", as
     /预算/,
   );
 });
+
+test("project report count walks empty pages and snapshots, and never turns a failure into zero", async () => {
+  const { readProjectReportCount } = await import("../src/report-client.ts");
+  const api = new ApiClient({ base: "/api", token: "fixture-only" }, (async (
+    input: unknown,
+  ) => {
+    const url = new URL(String(input), "http://example.invalid");
+    if (url.searchParams.get("snapshot_id") === "two")
+      return new Response(
+        JSON.stringify({
+          reports: [
+            { invocation_id: "b", status: "FAILED" },
+            { invocation_id: "c", status: "SUCCEEDED" },
+          ],
+        }),
+      );
+    return new Response(
+      JSON.stringify(
+        url.searchParams.get("cursor")
+          ? { reports: [{ invocation_id: "a", status: "SUCCEEDED" }] }
+          : { reports: [], next_cursor: "next" },
+      ),
+    );
+  }) as typeof fetch);
+  assert.equal(await readProjectReportCount(api, "project", ["one", "two"]), 2);
+  const failing = new ApiClient(
+    { base: "/api", token: "" },
+    (async () =>
+      new Response(JSON.stringify({ error: "storage unavailable" }), {
+        status: 503,
+      })) as typeof fetch,
+  );
+  await assert.rejects(
+    () => readProjectReportCount(failing, "project", ["one"]),
+    /storage unavailable/,
+  );
+});

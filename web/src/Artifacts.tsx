@@ -18,6 +18,10 @@ export interface ArtifactRef {
     plugin_version: string;
     invocation_id: string;
     task_id?: string;
+    operation_id?: string;
+    output_port?: string;
+    package_digest?: string;
+    normalizer_digest?: string;
     config_digest: string;
   };
 }

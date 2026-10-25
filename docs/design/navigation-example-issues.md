@@ -1,5 +1,7 @@
 # 常驻导航、统一配置与启动示例项目
 
+> #26已关闭，旧导航入口保持兼容；#27仍开放并已按单源码项目/真实阶段/PG-only修订。当前主导航与工作台以 [当前实施索引](interaction-issues.md)为准，以下为原始发布记录。
+
 日期：2026-10-19。用户已要求与源码导入 / 端口修复一起开始；按独立 Issue 交付，初始标签 `needs-triage`。没有父 Issue，不修改既有父单。
 
 线上 Issue：N01 [#26](https://github.com/UserB1ank/Cod3xplo1t/issues/26)；N02 [#27](https://github.com/UserB1ank/Cod3xplo1t/issues/27)。

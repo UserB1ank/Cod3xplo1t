@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/open-mcp-ai/Codexploit/internal/analysis"
+	"github.com/open-mcp-ai/Codexploit/internal/asg"
 	"github.com/open-mcp-ai/Codexploit/internal/findings"
 	"github.com/open-mcp-ai/Codexploit/internal/scg"
 	"github.com/open-mcp-ai/Codexploit/internal/verify"
@@ -48,6 +49,7 @@ type CallSiteQuery struct {
 // inside a transaction, which keeps rebuilds idempotent and readers consistent.
 // Every read is scoped to one snapshot id, as the design doc requires.
 type GraphStore interface {
+	ReplaceGraphLayers(context.Context, string, *scg.Graph, *asg.Document) error
 	ReplaceGraph(ctx context.Context, snapshotID string, g *scg.Graph) error
 	DeleteGraph(ctx context.Context, snapshotID string) error
 	GraphSummary(ctx context.Context, snapshotID string) (*scg.Summary, error)

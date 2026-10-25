@@ -1,0 +1,356 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codexploit.invalid/contracts/v2/file-job.schema.json",
+  "title": "CLI adapter job envelope",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/request"
+    },
+    {
+      "$ref": "#/$defs/result"
+    }
+  ],
+  "$defs": {
+    "request": {
+      "type": "object",
+      "properties": {
+        "api_version": {
+          "enum": [
+            "codexploit/file-job/v1",
+            "codexploit/file-job/v2"
+          ]
+        },
+        "invocation_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "plugin_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "plugin_version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "operation_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "stage": {
+          "enum": [
+            "source",
+            "parse",
+            "semantic",
+            "scan",
+            "path.generate",
+            "path.enhance",
+            "agent",
+            "environment",
+            "verification",
+            "report"
+          ]
+        },
+        "scope": {
+          "type": "object",
+          "properties": {
+            "project_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "source_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "snapshot_id": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "project_id",
+            "source_id",
+            "snapshot_id"
+          ],
+          "additionalProperties": false
+        },
+        "inputs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/input"
+          }
+        },
+        "output_directory": {
+          "type": "string",
+          "minLength": 1,
+          "description": "\u89c4\u8303 job/output \u76f8\u5bf9\u8def\u5f84\uff1b\u5bbf\u4e3b\u5fc5\u987b\u53e6\u5916\u62d2\u7edd\u7edd\u5bf9\u8def\u5f84\u3001\u9003\u9038\u3001\u94fe\u63a5\u53ca\u91cd\u590d\u8def\u5f84\u3002"
+        },
+        "config": {
+          "type": "object"
+        },
+        "budget": {
+          "type": "object",
+          "properties": {
+            "timeout_seconds": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "max_input_bytes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "max_output_bytes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "max_output_files": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "timeout_seconds",
+            "max_input_bytes",
+            "max_output_bytes",
+            "max_output_files"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "api_version",
+        "invocation_id",
+        "plugin_id",
+        "plugin_version",
+        "operation_id",
+        "stage",
+        "scope",
+        "inputs",
+        "output_directory",
+        "config",
+        "budget"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "api_version": {
+                "const": "codexploit/file-job/v2"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "inputs": {
+                "items": {
+                  "required": [
+                    "artifact_id"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "result": {
+      "type": "object",
+      "properties": {
+        "api_version": {
+          "enum": [
+            "codexploit/file-job/v1",
+            "codexploit/file-job/v2"
+          ]
+        },
+        "invocation_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "enum": [
+            "SUCCEEDED",
+            "PARTIAL",
+            "FAILED",
+            "CANCELLED",
+            "TIMED_OUT",
+            "UNSUPPORTED"
+          ]
+        },
+        "error_code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "outputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/output"
+          }
+        },
+        "coverage": {
+          "$ref": "#/$defs/coverage"
+        },
+        "limitations": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "api_version",
+        "invocation_id",
+        "status",
+        "outputs",
+        "coverage",
+        "limitations"
+      ],
+      "additionalProperties": false
+    },
+    "input": {
+      "type": "object",
+      "properties": {
+        "port": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "schema_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "\u89c4\u8303 job/output \u76f8\u5bf9\u8def\u5f84\uff1b\u5bbf\u4e3b\u5fc5\u987b\u53e6\u5916\u62d2\u7edd\u7edd\u5bf9\u8def\u5f84\u3001\u9003\u9038\u3001\u94fe\u63a5\u53ca\u91cd\u590d\u8def\u5f84\u3002"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "artifact_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "port",
+        "kind",
+        "schema_id",
+        "path",
+        "bytes",
+        "sha256"
+      ],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "port": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "schema_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "\u89c4\u8303 job/output \u76f8\u5bf9\u8def\u5f84\uff1b\u5bbf\u4e3b\u5fc5\u987b\u53e6\u5916\u62d2\u7edd\u7edd\u5bf9\u8def\u5f84\u3001\u9003\u9038\u3001\u94fe\u63a5\u53ca\u91cd\u590d\u8def\u5f84\u3002"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "media_type": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "port",
+        "kind",
+        "schema_id",
+        "path",
+        "bytes",
+        "sha256",
+        "media_type"
+      ],
+      "additionalProperties": false
+    },
+    "coverage": {
+      "type": "object",
+      "properties": {
+        "unit": {
+          "type": "string",
+          "minLength": 1
+        },
+        "seen": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "analyzed": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "skipped": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "failed": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "unit",
+        "seen",
+        "analyzed",
+        "skipped",
+        "failed",
+        "truncated",
+        "reasons"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

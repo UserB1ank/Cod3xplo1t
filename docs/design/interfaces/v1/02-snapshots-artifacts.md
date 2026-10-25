@@ -1,5 +1,7 @@
 # L2 快照与产物层
 
+> 2026-10-21：快照/ArtifactRef继续作为内部证据与存储机制，创建新项目时隐含生成；默认UI不提供单独“固定快照”步骤。旧引用与API兼容保留，见 [L10](11-project-supervisor.md)。
+
 接口：`SnapshotService`、`ArtifactStore`。Schema：[snapshot.schema.json](../../../../contracts/v1/snapshot.schema.json)、common 的 ArtifactRef。示例：[snapshot.json](../../../../contracts/v1/examples/snapshot.json)。
 
 ## 数据契约

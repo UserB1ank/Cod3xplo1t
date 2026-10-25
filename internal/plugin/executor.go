@@ -17,6 +17,8 @@ var ErrReportVersion = errors.New("plugin: unsupported native report version")
 // Executor is a compiled adapter, supplied by the composition root. Imported
 // manifests cannot install code or add adapters through the HTTP API.
 type Executor struct {
+	OperationID    string
+	RunOutputs     func(context.Context, Invocation, [][]byte) (RawResult, error)
 	Manifest       json.RawMessage
 	PackageDigest  string
 	ManifestDigest string
@@ -38,11 +40,14 @@ type Executor struct {
 }
 
 func (h *Host) validateInputs(ctx context.Context, request Request) error {
+	if request.OperationID != "" {
+		return h.validateStageInputs(ctx, request)
+	}
 	schemas := []string{"codexploit/source-tar/v1"}
 	owners := []string{""}
 	if request.PluginID != BuiltinID {
-		executor, ok := h.executors[request.PluginID+"@"+request.PluginVersion]
-		if !ok {
+		executor := h.executor(request)
+		if executor.Run == nil && executor.RunOutputs == nil {
 			return ErrUnsupported
 		}
 		schemas, owners = executor.InputSchemas, executor.InputPlugins
@@ -101,7 +106,7 @@ func (h *Host) prepareDocument(ctx context.Context, inv Invocation, suffix, kind
 }
 
 func (h *Host) analyze(ctx context.Context, inv Invocation) ([]artifact.Ref, Coverage, []string, error) {
-	executor := h.executors[inv.Request.PluginID+"@"+inv.Request.PluginVersion]
+	executor := h.executor(inv.Request)
 	inputs := [][]byte{}
 	for _, ref := range inv.Request.Inputs {
 		reader, _, err := h.deps.Artifacts.Open(ctx, inv.Request.Scope, ref.ID, inv.Request.Budget.MaxInputBytes)
@@ -117,6 +122,9 @@ func (h *Host) analyze(ctx context.Context, inv Invocation) ([]artifact.Ref, Cov
 			return nil, Coverage{}, nil, ErrBudget
 		}
 		inputs = append(inputs, raw)
+	}
+	if executor.RunOutputs != nil {
+		return h.prepareStageOutputs(ctx, inv, executor, inputs)
 	}
 	raw, err := executor.Run(ctx, inv, inputs)
 	if err != nil {

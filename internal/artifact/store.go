@@ -29,11 +29,15 @@ type Scope struct {
 }
 
 type Producer struct {
-	PluginID      string `json:"plugin_id"`
-	PluginVersion string `json:"plugin_version"`
-	InvocationID  string `json:"invocation_id"`
-	TaskID        string `json:"task_id,omitempty"`
-	ConfigDigest  string `json:"config_digest"`
+	OutputPort       string `json:"output_port,omitempty"`
+	OperationID      string `json:"operation_id,omitempty"`
+	PackageDigest    string `json:"package_digest,omitempty"`
+	NormalizerDigest string `json:"normalizer_digest,omitempty"`
+	PluginID         string `json:"plugin_id"`
+	PluginVersion    string `json:"plugin_version"`
+	InvocationID     string `json:"invocation_id"`
+	TaskID           string `json:"task_id,omitempty"`
+	ConfigDigest     string `json:"config_digest"`
 }
 
 type Ref struct {

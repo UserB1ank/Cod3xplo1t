@@ -1,5 +1,7 @@
 # Agent runtime and skill adapters (P5)
 
+> This document describes implemented **path-agent** execution. The accepted [project supervisor architecture](design/project-agent-architecture.md) adds a separate open-conversation session/run in #66–#69; do not force chat into an AuditPath or relax path-answer validation. A supervisor may request child coordination via MCP; the Go host still owns processes, leases, budget and permissions. The project supervisor is planned, not already provided by the Pi path adapter.
+
 P5 closes the loop the earlier phases set up: the SCG records code facts, the ASG
 records security semantics, an AuditPath is a scheduled unit of work — and a
 bounded agent now analyses one path and produces structured, evidence-linked
@@ -562,3 +564,12 @@ same structured-answer validation as other adapters. Configuration is captured
 once per run; later saves apply to subsequent runs. The adapter exposes no
 shell, file-write or arbitrary network tool to the model. See
 [model configuration and Docker deployment](webui.md#docker-deployment).
+
+
+### 2026-10-25：正式审查闭环的读取与预算修复
+
+项目路径列表在存储排序和分页前按固定 SCG / ASG 版本过滤，旧图谱路径保留在历史任务中，不占用当前版本的页面位置。路径审查子任务目录先限定项目快照，再分页读取运行记录；同一路径展示最新运行，历史尝试保持不变。目录读取上限为 10,000 次运行，达到上限明确返回 `truncated`。
+
+Pi worker 的用量帧必须引用宿主实际批准的 `request_permit` 请求身份，逐次释放对应预留。输入用量包括缓存读取和写入 token；缓存优惠不代表这些输入不存在。故障前的暂停记录与检查点保留，修复不改写其历史结果。
+
+完成但有覆盖缺口的图谱准备任务在工作台显示为“已完成 · 部分覆盖”，与执行受阻分开。覆盖上限、未解析文件和静态假设仍保留在原始报告及阶段记录中。

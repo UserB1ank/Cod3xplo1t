@@ -1,31 +1,178 @@
 {
   "api_version": "codexploit/contracts/v1",
   "capabilities": [
-    {"key": "source", "label": "源码接入"},
-    {"key": "parse", "label": "解析"},
-    {"key": "semantic", "label": "语义"},
-    {"key": "scan", "label": "扫描"},
-    {"key": "path", "label": "路径"},
-    {"key": "agent", "label": "Agent"},
-    {"key": "environment", "label": "环境供应"},
-    {"key": "verification", "label": "验证"},
-    {"key": "report", "label": "报告"}
+    {
+      "key": "source",
+      "label": "源码接入"
+    },
+    {
+      "key": "parse",
+      "label": "解析"
+    },
+    {
+      "key": "semantic",
+      "label": "语义"
+    },
+    {
+      "key": "scan",
+      "label": "扫描"
+    },
+    {
+      "key": "path",
+      "label": "路径"
+    },
+    {
+      "key": "agent",
+      "label": "Agent"
+    },
+    {
+      "key": "environment",
+      "label": "环境供应"
+    },
+    {
+      "key": "verification",
+      "label": "验证"
+    },
+    {
+      "key": "report",
+      "label": "报告"
+    }
   ],
   "contracts": [
-    {"kind": "source.snapshot", "capability": "source", "schemas": ["codexploit/source-tar/v1", "codexploit/source-files/v1"]},
-    {"kind": "code.ast", "capability": "parse", "schemas": ["codexploit/go-ast/v1"]},
-    {"kind": "code.facts", "capability": "parse", "schemas": ["codexploit/go-facts/v1"]},
-    {"kind": "security.facts", "capability": "semantic", "schemas": ["codexploit/go-facts/v1", "codexploit/discovery/v1"]},
-    {"kind": "scanner.alerts", "capability": "scan", "schemas": ["codexploit/scanner-alerts/v1"]},
-    {"kind": "discovery.paths", "capability": "path", "schemas": ["codexploit/discovery/v1"]},
-    {"kind": "discovery.findings", "capability": "report", "schemas": ["codexploit/report-input/v1", "codexploit/discovery/v1"]},
-    {"kind": "report.document", "capability": "report", "schemas": ["codexploit/builtin-native/v1", "codexploit/report/v1"]},
-    {"kind": "path.enhancement", "capability": "path", "schemas": ["codexploit/path-enhancement/v1"]},
-    {"kind": "agent.task", "capability": "agent", "schemas": ["codexploit/agent-task/v1"]},
-    {"kind": "agent.answer", "capability": "agent", "schemas": ["codexploit/agent-answer/v1"]},
-    {"kind": "environment.request", "capability": "environment", "schemas": ["codexploit/environment-request/v1"]},
-    {"kind": "environment.receipt", "capability": "environment", "schemas": ["codexploit/environment-receipt/v1"]},
-    {"kind": "verification.plan", "capability": "verification", "schemas": ["codexploit/verification-plan/v1"]},
-    {"kind": "verification.evidence", "capability": "verification", "schemas": ["codexploit/verification-evidence/v1"]}
+    {
+      "kind": "source.snapshot",
+      "capability": "source",
+      "schemas": [
+        "codexploit/source-tar/v1",
+        "codexploit/source-files/v1"
+      ]
+    },
+    {
+      "kind": "code.ast",
+      "capability": "parse",
+      "schemas": [
+        "codexploit/go-ast/v1"
+      ]
+    },
+    {
+      "kind": "code.facts",
+      "capability": "parse",
+      "schemas": [
+        "codexploit/go-facts/v1",
+        "codexploit/code-facts/v2"
+      ]
+    },
+    {
+      "kind": "security.facts",
+      "capability": "semantic",
+      "schemas": [
+        "codexploit/go-facts/v1",
+        "codexploit/discovery/v1",
+        "codexploit/security-facts/v2"
+      ]
+    },
+    {
+      "kind": "scanner.alerts",
+      "capability": "scan",
+      "schemas": [
+        "codexploit/scanner-alerts/v1"
+      ]
+    },
+    {
+      "kind": "discovery.paths",
+      "capability": "path",
+      "schemas": [
+        "codexploit/discovery/v1",
+        "codexploit/discovery-paths/v2"
+      ]
+    },
+    {
+      "kind": "discovery.findings",
+      "capability": "report",
+      "schemas": [
+        "codexploit/report-input/v1",
+        "codexploit/discovery/v1"
+      ]
+    },
+    {
+      "kind": "report.document",
+      "capability": "report",
+      "schemas": [
+        "codexploit/builtin-native/v1",
+        "codexploit/report/v1"
+      ]
+    },
+    {
+      "kind": "path.enhancement",
+      "capability": "path",
+      "schemas": [
+        "codexploit/path-enhancement/v1",
+        "codexploit/path-enhancement/v2"
+      ]
+    },
+    {
+      "kind": "agent.task",
+      "capability": "agent",
+      "schemas": [
+        "codexploit/agent-task/v1"
+      ]
+    },
+    {
+      "kind": "agent.answer",
+      "capability": "agent",
+      "schemas": [
+        "codexploit/agent-answer/v1"
+      ]
+    },
+    {
+      "kind": "environment.request",
+      "capability": "environment",
+      "schemas": [
+        "codexploit/environment-request/v1"
+      ]
+    },
+    {
+      "kind": "environment.receipt",
+      "capability": "environment",
+      "schemas": [
+        "codexploit/environment-receipt/v1"
+      ]
+    },
+    {
+      "kind": "verification.plan",
+      "capability": "verification",
+      "schemas": [
+        "codexploit/verification-plan/v1"
+      ]
+    },
+    {
+      "kind": "verification.evidence",
+      "capability": "verification",
+      "schemas": [
+        "codexploit/verification-evidence/v1"
+      ]
+    },
+    {
+      "kind": "source.request",
+      "capability": "source",
+      "schemas": [
+        "codexploit/source-request/v1"
+      ]
+    },
+    {
+      "kind": "report.input",
+      "capability": "report",
+      "schemas": [
+        "codexploit/report-input/v1"
+      ]
+    },
+    {
+      "kind": "tool.native",
+      "capability": "parse",
+      "schemas": [
+        "codexploit/native-bytes/v1",
+        "joern/cpg/v1"
+      ]
+    }
   ]
 }

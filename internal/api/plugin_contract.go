@@ -72,8 +72,12 @@ func writeCapabilityJSON(w http.ResponseWriter, status int, document any) {
 		return
 	}
 	var value any
-	if json.Unmarshal(raw, &value) != nil || schema.Validate(value) != nil {
-		writeError(w, 500, "contract_violation", fmt.Errorf("capability response does not satisfy the public contract"))
+	if err := json.Unmarshal(raw, &value); err != nil {
+		writeError(w, 500, "contract_violation", fmt.Errorf("capability response is not valid JSON: %w", err))
+		return
+	}
+	if err := schema.Validate(value); err != nil {
+		writeError(w, 500, "contract_violation", fmt.Errorf("capability response does not satisfy the public contract: %w", err))
 		return
 	}
 	writeJSON(w, status, document)

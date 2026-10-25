@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/open-mcp-ai/Codexploit/internal/agent"
 	"github.com/open-mcp-ai/Codexploit/internal/app"
 	"github.com/open-mcp-ai/Codexploit/internal/artifact"
 	"github.com/open-mcp-ai/Codexploit/internal/findings"
@@ -526,5 +527,83 @@ func TestReportRefusesUnsupportedVerdictsAndMissingEvidence(t *testing.T) {
 	list.decode(t, &result)
 	if len(result.Reports) != 0 {
 		t.Fatal("failed capture created a successful report")
+	}
+}
+
+func TestFixedReportIncludesCompletedNonFindingReview(t *testing.T) {
+	fixedReportIncludesNonFindingReview(t, "json")
+}
+func TestFixedMarkdownIncludesReadableNonFindingReview(t *testing.T) {
+	fixedReportIncludesNonFindingReview(t, "md")
+}
+func fixedReportIncludesNonFindingReview(t *testing.T, format string) {
+	t.Helper()
+	env := newTestEnv(t, false)
+	env.rt.Agent.Runtime = &echoRuntime{Answer: func(goal string) agent.Answer {
+		answer := agentTestAnswer(goal)
+		answer.Hypothesis.Status = agent.HypothesisInconclusive
+		answer.Hypothesis.Statement = "Recorded review has insufficient evidence and is not a finding"
+		answer.FindingCandidate = false
+		answer.Obligations[2].Verdict = agent.VerdictUnknown
+		answer.Obligations[2].Blocker = "control_unassessed"
+		return answer
+	}}
+	snapshot := createAuditedSnapshot(t, env.ts)
+	projects, _ := env.rt.Store.ListProjects(t.Context())
+	project := projects[0].ID
+	audit := createAudit(t, env.ts, map[string]any{"snapshot_id": snapshot}).Audit
+	target := auditPaths(t, env.ts, audit.ID, "").Paths[0]
+	selected := do(t, env.ts, http.MethodPost, "/api/v1/projects/"+project+"/path-selections", map[string]any{"api_version": "codexploit/v1", "path_ids": []string{target.ID}}, nil)
+	if selected.status != 200 {
+		t.Fatalf("review: %d %s", selected.status, selected.body)
+	}
+	var receipt struct {
+		Selections []selectedPath `json:"selections"`
+	}
+	selected.decode(t, &receipt)
+	run, err := env.rt.Store.GetRun(receipt.Selections[0].RunID)
+	if err != nil || run.Status != agent.RunSucceeded {
+		t.Fatalf("review did not complete: %+v %v", run, err)
+	}
+	opened := do(t, env.ts, http.MethodPost, "/api/v1/projects/"+project+"/knowledge/views", map[string]any{"api_version": "codexploit/v1", "snapshot_id": snapshot}, nil)
+	var pin struct {
+		View struct {
+			ID string `json:"view_id"`
+		} `json:"view"`
+	}
+	opened.decode(t, &pin)
+	created := do(t, env.ts, http.MethodPost, "/api/v1/projects/"+project+"/reports", map[string]any{"api_version": "codexploit/v1", "snapshot_id": snapshot, "task_id": audit.ID, "view_id": pin.View.ID, "format": format, "include_candidates": false}, nil)
+	if created.status != 202 {
+		t.Fatalf("report: %d %s", created.status, created.body)
+	}
+	var result struct {
+		Report plugin.Invocation `json:"report"`
+	}
+	created.decode(t, &result)
+	inv := waitReport(t, env, result.Report)
+	downloaded := do(t, env.ts, http.MethodGet, "/api/v1/projects/"+project+"/snapshots/"+snapshot+"/artifacts/"+inv.Outputs[0].ID+"/content", nil, nil)
+	if format == "md" {
+		if !strings.Contains(string(downloaded.body), "## Path review results") || !strings.Contains(string(downloaded.body), run.ID) || !strings.Contains(string(downloaded.body), run.Answer.Hypothesis.Statement) {
+			t.Fatal("Markdown report omitted the readable non-finding assessment")
+		}
+		return
+	}
+	var report struct {
+		Findings []any `json:"findings"`
+		Capture  struct {
+			Reviews []struct {
+				RunID  string        `json:"run_id"`
+				PathID string        `json:"path_id"`
+				Answer *agent.Answer `json:"answer"`
+			} `json:"reviews"`
+		} `json:"capture"`
+	}
+	downloaded.decode(t, &report)
+	if len(report.Findings) != 0 || len(report.Capture.Reviews) != 1 {
+		t.Fatalf("non-finding review missing from fixed report: findings=%d reviews=%d", len(report.Findings), len(report.Capture.Reviews))
+	}
+	review := report.Capture.Reviews[0]
+	if review.RunID != run.ID || review.PathID != target.ID || review.Answer == nil || review.Answer.Hypothesis.Status != agent.HypothesisInconclusive || review.Answer.FindingCandidate || len(review.Answer.SupportingEvidence) != 1 {
+		t.Fatalf("review provenance or evidence lost: %+v", review)
 	}
 }

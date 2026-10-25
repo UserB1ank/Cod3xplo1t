@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -149,5 +151,15 @@ func TestMalformedAndUnknownResponsesDoNotHangCallers(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("malformed input did not terminate the peer")
+	}
+}
+
+func TestCallAfterFramingFailureRetainsBudgetError(t *testing.T) {
+	conn := rpc.New(strings.NewReader(strings.Repeat("x", 65)+"\n"), io.Discard, nil, rpc.Options{MaxMessageBytes: 64})
+	if err := conn.Serve(t.Context()); !errors.Is(err, rpc.ErrMessageTooLarge) {
+		t.Fatalf("Serve: %v", err)
+	}
+	if err := conn.Call(t.Context(), "status", nil, nil); !errors.Is(err, rpc.ErrMessageTooLarge) {
+		t.Fatalf("Call lost framing failure: %v", err)
 	}
 }

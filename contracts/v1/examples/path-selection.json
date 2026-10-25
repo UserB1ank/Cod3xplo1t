@@ -11,7 +11,10 @@
       "run_id": "run-example",
       "state": "SUCCEEDED",
       "source": "agent",
-      "reused": false
+      "reused": false,
+      "entry_subject": "GET /admin",
+      "target_subject": "sql_execution",
+      "target_kind": "sink"
     }
   ]
 }

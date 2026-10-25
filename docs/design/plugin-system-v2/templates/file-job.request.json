@@ -1,0 +1,31 @@
+{
+  "api_version": "codexploit/file-job/v1",
+  "invocation_id": "example-report-001",
+  "plugin_id": "example.report",
+  "plugin_version": "0.1.0",
+  "operation_id": "execute",
+  "stage": "report",
+  "scope": {
+    "project_id": "example-project",
+    "source_id": "example-source",
+    "snapshot_id": "example-snapshot"
+  },
+  "inputs": [
+    {
+      "port": "input",
+      "kind": "report.input",
+      "schema_id": "codexploit/report-input/v1",
+      "path": "inputs/report.input.json",
+      "bytes": 491,
+      "sha256": "e64c96d1063835d2c84c8d0d853c5eeb4309bdd12ca9e25171dd24ceb1ecac35"
+    }
+  ],
+  "output_directory": "outputs",
+  "config": {},
+  "budget": {
+    "timeout_seconds": 60,
+    "max_input_bytes": 1048576,
+    "max_output_bytes": 1048576,
+    "max_output_files": 2
+  }
+}

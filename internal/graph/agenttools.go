@@ -872,6 +872,7 @@ func compactPathDocument(p path.Path) (toolPathDocument, []string) {
 		Limitations:   capList(p.Limitations, agentToolMaxPathNotes, "limitations", &notes),
 		SCGRefs:       capList(p.SCGRefs, agentToolMaxPathRefs, "scg_refs", &notes),
 		ASGRefs:       capList(p.ASGRefs, agentToolMaxPathRefs, "asg_refs", &notes),
+		EvidenceRefs:  capList(p.EvidenceRefs, agentToolMaxPathRefs, "evidence_refs", &notes),
 		UpdatedAt:     p.UpdatedAt,
 	}
 	return doc, notes
@@ -1094,6 +1095,7 @@ type toolPathDocument struct {
 	Limitations   []string   `json:"limitations,omitempty"`
 	SCGRefs       []string   `json:"scg_refs,omitempty"`
 	ASGRefs       []string   `json:"asg_refs,omitempty"`
+	EvidenceRefs  []string   `json:"evidence_refs,omitempty"`
 	UpdatedAt     string     `json:"updated_at,omitempty"`
 }
 

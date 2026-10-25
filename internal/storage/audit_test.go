@@ -293,6 +293,8 @@ func TestListPathsFilters(t *testing.T) {
 			p1 := newPathFixture("path-0001", auditMainID, auditSnapID, "asgn-entry-1", "asgn-sink-sql", 0.9)
 			p2 := newPathFixture("path-0002", auditMainID, auditSnapID, "asgn-entry-1", "asgn-sink-exec", 0.5)
 			p2.PathStatus = path.PathCandidate
+			p2.SCGVersion = "older-scg"
+			p2.ASGVersion = "older-asg"
 			p3 := newPathFixture("path-0003", auditMainID, auditSnapID, "asgn-entry-2", "asgn-sink-sql", 0.7)
 			p3.Status = path.StatusPaused
 			p3.PathStatus = path.PathUnresolved
@@ -309,6 +311,9 @@ func TestListPathsFilters(t *testing.T) {
 			}{
 				{"audit", path.PathQuery{AuditID: auditMainID}, []string{"path-0001", "path-0003", "path-0002"}, 3},
 				{"snapshot", path.PathQuery{SnapshotID: auditSnapID, Sort: "path_id"}, []string{"path-0001", "path-0002", "path-0003"}, 3},
+				{"pinned graph page", path.PathQuery{AuditID: auditMainID, SCGVersion: p1.SCGVersion, Limit: 1}, []string{"path-0001"}, 2},
+				{"pinned surface", path.PathQuery{AuditID: auditMainID, ASGVersion: "older-asg"}, []string{"path-0002"}, 1},
+				{"mixed versions", path.PathQuery{AuditID: auditMainID, SCGVersion: p1.SCGVersion, ASGVersion: "older-asg"}, []string{}, 0},
 				{"status", path.PathQuery{AuditID: auditMainID, Status: []path.Status{path.StatusQueued}, Sort: "path_id"}, []string{"path-0001", "path-0002"}, 2},
 				{"path status", path.PathQuery{AuditID: auditMainID, PathStatus: []path.PathStatus{path.PathCandidate}, Sort: "path_id"}, []string{"path-0002"}, 1},
 				{"entry", path.PathQuery{AuditID: auditMainID, EntryNodeID: "asgn-entry-1", Sort: "path_id"}, []string{"path-0001", "path-0002"}, 2},

@@ -2,99 +2,306 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://codexploit.invalid/contracts/v1/plugin-capabilities.schema.json",
   "title": "Capability, adapter and domain protocol catalog",
-  "description": "The reviewable view of every pipeline stage: plugin adapters, native Agent/Environment/Verification adapters, their declared/installed/measured state and the versioned domain protocols they exchange.",
+  "description": "The reviewable view of every pipeline stage: plugin adapters, native Agent/Environment/Verification adapters, their declared/installed/measured state and the versioned domain protocols they exchange. protocol_version keeps qualified versions such as builtin/v1; a bare integer is the explicit legacy form used by older Agent runtime pins.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["api_version", "capabilities", "protocols"],
+  "required": [
+    "api_version",
+    "capabilities",
+    "protocols"
+  ],
   "properties": {
-    "api_version": { "const": "codexploit/v1" },
+    "api_version": {
+      "const": "codexploit/v1"
+    },
     "capabilities": {
       "type": "array",
       "minItems": 9,
       "maxItems": 16,
-      "items": { "$ref": "#/$defs/Capability" }
+      "items": {
+        "$ref": "#/$defs/Capability"
+      }
     },
     "protocols": {
       "type": "array",
       "minItems": 1,
       "maxItems": 64,
-      "items": { "$ref": "#/$defs/DomainProtocol" }
+      "items": {
+        "$ref": "#/$defs/DomainProtocol"
+      }
     }
   },
   "$defs": {
     "DomainProtocol": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["schema", "capability", "transport", "direction", "file", "description"],
+      "required": [
+        "schema",
+        "capability",
+        "transport",
+        "direction",
+        "file",
+        "description"
+      ],
       "properties": {
-        "schema": { "type": "string", "pattern": "^codexploit/[a-z][a-z0-9-]*/v[0-9]+$" },
-        "capability": { "type": "string", "minLength": 1 },
-        "transport": { "enum": ["plugin_execute", "agent_runtime", "environment_backend", "verification_executor"] },
-        "direction": { "enum": ["input", "output", "bidirectional"] },
-        "file": { "type": "string", "pattern": "^[a-z][a-z0-9-]*\\.schema\\.json$" },
-        "description": { "type": "string", "minLength": 1 }
+        "schema": {
+          "type": "string",
+          "pattern": "^codexploit/[a-z][a-z0-9-]*/v[0-9]+$"
+        },
+        "capability": {
+          "type": "string",
+          "minLength": 1
+        },
+        "transport": {
+          "enum": [
+            "plugin_execute",
+            "agent_runtime",
+            "environment_backend",
+            "verification_executor"
+          ]
+        },
+        "direction": {
+          "enum": [
+            "input",
+            "output",
+            "bidirectional"
+          ]
+        },
+        "file": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*\\.schema\\.json$"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "Adapter": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "name", "kind", "declared", "installed", "measured", "capabilities"],
+      "required": [
+        "id",
+        "name",
+        "kind",
+        "declared",
+        "installed",
+        "measured",
+        "capabilities"
+      ],
       "properties": {
-        "id": { "type": "string", "minLength": 1, "maxLength": 300 },
-        "name": { "type": "string", "minLength": 1, "maxLength": 300 },
-        "kind": { "enum": ["plugin_runtime", "agent_runtime", "environment_backend", "verification_executor", "native_service"] },
-        "version": { "type": "string", "maxLength": 200 },
-        "protocol_version": { "type": "string", "pattern": "^[a-z][a-z0-9-]*/v[0-9]+$" },
-        "declared": { "type": "boolean" },
-        "installed": { "type": "boolean" },
-        "measured": { "type": "boolean" },
-        "capabilities": { "type": "array", "maxItems": 64, "items": { "type": "string", "maxLength": 200 } },
-        "reason": { "type": "string", "maxLength": 2000 }
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "kind": {
+          "enum": [
+            "plugin_runtime",
+            "agent_runtime",
+            "environment_backend",
+            "verification_executor",
+            "native_service"
+          ]
+        },
+        "version": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "protocol_version": {
+          "type": "string",
+          "pattern": "^([a-z][a-z0-9-]*/([a-z][a-z0-9-]*/)?v[0-9]+|[0-9]+)$"
+        },
+        "declared": {
+          "type": "boolean"
+        },
+        "installed": {
+          "type": "boolean"
+        },
+        "measured": {
+          "type": "boolean"
+        },
+        "capabilities": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "maxLength": 200
+          }
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 2000
+        }
       }
     },
     "PluginEntry": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "version", "name", "runtime", "source", "installed", "executable", "adapter_kind", "package_version", "declared", "measured"],
+      "required": [
+        "id",
+        "version",
+        "name",
+        "runtime",
+        "source",
+        "installed",
+        "executable",
+        "adapter_kind",
+        "package_version",
+        "declared",
+        "measured"
+      ],
       "properties": {
-        "id": { "type": "string", "minLength": 1, "maxLength": 200 },
-        "version": { "type": "string", "minLength": 1, "maxLength": 100 },
-        "name": { "type": "string", "minLength": 1, "maxLength": 300 },
-        "runtime": { "type": "string", "minLength": 1, "maxLength": 100 },
-        "source": { "type": "string", "minLength": 1, "maxLength": 200 },
-        "installed": { "type": "boolean" },
-        "executable": { "type": "boolean" },
-        "adapter_kind": { "const": "plugin_runtime" },
-        "protocol_version": { "type": "string", "pattern": "^[a-z][a-z0-9-]*/v[0-9]+$" },
-        "package_version": { "type": "string", "minLength": 1, "maxLength": 100 },
-        "declared": { "type": "boolean" },
-        "measured": { "type": "boolean" },
-        "reason": { "type": "string", "maxLength": 2000 }
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "runtime": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "installed": {
+          "type": "boolean"
+        },
+        "executable": {
+          "type": "boolean"
+        },
+        "adapter_kind": {
+          "const": "plugin_runtime"
+        },
+        "protocol_version": {
+          "type": "string",
+          "pattern": "^([a-z][a-z0-9-]*/([a-z][a-z0-9-]*/)?v[0-9]+|[0-9]+)$"
+        },
+        "package_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "declared": {
+          "type": "boolean"
+        },
+        "measured": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 2000
+        }
       }
     },
     "Contract": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "capability", "schemas"],
+      "required": [
+        "kind",
+        "capability",
+        "schemas"
+      ],
       "properties": {
-        "kind": { "type": "string", "minLength": 1, "maxLength": 200 },
-        "capability": { "type": "string", "minLength": 1, "maxLength": 100 },
-        "schemas": { "type": "array", "minItems": 1, "maxItems": 8, "items": { "type": "string", "maxLength": 200 } }
+        "kind": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "capability": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "schemas": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "maxLength": 200
+          }
+        }
       }
     },
     "Capability": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["key", "label", "available", "execution_model", "plugins", "adapters", "contracts"],
+      "required": [
+        "key",
+        "label",
+        "available",
+        "execution_model",
+        "plugins",
+        "adapters",
+        "contracts"
+      ],
       "properties": {
-        "key": { "type": "string", "minLength": 1, "maxLength": 100 },
-        "label": { "type": "string", "minLength": 1, "maxLength": 100 },
-        "available": { "type": "boolean" },
-        "reason": { "type": "string", "maxLength": 2000 },
-        "execution_model": { "enum": ["plugin_execute", "agent_runtime", "environment_backend", "verification_executor", "native_service"] },
-        "plugins": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/PluginEntry" } },
-        "adapters": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/Adapter" } },
-        "contracts": { "type": "array", "maxItems": 32, "items": { "$ref": "#/$defs/Contract" } }
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "available": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "execution_model": {
+          "enum": [
+            "plugin_execute",
+            "agent_runtime",
+            "environment_backend",
+            "verification_executor",
+            "native_service"
+          ]
+        },
+        "plugins": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/PluginEntry"
+          }
+        },
+        "adapters": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/Adapter"
+          }
+        },
+        "contracts": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/Contract"
+          }
+        }
       }
     }
   }

@@ -31,10 +31,17 @@ import {
   Search,
   Settings2,
   ShieldCheck,
+  Square,
   Trash2,
   Workflow,
 } from "lucide-react";
 import { ApiClient } from "./api";
+import { readProjectReportCount } from "./report-client";
+import {
+  primaryNavigation,
+  advancedNavigation,
+  projectDestination,
+} from "./navigation";
 import { EventFeed } from "./EventFeed";
 import { importArchive, validateArchive } from "./source-import";
 import { ArchivePicker } from "./ArchivePicker";
@@ -52,6 +59,7 @@ import { Knowledge } from "./Knowledge";
 import { Assistant } from "./Assistant";
 import { Reports } from "./Reports";
 import { ProjectHome } from "./ProjectHome";
+import { ProjectPathStop } from "./ProjectPathStop";
 import {
   canStartAnalysis,
   effectiveProjectInput,
@@ -89,6 +97,7 @@ import {
   sourceNetworkError,
   taskGradeCounts,
   taskState,
+  taskSchedulingControl,
   type FindingPage,
   type Grade,
   type Identity,
@@ -225,7 +234,8 @@ export default function App() {
   const tasks = useResource(
     async (signal) => {
       const tasks: Task[] = [];
-      if (!api || !route.project || identity?.features.tasks === false) return { tasks, total: 0 };
+      if (!api || !route.project || identity?.features.tasks === false)
+        return { tasks, total: 0 };
       let total = 0;
       do {
         const page = await api.get<{ tasks: Task[]; total: number }>(
@@ -251,20 +261,20 @@ export default function App() {
     [api, route.project, revision, identity?.features.findings],
   );
   const reportCount = useResource(
-    async (signal) => {
-      const snapshot = snapshots.data?.[snapshots.data.length - 1];
-      if (!api || !route.project || !snapshot) return 0;
-      try {
-        const page = await api.get<{ reports: unknown[] }>(
-          `/v1/projects/${encodeURIComponent(route.project)}/reports?snapshot_id=${encodeURIComponent(snapshot.snapshot_id)}&limit=100`,
-          signal,
-        );
-        return (page.reports || []).length;
-      } catch {
-        return 0;
-      }
-    },
+    async (signal) =>
+      api && route.project && snapshots.data
+        ? readProjectReportCount(
+            api,
+            route.project,
+            snapshots.data.map((snapshot) => snapshot.snapshot_id),
+            signal,
+          )
+        : undefined,
     [api, route.project, revision, snapshots.data],
+  );
+  const analysisEngine = useResource(
+    async (signal) => api && route.project ? (await api.analysisEngine(route.project, signal)).analysis_engine : undefined,
+    [api, route.project, revision],
   );
   const analysisRuns = useResource(
     async (signal) =>
@@ -307,24 +317,83 @@ export default function App() {
   const canWrite = identity.can_write;
   const limitedTasks = identity.features.tasks === false;
   const canBuildKnowledge = identity.features.knowledge !== false;
-  const availableView = (view: string) => ["sources", "artifacts", "settings"].includes(view) || (view === "assistant" ? identity.features.supervisor !== false : view === "knowledge" ? canBuildKnowledge : view === "plugins" ? identity.features.plugins !== false : !limitedTasks);
-  const navItems = [
-    { id: "overview", label: "项目概览", icon: Layers },
-    { id: "assistant", label: "项目助手", icon: MessageSquare },
-    { id: "tasks", label: "挖掘任务", icon: Workflow },
-    { id: "sources", label: "代码源", icon: FolderGit2 },
-    { id: "knowledge", label: "共享知识图谱", icon: Network },
-    { id: "findings", label: "项目漏洞库", icon: ShieldCheck },
-    { id: "reports", label: "固定版本报告", icon: FileText },
-    { id: "artifacts", label: "产物与证据", icon: FileText },
-    { id: "plugins", label: "插件中心", icon: Box },
-    { id: "workflows", label: "工作流", icon: GitBranch },
-    { id: "settings", label: "项目设置", icon: Settings2 },
-  ];
-  const configuration = !route.project && (route.view === "configuration" || (!route.selecting && ["settings", "storage"].includes(route.view)));
-  const configurationSection = route.view === "storage" || route.section === "storage" ? "storage" : "models";
+  const availableView = (view: string) =>
+    ["sources", "artifacts", "settings"].includes(view) ||
+    (view === "assistant"
+      ? !limitedTasks
+      : view === "knowledge"
+        ? canBuildKnowledge
+        : view === "plugins"
+          ? identity.features.plugins !== false
+          : !limitedTasks);
+  const navIcons: Record<string, typeof Layers> = {
+    overview: Layers,
+    knowledge: Network,
+    paths: GitBranch,
+    assistant: MessageSquare,
+    findings: ShieldCheck,
+    reports: FileText,
+    tasks: Workflow,
+    sources: FolderGit2,
+    artifacts: FileText,
+    plugins: Box,
+    workflows: GitBranch,
+    settings: Settings2,
+  };
+  const navItems = [...primaryNavigation, ...advancedNavigation].map(
+    (item) => ({ ...item, icon: navIcons[item.id] }),
+  );
+  const renderNavItem = (item: (typeof navItems)[number]) => {
+    const selected = route.project
+      ? route.task
+        ? item.id === "assistant"
+        : route.view === item.id
+      : !!route.selecting && route.view === item.id;
+    return (
+      <button
+        key={item.id}
+        disabled={!availableView(item.id)}
+        title={!availableView(item.id) ? "当前服务未启用此功能" : undefined}
+        aria-current={selected ? "page" : undefined}
+        className={`nav-item ${selected ? "selected" : ""}`}
+        onClick={() =>
+          navigate(
+            route.project
+              ? { project: route.project, view: item.id }
+              : { view: item.id, selecting: true },
+          )
+        }
+      >
+        <item.icon size={17} />
+        {item.label}
+        {item.id === "assistant" && !!tasks.data?.total && (
+          <span className="nav-count" title="项目任务数量">
+            {tasks.data.total}
+          </span>
+        )}
+      </button>
+    );
+  };
+  const configuration =
+    !route.project &&
+    (route.view === "configuration" ||
+      (!route.selecting && ["settings", "storage"].includes(route.view)));
+  const configurationSection =
+    route.view === "storage" || route.section === "storage"
+      ? "storage"
+      : "models";
   return (
-    <div className="app-shell">
+    <div className="app-shell audit-workspace">
+      <a
+        className="skip-link"
+        href="#workspace-content"
+        onClick={(event) => {
+          event.preventDefault();
+          document.getElementById("workspace-content")?.focus();
+        }}
+      >
+        跳至主内容
+      </a>
       <aside className="sidebar">
         <a className="brand" href="#/projects">
           <span className="brand-mark">
@@ -338,25 +407,53 @@ export default function App() {
           <button
             className={`nav-item all-projects ${!route.project && route.view === "projects" ? "selected" : ""}`}
             onClick={() => navigate({ view: "projects" })}
-          ><FolderGit2 size={17} />全部项目<ChevronRight size={14} /></button>
+          >
+            <FolderGit2 size={17} />
+            全部项目
+            <ChevronRight size={14} />
+          </button>
           <div className="nav-label">项目工作区</div>
-          <div className="project-selector"><Box size={16} /><span>{route.project ? project?.name || "载入项目…" : "尚未选择项目"}</span></div>
+          <div className="project-selector">
+            <Box size={16} />
+            <span>
+              {route.project ? project?.name || "载入项目…" : "尚未选择项目"}
+            </span>
+          </div>
           <nav aria-label="项目功能">
-            {navItems.map((item) => {
-              const selected = route.project ? route.task ? item.id === "tasks" : route.view === item.id : !!route.selecting && route.view === item.id;
-              return <button key={item.id}
-                disabled={!availableView(item.id)}
-                title={!availableView(item.id) ? "当前服务未启用此功能" : undefined}
-                aria-current={selected ? "page" : undefined}
-                className={`nav-item ${selected ? "selected" : ""}`}
-                onClick={() => navigate(route.project ? { project: route.project, view: item.id } : { view: item.id, selecting: true })}
-              ><item.icon size={17} />{item.label}</button>;
-            })}
+            {navItems.slice(0, primaryNavigation.length).map(renderNavItem)}
           </nav>
-          <div className="sidebar-note"><BookOpen size={16} /><strong>知识在项目内共享</strong><p>{route.project ? "任务独立运行，代码事实与证据保留版本和来源。" : "选择一个项目，即可查看源码、图谱、任务与证据。"}</p></div>
+          <details
+            className="advanced-navigation"
+            open={advancedNavigation.some((item) => item.id === route.view)}
+          >
+            <summary>
+              项目管理与工具 <ChevronRight size={13} />
+            </summary>
+            <nav aria-label="项目管理与工具">
+              {navItems.slice(primaryNavigation.length).map(renderNavItem)}
+            </nav>
+          </details>
+          <div className="sidebar-note">
+            <BookOpen size={16} />
+            <strong>知识在项目内共享</strong>
+            <p>
+              {route.project
+                ? "任务独立运行，代码事实与证据保留版本和来源。"
+                : "选择一个项目，即可查看源码、图谱、任务与证据。"}
+            </p>
+          </div>
         </div>
         <div className="sidebar-tools">
-          <button className={`nav-item ${configuration ? "selected" : ""}`} aria-current={configuration ? "page" : undefined} onClick={() => navigate({ view: "configuration", section: "models" })}><Settings2 size={17} />配置</button>
+          <button
+            className={`nav-item ${configuration ? "selected" : ""}`}
+            aria-current={configuration ? "page" : undefined}
+            onClick={() =>
+              navigate({ view: "configuration", section: "models" })
+            }
+          >
+            <Settings2 size={17} />
+            配置
+          </button>
         </div>
         <div className="sidebar-bottom">
           <span className="connection-dot connected" />
@@ -385,15 +482,35 @@ export default function App() {
         <header className="topbar">
           <div className="breadcrumbs">
             <a href="#/projects">{configuration ? "工作区" : "项目"}</a>
-            {configuration && <><ChevronRight size={13} /><span>配置</span><ChevronRight size={13} /><span>{configurationSection === "models" ? "模型设置" : "数据存储"}</span></>}
+            {configuration && (
+              <>
+                <ChevronRight size={13} />
+                <span>配置</span>
+                <ChevronRight size={13} />
+                <span>
+                  {configurationSection === "models" ? "模型设置" : "数据存储"}
+                </span>
+              </>
+            )}
             {route.project && (
               <>
                 <ChevronRight size={13} />
                 <a
-                  href={routeHash({ project: route.project, view: limitedTasks ? "sources" : "overview" })}
+                  href={routeHash({
+                    project: route.project,
+                    view: limitedTasks ? "sources" : "overview",
+                  })}
                 >
                   {project?.name || "…"}
                 </a>
+              </>
+            )}
+            {route.project && !route.task && (
+              <>
+                <ChevronRight size={13} />
+                <span>
+                  {navItems.find((item) => item.id === route.view)?.label}
+                </span>
               </>
             )}
             {route.task && (
@@ -417,12 +534,14 @@ export default function App() {
             </button>
           </div>
         </header>
-        <main>
+        <main id="workspace-content" tabIndex={-1}>
           {(error ||
             directory.error ||
             snapshots.error ||
             tasks.error ||
-            findings.error) && (
+            findings.error ||
+            analysisRuns.error ||
+            reportCount.error) && (
             <Failure
               message={
                 error ||
@@ -430,6 +549,8 @@ export default function App() {
                 snapshots.error ||
                 tasks.error ||
                 findings.error ||
+                analysisRuns.error ||
+                reportCount.error ||
                 ""
               }
             />
@@ -450,8 +571,13 @@ export default function App() {
             </div>
           )}
           {configuration ? (
-            <Configuration api={api} identity={identity} section={configurationSection}
-              onSection={(section) => navigate({ view: "configuration", section })}
+            <Configuration
+              api={api}
+              identity={identity}
+              section={configurationSection}
+              onSection={(section) =>
+                navigate({ view: "configuration", section })
+              }
               onSaved={async () => {
                 setIdentity(await api.get<Identity>("/me"));
                 refresh((n) => n + 1);
@@ -465,9 +591,16 @@ export default function App() {
               loading={directory.loading}
               canWrite={canWrite}
               limitedTasks={limitedTasks}
-              selectionLabel={route.selecting ? navItems.find((item) => item.id === route.view)?.label : undefined}
-              onCreate={() => { setCreationTarget(route.selecting ? route.view : undefined); setDialog("project"); }}
-              onOpen={(id) => navigate({ project: id, view: route.selecting ? route.view : limitedTasks ? "sources" : "tasks" })}
+              selectionLabel={
+                route.selecting
+                  ? navItems.find((item) => item.id === route.view)?.label
+                  : undefined
+              }
+              onCreate={() => {
+                setCreationTarget(route.selecting ? route.view : undefined);
+                setDialog("project");
+              }}
+              onOpen={(id) => navigate(projectDestination(id, route))}
             />
           ) : directory.loading && !project ? (
             <Loading />
@@ -476,7 +609,22 @@ export default function App() {
               返回项目列表选择一个可用项目。
             </EmptyState>
           ) : !availableView(route.view) ? (
-            <EmptyState title="当前存储模式尚未接线此功能" action={<button className="button secondary" onClick={() => navigate({ project: project.id, view: "sources" })}>查看代码源</button>}>PostgreSQL 当前支持项目、快照、产物、直接插件分析和共享图谱。任务、工作流、发现分级和报告将在后续版本接通。</EmptyState>
+            <EmptyState
+              title="当前存储模式尚未接线此功能"
+              action={
+                <button
+                  className="button secondary"
+                  onClick={() =>
+                    navigate({ project: project.id, view: "sources" })
+                  }
+                >
+                  查看代码源
+                </button>
+              }
+            >
+              PostgreSQL
+              当前支持项目、快照、产物、直接插件分析和共享图谱。任务、工作流、发现分级和报告将在后续版本接通。
+            </EmptyState>
           ) : route.task && !tasks.loading && tasks.data && !task ? (
             <EmptyState title="任务不属于当前项目">
               返回项目任务列表选择一个可用任务。
@@ -493,7 +641,9 @@ export default function App() {
               action={action}
               onPath={setInspectPath}
               onFinding={setInspectFinding}
-              onBack={() => navigate({ project: project.id, view: "tasks" })}
+              onBack={() =>
+                navigate({ project: project.id, view: "assistant" })
+              }
               onTab={(view) => navigate({ ...route, view })}
             />
           ) : (
@@ -505,56 +655,73 @@ export default function App() {
                     {route.view === "overview"
                       ? project.name
                       : navItems.find((n) => n.id === route.view)?.label ||
-                        "挖掘任务"}
+                        "项目总览"}
                   </h1>
                   <p>
                     {route.view === "tasks"
                       ? "为每一次挖掘设定目标，复用项目已积累的知识。"
                       : route.view === "workflows"
                         ? "编辑插件流程，保存不可变版本，编译固定输入与知识版本的计划。"
-                        : route.view === "knowledge"
-                          ? "项目级代码事实与攻击面，供所有任务共同查询。"
-                          : route.view === "artifacts"
-                            ? "查看固定快照的输入产物、内容摘要和来源，核对后下载。"
-                            : route.view === "reports"
-                              ? "按所选快照固定真实发现、证据与来源，保存可复核的报告。"
-                            : route.view === "findings"
-                              ? "汇总任务发现，按证据结论与漏洞严重度查看。"
-                              : route.view === "assistant"
-                                ? "用自然语言提问；助手自主决定直接回答、先澄清，或查询真实图谱与源码。"
-                                : route.view === "sources"
-                                ? projectInputState(projectInput) !== "legacy"
-                                  ? "一份源码对应一次审计；输入就绪后不再提供更新代码入口。"
-                                  : limitedTasks ? "管理文件夹与 Git 仓库，固定源码版本并校验产物。" : "管理文件夹与 Git 仓库，固定源码版本，再选择代码基线创建任务。"
-                                : route.view === "overview"
-                                  ? project.description || "一份源码 · 一次审计。"
-                                  : project.source || "项目代码源独立管理。"}
+                        : route.view === "paths"
+                          ? "查看筛选依据，选择高价值路径并交给 Agent 审查。"
+                          : route.view === "knowledge"
+                            ? "项目级代码事实与攻击面，供所有任务共同查询。"
+                            : route.view === "artifacts"
+                              ? "查看固定快照的输入产物、内容摘要和来源，核对后下载。"
+                              : route.view === "reports"
+                                ? "按所选快照固定真实发现、证据与来源，保存可复核的报告。"
+                                : route.view === "findings"
+                                  ? "汇总任务发现，按证据结论与漏洞严重度查看。"
+                                  : route.view === "assistant"
+                                    ? "与主 Agent 对话，查看路径审查的执行情况，随时进入任务介入。"
+                                    : route.view === "sources"
+                                      ? projectInputState(projectInput) !==
+                                        "legacy"
+                                        ? "一份源码对应一次审计；输入就绪后不再提供更新代码入口。"
+                                        : limitedTasks
+                                          ? "管理文件夹与 Git 仓库，固定源码版本并校验产物。"
+                                          : "管理文件夹与 Git 仓库，固定源码版本，再选择代码基线创建任务。"
+                                      : route.view === "overview"
+                                        ? project.description ||
+                                          "一份源码 · 一次审计。"
+                                        : project.source ||
+                                          (route.view === "plugins" ? "按阶段管理工具、固定版本与执行能力。" : "项目代码源独立管理。")}
                   </p>
                 </div>
                 <div className="heading-actions">
+                  {!limitedTasks && ["overview", "tasks", "assistant", "paths"].includes(route.view) && (
+                    <ProjectPathStop api={api} projectID={project.id} disabled={!canWrite} onChanged={() => refresh((n) => n + 1)} />
+                  )}
                   {project.source &&
                     route.view !== "sources" &&
                     projectInputState(projectInput) === "legacy" && (
+                      <button
+                        className="button secondary"
+                        disabled={!canWrite || !!busy}
+                        onClick={() => setDialog("snapshot")}
+                      >
+                        <GitBranch size={15} />
+                        更新代码版本
+                      </button>
+                    )}
+                  {route.view === "tasks" && (
                     <button
-                      className="button secondary"
-                      disabled={!canWrite || !!busy}
-                      onClick={() => setDialog("snapshot")}
+                      className="button primary"
+                      disabled={
+                        !canWrite ||
+                        !!busy ||
+                        !snapshots.data?.length ||
+                        limitedTasks
+                      }
+                      onClick={() => {
+                        setTaskSnapshot(undefined);
+                        setDialog("task");
+                      }}
                     >
-                      <GitBranch size={15} />
-                      更新代码版本
+                      <Plus size={16} />
+                      新建任务
                     </button>
                   )}
-                  <button
-                    className="button primary"
-                    disabled={!canWrite || !!busy || !snapshots.data?.length || limitedTasks}
-                    onClick={() => {
-                      setTaskSnapshot(undefined);
-                      setDialog("task");
-                    }}
-                  >
-                    <Plus size={16} />
-                    新建任务
-                  </button>
                 </div>
               </div>
               {route.view === "sources" ? (
@@ -596,6 +763,23 @@ export default function App() {
                   api={api}
                   projectID={project.id}
                   canWrite={canWrite}
+                  projectName={project.name}
+                  tasks={tasks.data?.tasks || []}
+                  revision={revision}
+                  onTask={(taskID) =>
+                    navigate({
+                      project: project.id,
+                      task: taskID,
+                      view: "overview",
+                    })
+                  }
+                  onNavigate={(view) =>
+                    navigate(
+                      view === "configuration"
+                        ? { view: "configuration", section: "models" }
+                        : { project: project.id, view },
+                    )
+                  }
                 />
               ) : route.view === "plugins" ? (
                 <Plugins
@@ -607,6 +791,8 @@ export default function App() {
                   canWrite={canWrite}
                   canRegister={identity.role === "admin"}
                   onKnowledge={() => navigate({ project: project.id, view: "knowledge" })}
+                  onWorkflow={() => navigate({ project: project.id, view: "workflows" })}
+                  onReports={() => navigate({ project: project.id, view: "reports" })}
                   onArtifacts={(snapshot) =>
                     navigate({
                       project: project.id,
@@ -625,15 +811,24 @@ export default function App() {
                   revision={revision}
                   canWrite={canWrite}
                 />
-              ) : route.view === "knowledge" ? (
+              ) : route.view === "knowledge" || route.view === "paths" ? (
                 <Knowledge
-                  key={project.id}
+                  key={`${project.id}:${route.view}`}
                   api={api}
                   projectID={project.id}
                   snapshots={snapshots.data || []}
                   revision={revision}
                   canWrite={canWrite}
                   agentAvailable={!!identity.features.agent}
+                  mode={route.view === "paths" ? "paths" : "graph"}
+                  onWorkbench={(selectionID?: string) => {
+                    if (selectionID)
+                      sessionStorage.setItem(
+                        `codexploit:active-subtask:${project.id}`,
+                        selectionID,
+                      );
+                    navigate({ project: project.id, view: "assistant" });
+                  }}
                 />
               ) : route.view === "reports" ? (
                 <Reports
@@ -667,11 +862,26 @@ export default function App() {
                       input={projectInput}
                       snapshots={snapshots.data || []}
                       taskCount={tasks.data?.total || 0}
+                      tasks={tasks.data?.tasks || []}
+                      onTask={(id) =>
+                        navigate({
+                          project: project.id,
+                          task: id,
+                          view: "overview",
+                        })
+                      }
                       findingCount={Object.values(
                         findings.data?.counts || {},
-                      ).reduce<number>((sum, value) => sum + (Number(value) || 0), 0)}
-                      reportCount={reportCount.data || 0}
+                      ).reduce<number>(
+                        (sum, value) => sum + (Number(value) || 0),
+                        0,
+                      )}
+                      reportCount={
+                        reportCount.error ? undefined : reportCount.data
+                      }
                       runs={analysisRuns.data || []}
+                      engine={analysisEngine.data}
+                      engineError={analysisEngine.error}
                       agentAvailable={!!identity?.features.agent}
                       canWrite={canWrite}
                       busy={!!busy}
@@ -697,13 +907,19 @@ export default function App() {
                       onCancelAnalysis={() => {
                         const current = analysisRuns.data?.find(
                           (run) =>
-                            !["SUCCEEDED", "PARTIAL", "FAILED", "CANCELLED"].includes(
-                              run.state,
-                            ),
+                            ![
+                              "SUCCEEDED",
+                              "PARTIAL",
+                              "FAILED",
+                              "CANCELLED",
+                            ].includes(run.state),
                         );
                         if (current) {
                           void action("停止分析", () =>
-                            api.cancelAnalysisRun(project.id, current.analysis_run_id),
+                            api.cancelAnalysisRun(
+                              project.id,
+                              current.analysis_run_id,
+                            ),
                           );
                         }
                       }}
@@ -715,28 +931,30 @@ export default function App() {
                       tasks={tasks.data?.total || 0}
                     />
                   )}
-                  <ProjectTasks
-                    key={project.id}
-                    api={api}
-                    projectID={project.id}
-                    revision={revision}
-                    onChanged={() => refresh((n) => n + 1)}
-                    findings={findings.data?.findings || []}
-                    partial={
-                      !!findings.data?.truncated ||
-                      (findings.data?.total || 0) >
-                        (findings.data?.findings.length || 0)
-                    }
-                    onOpen={(id) =>
-                      navigate({
-                        project: project.id,
-                        task: id,
-                        view: "overview",
-                      })
-                    }
-                    onCreate={() => setDialog("task")}
-                    canWrite={canWrite && !!snapshots.data?.length}
-                  />
+                  {route.view !== "overview" && (
+                    <ProjectTasks
+                      key={project.id}
+                      api={api}
+                      projectID={project.id}
+                      revision={revision}
+                      onChanged={() => refresh((n) => n + 1)}
+                      findings={findings.data?.findings || []}
+                      partial={
+                        !!findings.data?.truncated ||
+                        (findings.data?.total || 0) >
+                          (findings.data?.findings.length || 0)
+                      }
+                      onOpen={(id) =>
+                        navigate({
+                          project: project.id,
+                          task: id,
+                          view: "overview",
+                        })
+                      }
+                      onCreate={() => setDialog("task")}
+                      canWrite={canWrite && !!snapshots.data?.length}
+                    />
+                  )}
                   {projectInputState(projectInput) === "legacy" &&
                     !snapshots.data?.length &&
                     !snapshots.loading && (
@@ -778,7 +996,7 @@ export default function App() {
                 setDialog("");
                 navigate({
                   project: created.project.id,
-                  view: creationTarget || (limitedTasks ? "sources" : "tasks"),
+                  view: creationTarget || "overview",
                 });
                 return;
               }
@@ -858,7 +1076,10 @@ export default function App() {
               }
               refresh((n) => n + 1);
               setDialog("");
-              navigate({ project: projectID, view: creationTarget || "overview" });
+              navigate({
+                project: projectID,
+                view: creationTarget || "overview",
+              });
             })
           }
         />
@@ -889,6 +1110,8 @@ export default function App() {
       >
         {project && (
           <ProjectDeleteForm
+            api={api}
+            onChanged={() => refresh((n) => n + 1)}
             project={project}
             input={projectInput}
             busy={!!busy}
@@ -1235,8 +1458,16 @@ function Projects({
       <div className="page-heading">
         <div>
           <div className="eyebrow">VULNERABILITY RESEARCH</div>
-          <h1>{selectionLabel ? `选择项目 · ${selectionLabel}` : "挖掘，从项目开始。"}</h1>
-          <p>{selectionLabel ? `选择或创建项目后进入${selectionLabel}。` : "集中管理代码仓库，为每次探索保留完整上下文。"}</p>
+          <h1>
+            {selectionLabel
+              ? `选择项目 · ${selectionLabel}`
+              : "挖掘，从项目开始。"}
+          </h1>
+          <p>
+            {selectionLabel
+              ? `选择或创建项目后进入${selectionLabel}。`
+              : "集中管理代码仓库，为每次探索保留完整上下文。"}
+          </p>
         </div>
         <button
           className="button primary"
@@ -1263,7 +1494,7 @@ function Projects({
         <Loading />
       ) : !selected.length ? (
         <EmptyState
-          title={query ? "没有匹配的项目" : "建立第一个挖掘项目"}
+          title={query ? "没有匹配的项目" : "创建第一个审计项目"}
           action={
             !query && (
               <button
@@ -1277,7 +1508,9 @@ function Projects({
             )
           }
         >
-          {limitedTasks ? "导入文件夹或 Git 定义，固定源码快照并保存产物目录。" : "导入仓库后，建立共享图谱，再按目标创建挖掘任务。"}
+          {limitedTasks
+            ? "导入文件夹或 Git 定义，固定源码快照并保存产物目录。"
+            : "导入一份源码，在项目总览开始图谱化分析，再选择路径审查。"}
         </EmptyState>
       ) : (
         <div className="project-grid">
@@ -1345,14 +1578,20 @@ function ProjectCard({
         {project.source || input?.source_name || "一份源码 · 一次审计"}
       </p>
       <div className="project-card-stats">
-        <span>{limitedTasks ? "知识模式 · 任务执行尚未接线" : `${summary.data?.tasks ?? "—"} 个任务`}</span>
-        {!limitedTasks && <div className="grade-counts">
-          {(["high", "medium", "low"] as Grade[]).map((grade) => (
-            <span title={gradeNames[grade]} className={grade} key={grade}>
-              {summary.data?.findings.counts[grade] ?? "—"}
-            </span>
-          ))}
-        </div>}
+        <span>
+          {limitedTasks
+            ? "知识模式 · 任务执行尚未接线"
+            : `${summary.data?.tasks ?? "—"} 个任务`}
+        </span>
+        {!limitedTasks && (
+          <div className="grade-counts">
+            {(["high", "medium", "low"] as Grade[]).map((grade) => (
+              <span title={gradeNames[grade]} className={grade} key={grade}>
+                {summary.data?.findings.counts[grade] ?? "—"}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
       {summary.error && (
         <small className="muted">统计读取失败，进入项目后可重试</small>
@@ -1423,7 +1662,10 @@ function BudgetPanel({
   canWrite: boolean;
   onChanged: () => void;
 }) {
-  const budget = useResource((signal) => api.taskBudget(projectID, taskID, signal), [api, projectID, taskID]);
+  const budget = useResource(
+    (signal) => api.taskBudget(projectID, taskID, signal),
+    [api, projectID, taskID],
+  );
   const [tokens, setTokens] = useState("5000");
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1436,7 +1678,12 @@ function BudgetPanel({
     setBusy(true);
     setError("");
     try {
-      await api.grantBudget(projectID, taskID, { tokens: Number(tokens), reason, decision, expected_version: ledger.version });
+      await api.grantBudget(projectID, taskID, {
+        tokens: Number(tokens),
+        reason,
+        decision,
+        expected_version: ledger.version,
+      });
       setReason("");
       onChanged();
     } catch (caught) {
@@ -1446,7 +1693,14 @@ function BudgetPanel({
     }
   };
   return (
-    <Panel title="审计预算" action={<span className="subtle-label">上限 {countFormat.format(ledger.limit_tokens)} tokens</span>}>
+    <Panel
+      title="审计预算"
+      action={
+        <span className="subtle-label">
+          上限 {countFormat.format(ledger.limit_tokens)} tokens
+        </span>
+      }
+    >
       <div className="metrics">
         <div className="metric">
           <span className="subtle-label">已用</span>
@@ -1458,14 +1712,24 @@ function BudgetPanel({
         </div>
         <div className="metric">
           <span className="subtle-label">剩余</span>
-          <strong>{countFormat.format(Math.max(0, ledger.limit_tokens - ledger.used_tokens - ledger.reserved_tokens))}</strong>
+          <strong>
+            {countFormat.format(
+              Math.max(
+                0,
+                ledger.limit_tokens -
+                  ledger.used_tokens -
+                  ledger.reserved_tokens,
+              ),
+            )}
+          </strong>
         </div>
       </div>
       {grants.length > 0 && (
         <ul className="plain-list">
           {grants.map((item) => (
             <li key={item.grant_id}>
-              {item.decision === "approved" ? "批准" : "拒绝"} {countFormat.format(item.tokens)} tokens · {item.reason}
+              {item.decision === "approved" ? "批准" : "拒绝"}{" "}
+              {countFormat.format(item.tokens)} tokens · {item.reason}
               <span className="subtle-label"> {item.requested_by}</span>
             </li>
           ))}
@@ -1473,18 +1737,39 @@ function BudgetPanel({
       )}
       {canWrite && (
         <div className="inline-form">
-          <input value={tokens} onChange={(event) => setTokens(event.target.value)} inputMode="numeric" aria-label="追加额度" />
-          <input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="追加理由（必填）" aria-label="追加理由" />
-          <button className="button secondary" disabled={busy || !reason.trim()} onClick={() => void grant("approved")}>
+          <input
+            value={tokens}
+            onChange={(event) => setTokens(event.target.value)}
+            inputMode="numeric"
+            aria-label="追加额度"
+          />
+          <input
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            placeholder="追加理由（必填）"
+            aria-label="追加理由"
+          />
+          <button
+            className="button secondary"
+            disabled={busy || !reason.trim()}
+            onClick={() => void grant("approved")}
+          >
             批准额度
           </button>
-          <button className="button secondary" disabled={busy || !reason.trim()} onClick={() => void grant("rejected")}>
+          <button
+            className="button secondary"
+            disabled={busy || !reason.trim()}
+            onClick={() => void grant("rejected")}
+          >
             拒绝
           </button>
         </div>
       )}
       {error && <Hint>{error}</Hint>}
-      <Hint>批准只提高审计总额；每次模型请求前仍会按输入上界与输出上限原子预留，reader 只能查看。</Hint>
+      <Hint>
+        批准只提高审计总额；每次模型请求前仍会按输入上界与输出上限原子预留，reader
+        只能查看。
+      </Hint>
     </Panel>
   );
 }
@@ -1563,10 +1848,10 @@ function TaskWorkbench({
   if (!current && task.loading) return <Loading />;
   if (task.error) return <Failure message={task.error} />;
   if (!current) return null;
-  const stage =
-    identity.features.agent
-      ? liveStage(current, runs.data?.runs || [], paths.data?.paths || [])
-      : undefined;
+  const schedulingControl = taskSchedulingControl(current);
+  const stage = identity.features.agent
+    ? liveStage(current, runs.data?.runs || [], paths.data?.paths || [])
+    : undefined;
   const resumeRun = (runID: string) => {
     const project = route.project;
     if (!project) return;
@@ -1589,7 +1874,7 @@ function TaskWorkbench({
     <>
       <button className="back-link" onClick={onBack}>
         <ArrowLeft size={14} />
-        项目任务列表
+        返回 Agent 工作台
       </button>
       <div className="page-heading task-heading">
         <div>
@@ -1631,18 +1916,18 @@ function TaskWorkbench({
           </div>
         </div>
         <div className="heading-actions">
+          {route.project && <ProjectPathStop api={api} projectID={route.project} disabled={!canWrite} onChanged={() => setTick((n) => n + 1)} />}
           <button
             className="button secondary"
             disabled={
               !canWrite ||
               !!busy ||
-              current.archived ||
-              ["CREATED", "RUNNING"].includes(current.workflow_status || "")
+              !schedulingControl.enabled
             }
             onClick={changeScheduling}
           >
-            {current.paused ? <Play size={15} /> : <Pause size={15} />}
-            {current.paused ? "恢复调度" : "暂停调度"}
+            {schedulingControl.state === "complete" ? <Check size={15} /> : schedulingControl.state === "stopped" ? <Square size={15} /> : current.paused ? <Play size={15} /> : <Pause size={15} />}
+            {schedulingControl.label}
           </button>
           <button
             className="button primary"
@@ -1669,7 +1954,8 @@ function TaskWorkbench({
       </div>
       {!identity.features.agent && (
         <Hint>
-          尚未启用分析执行器。可以先查看图谱和审计路径；请在「配置 → 模型设置」启用模型，或联系管理员检查执行器。
+          尚未启用分析执行器。可以先查看图谱和审计路径；请在「配置 →
+          模型设置」启用模型，或联系管理员检查执行器。
         </Hint>
       )}
       {current.archived && (
@@ -1722,7 +2008,13 @@ function TaskWorkbench({
         />
       ) : route.view === "process" ? (
         <>
-          <BudgetPanel api={api} projectID={route.project ?? ""} taskID={route.task ?? ""} canWrite={canWrite} onChanged={() => setTick((n) => n + 1)} />
+          <BudgetPanel
+            api={api}
+            projectID={route.project ?? ""}
+            taskID={route.task ?? ""}
+            canWrite={canWrite}
+            onChanged={() => setTick((n) => n + 1)}
+          />
           <Panel
             title="Agent 运行"
             action={<span className="subtle-label">每 5 秒刷新</span>}
@@ -1752,18 +2044,33 @@ function TaskWorkbench({
                               {" "}
                               {run.pin.runtime}
                               {run.pin.model ? ` · ${run.pin.model}` : ""}
-                              {run.pin.config_version ? ` · 配置 ${shortId(run.pin.config_version)}` : ""}
+                              {run.pin.config_version
+                                ? ` · 配置 ${shortId(run.pin.config_version)}`
+                                : ""}
                             </span>
                           )}
-                          {run.tool_schema_digest && <span className="subtle-label"> 契约 {shortId(run.tool_schema_digest)}</span>}
+                          {run.tool_schema_digest && (
+                            <span className="subtle-label">
+                              {" "}
+                              契约 {shortId(run.tool_schema_digest)}
+                            </span>
+                          )}
                         </td>
                         <td>
                           <Badge status={run.status} />
                         </td>
                         <td>{run.tool_calls}</td>
-                        <td title={run.metrics?.novelty ? `轮次新颖度 ${run.metrics.novelty.join(" / ")}` : undefined}>
+                        <td
+                          title={
+                            run.metrics?.novelty
+                              ? `轮次新颖度 ${run.metrics.novelty.join(" / ")}`
+                              : undefined
+                          }
+                        >
                           {run.metrics?.model_requests ?? "—"}
-                          {run.metrics?.source === "legacy_estimate" && <span className="subtle-label"> 旧估算</span>}
+                          {run.metrics?.source === "legacy_estimate" && (
+                            <span className="subtle-label"> 旧估算</span>
+                          )}
                         </td>
                         <td>{run.metrics?.repairs ?? "—"}</td>
                         <td className="mono">
@@ -1778,15 +2085,17 @@ function TaskWorkbench({
                             查看事件
                             <ChevronRight size={14} />
                           </button>
-                          {run.status === "PAUSED" && canWrite && route.project && (
-                            <button
-                              className="text-button"
-                              disabled={!!busy}
-                              onClick={() => resumeRun(run.run_id)}
-                            >
-                              继续
-                            </button>
-                          )}
+                          {run.status === "PAUSED" &&
+                            canWrite &&
+                            route.project && (
+                              <button
+                                className="text-button"
+                                disabled={!!busy}
+                                onClick={() => resumeRun(run.run_id)}
+                              >
+                                继续
+                              </button>
+                            )}
                         </td>
                       </tr>
                     ))}
@@ -1798,7 +2107,9 @@ function TaskWorkbench({
                 启动一条路径后，可在这里查看工具调用和运行事件。
               </EmptyState>
             )}
-            <Hint>模型请求与修复来自适配器的真实上报；标注“旧估算”的记录只保留了工具交换数，不代表真实轮次。</Hint>
+            <Hint>
+              模型请求与修复来自适配器的真实上报；标注“旧估算”的记录只保留了工具交换数，不代表真实轮次。
+            </Hint>
             <Pager
               page={runPage}
               total={runs.data?.total || 0}
@@ -1890,45 +2201,51 @@ function TaskWorkbench({
               </div>
             </>
           )}
-          {(route.view === "overview" || route.view === "exploration") && current.enhancement && (
-            <Panel title="路径筛选记录" eyebrow="DETERMINISTIC ENHANCEMENT">
-              <p className="panel-copy">
-                已保留 {current.enhancement.selected.length} 条、过滤{" "}
-                {current.enhancement.filtered.length} 条候选路径。筛选与排序只决定审查顺序，
-                不表示被过滤的路径安全，也不提升为漏洞结论。
-              </p>
-              <dl className="enhancement-meta">
-                <dt>评分版本</dt>
-                <dd>{current.enhancement.score_version}</dd>
-                <dt>权重摘要</dt>
-                <dd className="mono">{shortId(current.enhancement.weights_digest)}</dd>
-                <dt>增强来源</dt>
-                <dd className="mono">
-                  {current.enhancement.producer_plugin || "未记录"} ·{" "}
-                  {shortId(current.enhancement.invocation_id || "")}
-                </dd>
-              </dl>
-              {current.enhancement.filtered.length > 0 && (
-                <div className="enhancement-list">
-                  {current.enhancement.filtered.map((filtered) => (
-                    <div key={filtered.path_id}>
-                      <span className="mono">{shortId(filtered.path_id)}</span>
-                      <span>
-                        {filtered.entry_subject} → {filtered.target_subject}
-                      </span>
-                      <span className="enhancement-code">
-                        {filtered.selection.filter_code || "filtered"}
-                      </span>
-                      <small>{filtered.selection.reason}</small>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {current.enhancement.limitations.length > 0 && (
-                <Hint>{current.enhancement.limitations.join(" ")}</Hint>
-              )}
-            </Panel>
-          )}
+          {(route.view === "overview" || route.view === "exploration") &&
+            current.enhancement && (
+              <Panel title="路径筛选记录" eyebrow="DETERMINISTIC ENHANCEMENT">
+                <p className="panel-copy">
+                  已保留 {current.enhancement.selected.length} 条、过滤{" "}
+                  {current.enhancement.filtered.length}{" "}
+                  条候选路径。筛选与排序只决定审查顺序，
+                  不表示被过滤的路径安全，也不提升为漏洞结论。
+                </p>
+                <dl className="enhancement-meta">
+                  <dt>评分版本</dt>
+                  <dd>{current.enhancement.score_version}</dd>
+                  <dt>权重摘要</dt>
+                  <dd className="mono">
+                    {shortId(current.enhancement.weights_digest)}
+                  </dd>
+                  <dt>增强来源</dt>
+                  <dd className="mono">
+                    {current.enhancement.producer_plugin || "未记录"} ·{" "}
+                    {shortId(current.enhancement.invocation_id || "")}
+                  </dd>
+                </dl>
+                {current.enhancement.filtered.length > 0 && (
+                  <div className="enhancement-list">
+                    {current.enhancement.filtered.map((filtered) => (
+                      <div key={filtered.path_id}>
+                        <span className="mono">
+                          {shortId(filtered.path_id)}
+                        </span>
+                        <span>
+                          {filtered.entry_subject} → {filtered.target_subject}
+                        </span>
+                        <span className="enhancement-code">
+                          {filtered.selection.filter_code || "filtered"}
+                        </span>
+                        <small>{filtered.selection.reason}</small>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {current.enhancement.limitations.length > 0 && (
+                  <Hint>{current.enhancement.limitations.join(" ")}</Hint>
+                )}
+              </Panel>
+            )}
           <Panel
             title={
               route.view === "exploration" ? "探索路径" : "待探索的代码路径"
@@ -2310,7 +2627,9 @@ function FindingInspector({
             <dt>级联维度</dt>
             <dd>严重度、确认状态与证据等级相互独立；分级不改变裁定。</dd>
           </dl>
-          <h3>来源观察 <span>{finding.sources.length}</span></h3>
+          <h3>
+            来源观察 <span>{finding.sources.length}</span>
+          </h3>
           {finding.sources.map((source, index) => (
             <details
               className="source-description"
@@ -2491,7 +2810,9 @@ function PathInspector({
           <>
             <dl className="enhancement-meta">
               <dt>选择</dt>
-              <dd>{path.selection.selection === "selected" ? "已保留" : "已过滤"}</dd>
+              <dd>
+                {path.selection.selection === "selected" ? "已保留" : "已过滤"}
+              </dd>
               <dt>原因</dt>
               <dd>{path.selection.reason}</dd>
               <dt>过滤代码</dt>
@@ -2685,9 +3006,19 @@ function ProjectSettings({
           <dt>代码版本</dt>
           <dd>{snapshots.length} 个快照</dd>
           <dt>存储方式</dt>
-          <dd>{identity.features.storage_postgres ? "PostgreSQL · 持久化执行" : identity.features.storage_memory ? "内存 · 进程退出后目录丢失" : "服务端工作区 · SQLite"}</dd>
+          <dd>
+            {identity.features.storage_postgres
+              ? "PostgreSQL · 持久化执行"
+              : identity.features.storage_memory
+                ? "内存 · 进程退出后目录丢失"
+                : "服务端工作区 · SQLite"}
+          </dd>
           <dt>知识共享</dt>
-          <dd>{identity.features.storage_postgres ? "任务、工作流、发现与图谱持久化；共享认证仍待接入" : "项目内共享，任务固定代码版本"}</dd>
+          <dd>
+            {identity.features.storage_postgres
+              ? "任务、工作流、发现与图谱持久化；共享认证仍待接入"
+              : "项目内共享，任务固定代码版本"}
+          </dd>
         </dl>
       </Panel>
       <Panel title="服务能力">
@@ -2793,6 +3124,8 @@ function ProjectDetailsForm({
 }
 
 function ProjectDeleteForm({
+  api,
+  onChanged,
   project,
   input,
   busy,
@@ -2800,6 +3133,8 @@ function ProjectDeleteForm({
   onCancel,
   onConfirm,
 }: {
+  api: ApiClient;
+  onChanged: () => void;
   project: Project;
   input?: ProjectInput;
   busy: boolean;
@@ -2811,7 +3146,8 @@ function ProjectDeleteForm({
   return (
     <div className="delete-project">
       <p>
-        删除「<strong>{project.name}</strong>」及它的源码输入、快照、任务、发现与报告。
+        删除「<strong>{project.name}</strong>
+        」及它的源码输入、快照、任务、发现与报告。
         其他项目共享的对象不会被删除；此操作不可撤销。
       </p>
       <dl>
@@ -2836,10 +3172,21 @@ function ProjectDeleteForm({
         </div>
       )}
       <div className="form-footer">
-        <button type="button" className="button secondary" disabled={busy} onClick={onCancel}>
+        <ProjectPathStop api={api} projectID={project.id} disabled={busy} onChanged={onChanged} />
+        <button
+          type="button"
+          className="button secondary"
+          disabled={busy}
+          onClick={onCancel}
+        >
           取消
         </button>
-        <button type="button" className="button danger" disabled={busy} onClick={onConfirm}>
+        <button
+          type="button"
+          className="button danger"
+          disabled={busy}
+          onClick={onConfirm}
+        >
           {busy ? <Loader2 className="spin" size={16} /> : <Trash2 size={16} />}
           {busy ? "正在删除…" : "删除项目"}
         </button>
@@ -2881,7 +3228,10 @@ function ProjectForm({
   const controller = useRef<AbortController>();
   useEffect(() => () => controller.current?.abort(), []);
   const [error, setError] = useState("");
-  useEffect(() => { setDirectory(undefined); setArchive(undefined); }, [kind]);
+  useEffect(() => {
+    setDirectory(undefined);
+    setArchive(undefined);
+  }, [kind]);
   return (
     <form
       onSubmit={(e) => {
@@ -2894,10 +3244,21 @@ function ProjectForm({
           return;
         }
         if (kind === "uploaded_archive") {
-          if (!archive) { setError("请先选择源码压缩包。"); return; }
-          try { validateArchive(archive); } catch (error) { setError(errorText(error)); return; }
+          if (!archive) {
+            setError("请先选择源码压缩包。");
+            return;
+          }
+          try {
+            validateArchive(archive);
+          } catch (error) {
+            setError(errorText(error));
+            return;
+          }
         }
-        if (kind === "uploaded_directory" && !directory) { setError("请先选择目录并等待文件校验完成。"); return; }
+        if (kind === "uploaded_directory" && !directory) {
+          setError("请先选择目录并等待文件校验完成。");
+          return;
+        }
         setError("");
         controller.current = new AbortController();
         onSubmit({
@@ -2907,112 +3268,146 @@ function ProjectForm({
           ref: String(form.get("ref")),
           kind,
           credentialRef: String(form.get("credential_ref") || ""),
-          file: archive, directory,
-          signal: controller.current.signal, sourceID, projectID, rememberProject,
+          file: archive,
+          directory,
+          signal: controller.current.signal,
+          sourceID,
+          projectID,
+          rememberProject,
         });
       }}
     >
       <fieldset disabled={busy} className="source-fields">
-      <label>
-        项目名称
-        <input
-          required
-          maxLength={100}
-          name="name"
-          onChange={() => { rememberProject(undefined); setSourceID(`src-${crypto.randomUUID()}`); }}
-          placeholder="例如：订单服务漏洞挖掘"
-        />
-      </label>
-      <label>
-        项目说明
-        <textarea
-          name="description"
-          maxLength={2000}
-          rows={2}
-          placeholder="本次审计的目标、边界或关注范围（可选）"
-        />
-      </label>
-      <label>
-        代码源类型
-        <select
-          value={kind}
-          onChange={(event) => {
-            setKind(event.target.value);
-            setError("");
-          }}
-        >
-          <option value="uploaded_archive">本地代码 · 上传压缩包</option>
-          <option value="uploaded_directory">本地代码 · 选择目录上传</option>
-          <option value="git_repository">Git 仓库 · 固定提交</option>
-          <option value="local_folder">高级 · 已登记的只读目录</option>
-        </select>
-      </label>
-      {kind === "uploaded_archive" ? <ArchivePicker onChange={file => { setArchive(file); setSourceID(`src-${crypto.randomUUID()}`); }} /> : kind === "uploaded_directory" ? <DirectoryPicker onChange={next => { setDirectory(next); setSourceID(`src-${crypto.randomUUID()}`); }} /> : <>
-      <label>
-        {kind === "local_folder"
-          ? "容器内代码目录"
-          : kind === "git_repository"
-            ? "Git 仓库 URL"
-            : "代码仓库"}
-        <input
-          required
-          name="source"
-          pattern={
-            kind === "local_folder"
-              ? "/repos/.+"
-              : kind === "git_repository"
-                ? "(https|ssh)://.+"
-                : undefined
-          }
-          placeholder={
-            kind === "local_folder"
-              ? "/repos/service"
-              : network
-                ? "仓库地址或服务端目录"
-                : "服务端可读取的代码目录"
-          }
-        />
-      </label>
-      <small>
-        Docker 中请使用挂载后的容器路径，例如 /repos/service。
-        {network
-          ? "已启用远程 Git 仓库访问。"
-          : "远程 Git 访问需通过 --allow-network 启用。"}
-      </small>
-      </>}
-      {(kind === "git_repository" || kind === "legacy_auto") && (
         <label>
-          代码版本
+          项目名称
           <input
-            name="ref"
-            defaultValue="HEAD"
-            placeholder="分支、标签或 Commit"
+            required
+            maxLength={100}
+            name="name"
+            onChange={() => {
+              rememberProject(undefined);
+              setSourceID(`src-${crypto.randomUUID()}`);
+            }}
+            placeholder="例如：订单服务漏洞挖掘"
           />
         </label>
-      )}
-      {kind === "git_repository" && (
         <label>
-          凭据引用（可选）
-          <input
-            name="credential_ref"
-            maxLength={160}
-            placeholder="已在服务端登记的引用 ID"
+          项目说明
+          <textarea
+            name="description"
+            maxLength={2000}
+            rows={2}
+            placeholder="本次审计的目标、边界或关注范围（可选）"
           />
         </label>
-      )}
-      <Hint>
-        创建时自动保存一份源码和内部快照，不自动构建图谱，也不会启动 Agent。
-        名称与说明之后可编辑；换一份代码请另建项目。
-        {kind === "local_folder" &&
-          "本地目录包含未提交修改；目录内的 .git 不会切换读取方式。"}
-      </Hint>
-      {error && (
-        <div className="error-message" role="alert">
-          {error}
+        <label>
+          代码源类型
+          <select
+            value={kind}
+            onChange={(event) => {
+              setKind(event.target.value);
+              setError("");
+            }}
+          >
+            <option value="uploaded_archive">本地代码 · 上传压缩包</option>
+            <option value="uploaded_directory">本地代码 · 选择目录上传</option>
+            <option value="git_repository">Git 仓库 · 固定提交</option>
+            <option value="local_folder">高级 · 已登记的只读目录</option>
+          </select>
+        </label>
+        {kind === "uploaded_archive" ? (
+          <ArchivePicker
+            onChange={(file) => {
+              setArchive(file);
+              setSourceID(`src-${crypto.randomUUID()}`);
+            }}
+          />
+        ) : kind === "uploaded_directory" ? (
+          <DirectoryPicker
+            onChange={(next) => {
+              setDirectory(next);
+              setSourceID(`src-${crypto.randomUUID()}`);
+            }}
+          />
+        ) : (
+          <>
+            <label>
+              {kind === "local_folder"
+                ? "容器内代码目录"
+                : kind === "git_repository"
+                  ? "Git 仓库 URL"
+                  : "代码仓库"}
+              <input
+                required
+                name="source"
+                pattern={
+                  kind === "local_folder"
+                    ? "/repos/.+"
+                    : kind === "git_repository"
+                      ? "(https|ssh)://.+"
+                      : undefined
+                }
+                placeholder={
+                  kind === "local_folder"
+                    ? "/repos/service"
+                    : network
+                      ? "仓库地址或服务端目录"
+                      : "服务端可读取的代码目录"
+                }
+              />
+            </label>
+            <small>
+              Docker 中请使用挂载后的容器路径，例如 /repos/service。
+              {network
+                ? "已启用远程 Git 仓库访问。"
+                : "远程 Git 访问需通过 --allow-network 启用。"}
+            </small>
+          </>
+        )}
+        {(kind === "git_repository" || kind === "legacy_auto") && (
+          <label>
+            代码版本
+            <input
+              name="ref"
+              defaultValue="HEAD"
+              placeholder="分支、标签或 Commit"
+            />
+          </label>
+        )}
+        {kind === "git_repository" && (
+          <label>
+            凭据引用（可选）
+            <input
+              name="credential_ref"
+              maxLength={160}
+              placeholder="已在服务端登记的引用 ID"
+            />
+          </label>
+        )}
+        <Hint>
+          创建时自动保存一份源码和内部快照，不自动构建图谱，也不会启动 Agent。
+          名称与说明之后可编辑；换一份代码请另建项目。
+          {kind === "local_folder" &&
+            "本地目录包含未提交修改；目录内的 .git 不会切换读取方式。"}
+        </Hint>
+        {error && (
+          <div className="error-message" role="alert">
+            {error}
+          </div>
+        )}
+      </fieldset>
+      {busy && kind.startsWith("uploaded_") && (
+        <div role="status">
+          <progress /> 正在上传、校验并保存审计输入…{" "}
+          <button
+            type="button"
+            className="text-button"
+            onClick={() => controller.current?.abort()}
+          >
+            取消上传
+          </button>
         </div>
       )}
-      </fieldset>
-      {busy && kind.startsWith("uploaded_") && <div role="status"><progress /> 正在上传、校验并保存审计输入… <button type="button" className="text-button" onClick={() => controller.current?.abort()}>取消上传</button></div>}
       <FormFooter busy={busy} label="创建项目并保存源码" />
     </form>
   );
@@ -3075,7 +3470,8 @@ function TaskForm({
   const [planCursors, setPlanCursors] = useState([""]);
   const [selectedPlan, setSelectedPlan] = useState<Plan>();
   const runtimes = useResource(
-    async (signal) => api.get<{ runtimes: RuntimeInfo[] }>("/agent/runtimes", signal),
+    async (signal) =>
+      api.get<{ runtimes: RuntimeInfo[] }>("/agent/runtimes", signal),
     [api],
   );
   const [runtime, setRuntime] = useState("");
@@ -3222,12 +3618,12 @@ function TaskForm({
         </select>
       </label>
       {(runtimes.data?.runtimes || [])
-          .filter((entry) => !entry.ready)
-          .map((entry) => (
-            <Hint key={entry.name}>
-              {entry.name} 当前不可用：{entry.reason || "未就绪"}
-            </Hint>
-          ))}
+        .filter((entry) => !entry.ready)
+        .map((entry) => (
+          <Hint key={entry.name}>
+            {entry.name} 当前不可用：{entry.reason || "未就绪"}
+          </Hint>
+        ))}
       <label>
         执行方式 / 固定计划
         <select

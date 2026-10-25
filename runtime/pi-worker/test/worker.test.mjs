@@ -71,7 +71,7 @@ async function startProvider() {
 		response.end(
 			sse([
 				textChunk(answer),
-				textChunk("", "stop", { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 }),
+				textChunk("", "stop", { prompt_tokens: 100, prompt_tokens_details: { cached_tokens: 80 }, completion_tokens: 20, total_tokens: 120 }),
 			]),
 		);
 	});
@@ -174,6 +174,10 @@ test("the Pi worker requests a tool and proposes the host-accepted answer", asyn
 		assert.equal(status.status, "completed");
 		assert.deepEqual(toolResults, [{ symbol_id: "S1" }]);
 		assert.ok(frames.some((frame) => frame.type === "usage" && frame.input_tokens === 100));
+		const permits = new Set(frames.filter((frame) => frame.type === "request_permit").map((frame) => frame.request_id));
+		for (const usage of frames.filter((frame) => frame.type === "usage")) {
+			assert.ok(permits.has(usage.request_id), "usage must reconcile the exact host-approved request reservation");
+		}
 		const second = provider.requests[1];
 		const toolMessage = second.messages.find((message) => message.role === "tool");
 		assert.ok(toolMessage, "the worker did not send the host tool result back to the provider");

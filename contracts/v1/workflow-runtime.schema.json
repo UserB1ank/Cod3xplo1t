@@ -193,6 +193,21 @@
             "root",
             "node"
           ]
+        },
+        "port": {
+          "type": "string"
+        },
+        "output_port": {
+          "type": "string"
+        },
+        "cardinality": {
+          "enum": [
+            "one",
+            "many"
+          ]
+        },
+        "optional": {
+          "type": "boolean"
         }
       },
       "required": [
@@ -232,7 +247,7 @@
         "timeout_seconds": {
           "type": "integer",
           "minimum": 5,
-          "maximum": 120
+          "maximum": 3600
         },
         "plugin": {
           "$ref": "plugin-runtime.schema.json#/$defs/Record"
@@ -254,6 +269,38 @@
           "items": {
             "type": "string"
           }
+        },
+        "operation_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input_bindings": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "enum": [
+                  "root",
+                  "node"
+                ]
+              },
+              "from": {
+                "type": "string"
+              },
+              "port": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "source",
+              "from"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "operation": {
+          "type": "object"
         }
       },
       "required": [

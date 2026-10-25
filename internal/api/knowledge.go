@@ -309,8 +309,20 @@ func (s *Server) handleKnowledgeSlice(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	startLine, ok := knowledgePageLimit(w, r, "start_line", 0)
+	if !ok {
+		return
+	}
+	endLine, ok := knowledgePageLimit(w, r, "end_line", 0)
+	if !ok {
+		return
+	}
 	page, err := reader.CodeSlice(r.Context(), scope, r.PathValue("viewID"), knowledge.SliceQuery{
 		SymbolID:     r.URL.Query().Get("symbol_id"),
+		File:         r.URL.Query().Get("file"),
+		StartLine:    startLine,
+		EndLine:      endLine,
+		Include:      r.URL.Query().Get("include"),
 		MaxLines:     maxLines,
 		MaxSections:  maxSections,
 		ContextLines: contextLines,

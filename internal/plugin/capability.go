@@ -123,6 +123,9 @@ var knownPluginCapabilities = map[string]Capability{
 // CapabilityForRecord returns the primary capability a record declares. It
 // prefers the deployment registry over the manifest kind when the two differ.
 func CapabilityForRecord(record Record) (Capability, bool) {
+	if record.Manifest.APIVersion == DefinitionVersion && len(record.Manifest.Operations) > 0 {
+		return record.Manifest.Operations[0].Capability, true
+	}
 	if capability, ok := knownPluginCapabilities[record.Manifest.ID]; ok {
 		return capability, true
 	}

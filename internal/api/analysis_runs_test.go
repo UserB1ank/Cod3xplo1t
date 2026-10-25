@@ -71,8 +71,9 @@ func waitAnalysisRun(t *testing.T, env *testEnv, projectID, analysisRunID string
 	}
 }
 
-func TestProjectOneClickAnalysisRunRunsFourStagesWithoutAModel(t *testing.T) {
+func TestLegacyPinnedAnalysisProfileRunsFourStagesWithoutAModel(t *testing.T) {
 	env := newTestEnv(t, false)
+	useLegacyAnalysisFixture(env)
 	projectID := createAnalysisProject(t, env, asgFixtureSource(t))
 	if reader := doAs(t, env.ts, readerSecret, http.MethodPost, "/api/v1/projects/"+projectID+"/analysis-runs", map[string]any{"api_version": "codexploit/v1"}, nil); reader.status != http.StatusForbidden {
 		t.Fatalf("reader start = %d %s", reader.status, reader.body)
@@ -174,6 +175,7 @@ func TestAnalysisRunSurvivesRestartWithItsFixedStageLineage(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := serveTestEnv(t, runtime, false)
+	useLegacyAnalysisFixture(env)
 	projectID := createAnalysisProject(t, env, asgFixtureSource(t))
 	started := do(t, env.ts, http.MethodPost, "/api/v1/projects/"+projectID+"/analysis-runs", map[string]any{
 		"api_version": "codexploit/v1", "idempotency_key": "restart-run",
@@ -230,8 +232,8 @@ func TestAnalysisRunAgentAssistanceRequiresARealConfiguredRuntime(t *testing.T) 
 	defaultRun := do(t, env.ts, http.MethodPost, "/api/v1/projects/"+projectID+"/analysis-runs", map[string]any{
 		"api_version": "codexploit/v1",
 	}, nil)
-	if defaultRun.status != http.StatusCreated {
-		t.Fatalf("default analysis still requires a model: %d %s", defaultRun.status, defaultRun.body)
+	if defaultRun.status != http.StatusServiceUnavailable || !strings.Contains(string(defaultRun.body), "analysis_engine_unavailable") {
+		t.Fatalf("default analysis should require Joern but no model: %d %s", defaultRun.status, defaultRun.body)
 	}
 }
 

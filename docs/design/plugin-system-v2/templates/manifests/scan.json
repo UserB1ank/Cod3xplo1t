@@ -1,0 +1,51 @@
+{
+  "api_version": "codexploit/plugin/v2",
+  "id": "example.scan",
+  "version": "0.1.0",
+  "name": "规则扫描开发模板",
+  "description": "仅为接口声明模板；未提供可执行实现，不可登记为已实测。",
+  "languages": [
+    "Go"
+  ],
+  "runtime": {
+    "kind": "process",
+    "protocol": "codexploit/process-plugin/v2",
+    "entrypoint": "bin/adapter"
+  },
+  "permissions": {
+    "network": "none",
+    "source_write": false,
+    "target_execution": false
+  },
+  "operations": [
+    {
+      "id": "execute",
+      "stage": "scan",
+      "capability": "scan",
+      "profile": "standard",
+      "inputs": [
+        {
+          "name": "source",
+          "kind": "source.snapshot",
+          "schema_id": "codexploit/source-tar/v1",
+          "cardinality": "one",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "alerts",
+          "kind": "scanner.alerts",
+          "schema_id": "codexploit/scanner-alerts/v1",
+          "cardinality": "one",
+          "required": true
+        }
+      ],
+      "config_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      }
+    }
+  ]
+}

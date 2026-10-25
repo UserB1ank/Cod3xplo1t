@@ -1,0 +1,58 @@
+{
+  "api_version": "codexploit/plugin/v2",
+  "id": "example.path-generate",
+  "version": "0.1.0",
+  "name": "候选路径生成开发模板",
+  "description": "仅为接口声明模板；未提供可执行实现，不可登记为已实测。",
+  "languages": [
+    "Go"
+  ],
+  "runtime": {
+    "kind": "process",
+    "protocol": "codexploit/process-plugin/v2",
+    "entrypoint": "bin/adapter"
+  },
+  "permissions": {
+    "network": "none",
+    "source_write": false,
+    "target_execution": false
+  },
+  "operations": [
+    {
+      "id": "execute",
+      "stage": "path.generate",
+      "capability": "path",
+      "profile": "standard",
+      "inputs": [
+        {
+          "name": "code",
+          "kind": "code.facts",
+          "schema_id": "codexploit/code-facts/v2",
+          "cardinality": "one",
+          "required": true
+        },
+        {
+          "name": "security",
+          "kind": "security.facts",
+          "schema_id": "codexploit/security-facts/v2",
+          "cardinality": "one",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "paths",
+          "kind": "discovery.paths",
+          "schema_id": "codexploit/discovery-paths/v2",
+          "cardinality": "one",
+          "required": true
+        }
+      ],
+      "config_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      }
+    }
+  ]
+}

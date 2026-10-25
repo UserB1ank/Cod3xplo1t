@@ -1,0 +1,184 @@
+{
+  "joern_version": "4.0.664",
+  "frontends": [
+    {
+      "id": "C",
+      "name": "C / C++",
+      "module": "c2cpg",
+      "main_class": "io.joern.c2cpg.Main",
+      "extensions": [
+        ".c",
+        ".h",
+        ".cc",
+        ".cpp",
+        ".hpp",
+        ".hh",
+        ".cxx",
+        ".hxx"
+      ],
+      "kind": "source",
+      "arguments": []
+    },
+    {
+      "id": "CSHARPSRC",
+      "name": "C#",
+      "module": "csharpsrc2cpg",
+      "main_class": "io.joern.csharpsrc2cpg.Main",
+      "extensions": [
+        ".cs"
+      ],
+      "kind": "source",
+      "arguments": []
+    },
+    {
+      "id": "GOLANG",
+      "name": "Go",
+      "module": "gosrc2cpg",
+      "main_class": "io.joern.gosrc2cpg.Main",
+      "extensions": [
+        ".go"
+      ],
+      "kind": "source",
+      "arguments": []
+    },
+    {
+      "id": "JAVASRC",
+      "name": "Java",
+      "module": "javasrc2cpg",
+      "main_class": "io.joern.javasrc2cpg.Main",
+      "extensions": [
+        ".java"
+      ],
+      "kind": "source",
+      "arguments": [
+        "--delombok-mode",
+        "no-delombok"
+      ]
+    },
+    {
+      "id": "JAVA",
+      "name": "Java bytecode",
+      "module": "jimple2cpg",
+      "main_class": "io.joern.jimple2cpg.Main",
+      "extensions": [
+        ".class",
+        ".jar",
+        ".war",
+        ".ear",
+        ".apk"
+      ],
+      "kind": "bytecode",
+      "arguments": []
+    },
+    {
+      "id": "JAVASCRIPT",
+      "name": "JavaScript / TypeScript",
+      "module": "jssrc2cpg",
+      "main_class": "io.joern.jssrc2cpg.Main",
+      "extensions": [
+        ".js",
+        ".ts",
+        ".jsx",
+        ".tsx",
+        ".mjs",
+        ".cjs"
+      ],
+      "kind": "source",
+      "arguments": []
+    },
+    {
+      "id": "KOTLIN",
+      "name": "Kotlin",
+      "module": "kotlin2cpg",
+      "main_class": "io.joern.kotlin2cpg.Main",
+      "extensions": [
+        ".kt",
+        ".kts"
+      ],
+      "kind": "source",
+      "arguments": []
+    },
+    {
+      "id": "PHP",
+      "name": "PHP",
+      "module": "php2cpg",
+      "main_class": "io.joern.php2cpg.Main",
+      "extensions": [
+        ".php",
+        ".php3",
+        ".php4",
+        ".php5",
+        ".phtml"
+      ],
+      "kind": "source",
+      "arguments": []
+    },
+    {
+      "id": "PYTHONSRC",
+      "name": "Python",
+      "module": "pysrc2cpg",
+      "main_class": "io.joern.pysrc2cpg.NewMain",
+      "extensions": [
+        ".py"
+      ],
+      "kind": "source",
+      "arguments": []
+    },
+    {
+      "id": "RUBYSRC",
+      "name": "Ruby",
+      "module": "rubysrc2cpg",
+      "main_class": "io.joern.rubysrc2cpg.Main",
+      "extensions": [
+        ".rb"
+      ],
+      "kind": "source",
+      "arguments": []
+    },
+    {
+      "id": "RUST",
+      "name": "Rust",
+      "module": "rust2cpg",
+      "main_class": "io.joern.rust2cpg.Main",
+      "extensions": [
+        ".rs"
+      ],
+      "kind": "source",
+      "arguments": [
+        "--no-sysroot",
+        "--no-resolve-cfg"
+      ]
+    },
+    {
+      "id": "SWIFTSRC",
+      "name": "Swift",
+      "module": "swiftsrc2cpg",
+      "main_class": "io.joern.swiftsrc2cpg.Main",
+      "extensions": [
+        ".swift"
+      ],
+      "kind": "source",
+      "arguments": []
+    },
+    {
+      "id": "ABAP",
+      "name": "ABAP",
+      "module": "abap2cpg",
+      "main_class": "io.joern.abap2cpg.Main",
+      "extensions": [
+        ".abap"
+      ],
+      "kind": "source",
+      "arguments": []
+    },
+    {
+      "id": "GHIDRA",
+      "name": "Binary / Ghidra",
+      "module": "ghidra2cpg",
+      "main_class": "io.joern.ghidra2cpg.Main",
+      "extensions": [],
+      "kind": "binary",
+      "arguments": []
+    }
+  ]
+}

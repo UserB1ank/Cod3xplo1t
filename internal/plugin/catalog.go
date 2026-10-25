@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/cyberphone/json-canonicalization/go/src/webpki.org/jsoncanonicalizer"
 	"github.com/google/jsonschema-go/jsonschema"
 	contracts "github.com/open-mcp-ai/Codexploit/contracts/v1"
 )
@@ -36,7 +37,7 @@ type Manifest struct {
 	Version     string   `json:"version"`
 	Name        string   `json:"name"`
 	Description string   `json:"description"`
-	Kind        string   `json:"kind"`
+	Kind        string   `json:"kind,omitempty"`
 	Languages   []string `json:"languages"`
 	Runtime     struct {
 		Kind       string `json:"kind"`
@@ -45,22 +46,33 @@ type Manifest struct {
 		// advertise the same runtime protocol or the plugin is not executable.
 		Protocol string `json:"protocol,omitempty"`
 	} `json:"runtime"`
-	Consumes    []string `json:"consumes"`
-	Produces    []string `json:"produces"`
+	Consumes    []string `json:"consumes,omitempty"`
+	Produces    []string `json:"produces,omitempty"`
 	Permissions struct {
-		Network     string `json:"network"`
-		SourceWrite bool   `json:"source_write"`
+		Network         string `json:"network"`
+		SourceWrite     bool   `json:"source_write"`
+		TargetExecution *bool  `json:"target_execution,omitempty"`
 	} `json:"permissions"`
-	ConfigSchema json.RawMessage `json:"config_schema"`
+	ConfigSchema json.RawMessage `json:"config_schema,omitempty"`
+	Operations   []Operation     `json:"operations,omitempty"`
+	Tools        []Tool          `json:"tools,omitempty"`
+}
+
+type Tool struct {
+	ID         string `json:"id"`
+	Version    string `json:"version"`
+	Entrypoint string `json:"entrypoint"`
 }
 
 type Record struct {
-	Manifest       Manifest `json:"manifest"`
-	PackageDigest  string   `json:"package_digest"`
-	ManifestDigest string   `json:"manifest_digest"`
-	Source         string   `json:"source"`
-	Installed      bool     `json:"installed"`
-	Executable     bool     `json:"executable"`
+	Stages         []string      `json:"stages,omitempty"`
+	Installation   *Installation `json:"installation,omitempty"`
+	Manifest       Manifest      `json:"manifest"`
+	PackageDigest  string        `json:"package_digest"`
+	ManifestDigest string        `json:"manifest_digest"`
+	Source         string        `json:"source"`
+	Installed      bool          `json:"installed"`
+	Executable     bool          `json:"executable"`
 	// ProtocolVersion is the runtime protocol this host would use. It is pinned
 	// with the rest of the record in a workflow plan.
 	ProtocolVersion string `json:"protocol_version,omitempty"`
@@ -74,11 +86,13 @@ type CatalogRepository interface {
 }
 
 type Catalog struct {
+	WorkerID   string
 	Repository CatalogRepository
 	mu         sync.RWMutex
 	installed  map[string]string
 	executable map[string]bool
 	protocols  map[string]string
+	selected   map[string]string
 }
 
 var manifestSchema = sync.OnceValues(func() (*jsonschema.Resolved, error) {
@@ -117,6 +131,12 @@ func resolveConfig(raw json.RawMessage) (*jsonschema.Resolved, error) {
 // build produced it, and an invocation keeps the digest it actually ran with.
 // An installed process package is a supply-chain artifact and stays strict.
 func RebuiltBuiltin(prior, next Record) bool {
+	if prior.Manifest.APIVersion == DefinitionVersion || next.Manifest.APIVersion == DefinitionVersion {
+		return false
+	}
+	if prior.Manifest.Runtime.Kind != "builtin" || next.Manifest.Runtime.Kind != "builtin" {
+		return false
+	}
 	if prior.ManifestDigest != next.ManifestDigest || prior.PackageDigest == next.PackageDigest {
 		return false
 	}
@@ -127,11 +147,15 @@ func RebuiltBuiltin(prior, next Record) bool {
 }
 
 func (c *Catalog) Register(ctx context.Context, raw json.RawMessage, packageDigest, source string) (Record, error) {
+	jcs, err := jsoncanonicalizer.Transform(raw)
+	if err != nil {
+		return Record{}, ErrInvalid
+	}
 	var value any
 	if err := json.Unmarshal(raw, &value); err != nil {
 		return Record{}, ErrInvalid
 	}
-	schema, err := manifestSchema()
+	schema, err := schemaForManifest(raw)
 	if err != nil {
 		return Record{}, err
 	}
@@ -146,10 +170,10 @@ func (c *Catalog) Register(ctx context.Context, raw json.RawMessage, packageDige
 	if json.Unmarshal(canonical, &manifest) != nil {
 		return Record{}, ErrInvalid
 	}
-	if _, err := resolveConfig(manifest.ConfigSchema); err != nil {
-		return Record{}, err
+	if manifest.APIVersion == DefinitionVersion {
+		canonical = jcs
 	}
-	if err := ValidateManifestContracts(manifest); err != nil {
+	if err := ValidateDefinition(manifest); err != nil {
 		return Record{}, err
 	}
 	if len(packageDigest) != 64 || len(source) == 0 || len(source) > 200 {
@@ -168,12 +192,22 @@ func (c *Catalog) Register(ctx context.Context, raw json.RawMessage, packageDige
 }
 
 func (c *Catalog) availability(record Record) Record {
+	record.Stages = DefinitionStages(record.Manifest)
 	key := record.Manifest.ID + "@" + record.Manifest.Version
-	identity := record.ManifestDigest + ":" + record.PackageDigest
 	c.mu.RLock()
+	if selected := c.selected[key]; selected != "" {
+		record.PackageDigest = selected
+	}
+	identity := record.ManifestDigest + ":" + record.PackageDigest
 	record.Installed = c.installed[key] == identity
 	record.Executable = record.Installed && c.executable[key]
 	record.ProtocolVersion = c.protocols[record.Manifest.Runtime.Kind]
+	if record.Manifest.APIVersion == DefinitionVersion {
+		record.ProtocolVersion = ""
+		if record.Manifest.Runtime.Kind == "process" && (record.Manifest.Runtime.Protocol == FileJobProtocol || record.Manifest.Runtime.Protocol == FileJobProtocolV2 || record.Manifest.Runtime.Protocol == ProcessProtocolV2) {
+			record.ProtocolVersion = record.Manifest.Runtime.Protocol
+		}
+	}
 	c.mu.RUnlock()
 	declared := strings.TrimSpace(record.Manifest.Runtime.Protocol)
 	protocolMismatch := declared != "" && declared != record.ProtocolVersion
@@ -219,7 +253,7 @@ func (c *Catalog) Get(ctx context.Context, id, version string) (Record, error) {
 	if err != nil {
 		return Record{}, err
 	}
-	return c.availability(r), nil
+	return c.installationPolicy(ctx, c.availability(r))
 }
 func (c *Catalog) List(ctx context.Context, cursor string, limit int) ([]Record, error) {
 	if limit < 1 || limit > 100 {
@@ -231,16 +265,29 @@ func (c *Catalog) List(ctx context.Context, cursor string, limit int) ([]Record,
 	}
 	for i := range rows {
 		rows[i] = c.availability(rows[i])
+		rows[i], err = c.installationPolicy(ctx, rows[i])
+		if err != nil {
+			return nil, err
+		}
 	}
 	return rows, nil
 }
 
 func NewCatalog(ctx context.Context, repo CatalogRepository) (*Catalog, error) {
+	return NewCatalogForWorker(ctx, repo, "local")
+}
+
+func NewCatalogForWorker(ctx context.Context, repo CatalogRepository, workerID string) (*Catalog, error) {
+	if workerID == "" {
+		return nil, ErrInvalid
+	}
 	c := &Catalog{
+		WorkerID:   workerID,
 		Repository: repo,
 		installed:  map[string]string{},
 		executable: map[string]bool{},
 		protocols:  defaultRuntimeProtocols(),
+		selected:   map[string]string{},
 	}
 	err := c.install(ctx, BuiltinManifest(), BuiltinPackageDigest(), "compiled builtin")
 	return c, err
@@ -259,10 +306,35 @@ func defaultRuntimeProtocols() map[string]string {
 
 func (c *Catalog) install(ctx context.Context, manifest json.RawMessage, packageDigest, source string) error {
 	record, err := c.Register(ctx, manifest, packageDigest, source)
+	if errors.Is(err, ErrConflict) {
+		var definition Manifest
+		if json.Unmarshal(manifest, &definition) == nil && definition.APIVersion == DefinitionVersion {
+			canonical, canonicalErr := jsoncanonicalizer.Transform(manifest)
+			prior, priorErr := c.Repository.GetPlugin(ctx, definition.ID, definition.Version)
+			if canonicalErr == nil && priorErr == nil && prior.ManifestDigest == digest(canonical) {
+				record = prior
+				err = nil
+			}
+		}
+	}
 	if err != nil {
 		return err
 	}
+	if record.Manifest.APIVersion == DefinitionVersion {
+		record.PackageDigest = packageDigest
+		if err := c.ensureInstallation(ctx, record); err != nil {
+			return err
+		}
+	}
+	if record.Manifest.APIVersion != DefinitionVersion {
+		if err := c.ensureInstallation(ctx, record); err != nil && !errors.Is(err, ErrUnsupported) {
+			return err
+		}
+	}
 	c.mu.Lock()
+	if record.Manifest.APIVersion == DefinitionVersion {
+		c.selected[record.Manifest.ID+"@"+record.Manifest.Version] = packageDigest
+	}
 	c.installed[record.Manifest.ID+"@"+record.Manifest.Version] = record.ManifestDigest + ":" + record.PackageDigest
 	c.executable[record.Manifest.ID+"@"+record.Manifest.Version] = true
 	c.mu.Unlock()
@@ -281,9 +353,16 @@ func (c *Catalog) InstallPackage(ctx context.Context, directory string) (Record,
 	if err != nil {
 		return Record{}, err
 	}
+	if pkg.Manifest.APIVersion == DefinitionVersion {
+		if err := c.ensureInstallation(ctx, record); err != nil {
+			return Record{}, err
+		}
+	}
 	c.mu.Lock()
 	c.installed[record.Manifest.ID+"@"+record.Manifest.Version] = record.ManifestDigest + ":" + record.PackageDigest
-	c.executable[record.Manifest.ID+"@"+record.Manifest.Version] = true
+	if pkg.Manifest.APIVersion != DefinitionVersion {
+		c.executable[record.Manifest.ID+"@"+record.Manifest.Version] = true
+	}
 	c.mu.Unlock()
 	return c.Get(ctx, record.Manifest.ID, record.Manifest.Version)
 }

@@ -113,7 +113,8 @@ func (e *execution) claim(r *Runner, ctx context.Context, workers *sync.WaitGrou
 				continue
 			}
 		}
-		inputs, err := bindNode(e.plan, *e.run, node)
+		inputs, inputPorts, err := bindNode(e.plan, *e.run, node)
+		node.BoundInputPorts = inputPorts
 		if err != nil {
 			nr.Status = "FAILED"
 			nr.ErrorCode = "input_binding"

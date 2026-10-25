@@ -65,8 +65,11 @@ type SliceSection struct {
 	EndLine   int      `json:"end_line"`
 	Lines     []string `json:"lines"`
 	// Truncated reports that the section was cut by MaxLines.
-	Truncated bool   `json:"truncated"`
-	Note      string `json:"note,omitempty"`
+	Truncated bool `json:"truncated"`
+	// TotalLines is the number of lines in the file, independent of this window.
+	// It lets the reader continue without guessing whether more source exists.
+	TotalLines int64  `json:"total_lines"`
+	Note       string `json:"note,omitempty"`
 }
 
 // CodeSlice is the answer of a slice request.
@@ -153,14 +156,23 @@ func (s *Service) Slice(ctx context.Context, snapshotID string, req SliceRequest
 			return nil
 		}
 		seen[key] = true
+		requestedEnd := end
+		if total > 0 && requestedEnd > int(total) {
+			requestedEnd = int(total)
+		}
+		requested := requestedEnd - start + 1
+		if requested < 0 {
+			requested = 0
+		}
 		section := SliceSection{
-			Reason:    reason,
-			File:      file,
-			StartLine: start,
-			EndLine:   start + len(lines) - 1,
-			Lines:     lines,
-			Truncated: int64(len(lines)) < total,
-			Note:      note,
+			Reason:     reason,
+			File:       file,
+			StartLine:  start,
+			EndLine:    start + len(lines) - 1,
+			Lines:      lines,
+			Truncated:  len(lines) < requested,
+			TotalLines: total,
+			Note:       note,
 		}
 		if sym != nil {
 			section.SymbolID = sym.ID
@@ -177,8 +189,8 @@ func (s *Service) Slice(ctx context.Context, snapshotID string, req SliceRequest
 			return nil, mapStoreError(serr, snapshotID)
 		}
 		out.Root = sym
-		if err := addSection(SectionDeclaration, &sym, sym.File, sym.StartLine, sym.EndLine,
-			"declaration as recorded in the graph"); err != nil {
+		start, end, note := declarationWindow(sym, maxLines, contextLines)
+		if err := addSection(SectionDeclaration, &sym, sym.File, start, end, note); err != nil {
 			return nil, err
 		}
 		if include == "callers" || include == "neighbors" {
@@ -226,6 +238,18 @@ func (s *Service) Slice(ctx context.Context, snapshotID string, req SliceRequest
 		return out.Sections[i].StartLine < out.Sections[j].StartLine
 	})
 	return out, nil
+}
+
+// declarationWindow decides which source window represents a declaration. A
+// parser may record only the declaration line; the reader then gets a bounded
+// window from that line and an explicit note instead of a fake function end.
+func declarationWindow(sym scg.Symbol, maxLines, contextLines int) (int, int, string) {
+	start, end := sym.StartLine, sym.EndLine
+	if end > start {
+		return start, end, "declaration as recorded in the graph"
+	}
+	start = max(1, start-contextLines)
+	return start, start + maxLines - 1, "function end was not recorded; reading a bounded window from the declaration"
 }
 
 // addCallerSections adds the call sites that reach a symbol.
@@ -297,7 +321,7 @@ func (s *Service) treeDir(snapshotID string) (string, error) {
 }
 
 // readLines reads lines [start, end] (1-based, inclusive) from a tree file,
-// returning at most maxLines lines and the number of lines the window covers.
+// returning at most maxLines lines and the file's total line count.
 func readLines(treeDir, file string, start, end, maxLines int) ([]string, int64, error) {
 	clean := filepath.Clean(filepath.FromSlash(file))
 	if strings.HasPrefix(clean, "..") || filepath.IsAbs(clean) {
@@ -335,9 +359,8 @@ func readLines(treeDir, file string, start, end, maxLines int) ([]string, int64,
 		end = len(all)
 	}
 	window := all[start-1 : end]
-	truncated := int64(len(window))
 	if len(window) > maxLines {
 		window = window[:maxLines]
 	}
-	return window, truncated, nil
+	return window, total, nil
 }

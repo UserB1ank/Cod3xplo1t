@@ -137,6 +137,13 @@ func (f *AgentFacts) CodeSlice(ctx context.Context, req agent.SliceRequest) ([]a
 	usedLines := 0
 	var skipped []string
 
+	include := SectionDeclaration
+	// Joern can omit method end positions. Its recorded call-site windows
+	// provide actual source context without guessing a function's range or
+	// invoking another parser, within the same section and line budgets.
+	if summary, err := f.Graph.Summary(ctx, req.SnapshotID); err == nil && summary.Engine.Name == "codexploit.joern" {
+		include = "calls"
+	}
 	for _, raw := range req.SymbolIDs {
 		if len(out) >= maxSections || usedLines >= maxLines {
 			break
@@ -149,13 +156,11 @@ func (f *AgentFacts) CodeSlice(ctx context.Context, req agent.SliceRequest) ([]a
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		// The task's slice is the declarations of the path's symbols, and nothing
-		// more: caller and call-site windows would spend the section budget on
-		// context the agent can request explicitly with the get_code_slice tool,
-		// whose bounds it can see and choose.
+		// Legacy parsers retain their declaration-only slice policy. Joern
+		// also contributes observed call-site windows when ranges are absent.
 		slice, err := f.Graph.Slice(ctx, req.SnapshotID, SliceRequest{
 			SymbolID:    id,
-			Include:     SectionDeclaration,
+			Include:     include,
 			MaxLines:    maxLines - usedLines,
 			MaxSections: maxSections - len(out),
 			Options:     Options{},
@@ -264,6 +269,9 @@ func (f *AgentFacts) TaskLimitations(ctx context.Context, snapshotID string) ([]
 		out = append(out, "the call-graph summary could not be read ("+capRunes(err.Error(), maxSkipNoteChars)+
 			"); the resolution mix behind this task is unknown")
 	} else {
+		if summary.Engine.Name == "codexploit.joern" {
+			out[0] = "Joern paths carry static data-flow support from a pinned CPG; source trust, external-method semantics, controls and runtime exploitability require review"
+		}
 		out = append(out, resolutionLimitation(summary.Resolution))
 	}
 
@@ -431,6 +439,8 @@ func (f *AgentFacts) BuildTask(ctx context.Context, p path.Path, policy agent.Ex
 		return agent.Task{}, fmt.Errorf("graph: collect the limitations of path %s: %w", p.ID, err)
 	}
 
+	limitations = boundLimitations(append(limitations, p.Limitations...))
+
 	task := agent.Task{
 		SchemaVersion:       agent.SchemaVersionObligations,
 		SnapshotID:          p.SnapshotID,
@@ -520,6 +530,9 @@ func securityGoal(p path.Path) string {
 // ids. Every id has a subject fallback, so the sentence never contains an empty
 // slot.
 func pathSummary(p path.Path) string {
+	if p.PathKind == "data_flow" {
+		return fmt.Sprintf("Joern static data-flow candidate from %s to %s; source trust, controls and exploitability remain unassessed", p.EntrySubject, p.TargetSubject)
+	}
 	boundaries := "none recorded"
 	if len(p.Boundaries) > 0 {
 		boundaries = strings.Join(p.Boundaries, ", ")
@@ -546,6 +559,12 @@ func pathSliceSelectors(p path.Path) (symbols, files []string) {
 		}
 	}
 	for _, step := range p.Steps {
+		// A Joern data-flow candidate has ASG summary hops whose observed
+		// locations are still valid frozen-source selectors. Function ranges
+		// may contain only a declaration when a frontend omits end positions.
+		if file := strings.TrimSpace(step.File); file != "" {
+			files = append(files, file)
+		}
 		if step.Layer != "scg" {
 			continue
 		}
@@ -553,9 +572,6 @@ func pathSliceSelectors(p path.Path) (symbols, files []string) {
 			if strings.HasPrefix(id, "sym-") {
 				symbols = append(symbols, id)
 			}
-		}
-		if file := strings.TrimSpace(step.File); file != "" {
-			files = append(files, file)
 		}
 	}
 	return dedupeStrings(symbols), dedupeStrings(files)
@@ -600,6 +616,10 @@ func (f *AgentFacts) evidenceRefs(ctx context.Context, p path.Path, max int) ([]
 	if err := addEnd(p.TargetNodeID, p.TargetSubject); err != nil {
 		return nil, err
 	}
+	for _, id := range p.EvidenceRefs {
+		add(agent.EvidenceRef{Kind: agent.EvidenceStatic, ID: id, Summary: "Immutable engine input or native static trace artifact"})
+	}
+
 	for _, id := range p.ASGRefs {
 		ref, ok, err := f.asgEvidence(ctx, p.SnapshotID, id)
 		if err != nil {

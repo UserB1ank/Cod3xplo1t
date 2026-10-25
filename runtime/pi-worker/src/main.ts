@@ -240,7 +240,12 @@ async function runAgent(start: StartFrame): Promise<void> {
 		if (permit.decision !== "continue") {
 			throw new Error(`provider request was not permitted: ${String(permit.reason ?? "stop")}`);
 		}
-		currentRequest = requestID;
+		// HostLink assigns the protocol identity used by the host's reservation.
+		// Usage must settle that identity, rather than our local round label.
+		if (typeof permit.reply_to !== "string" || permit.reply_to === "") {
+			throw new Error("provider permit is missing its request identity");
+		}
+		currentRequest = permit.reply_to;
 		return models.streamSimple(requestModel, context as never, options as never);
 	};
 
@@ -256,14 +261,14 @@ async function runAgent(start: StartFrame): Promise<void> {
 		if (event.type !== "message_end" || event.message.role !== "assistant") {
 			return;
 		}
-		const usage = (event.message as { usage?: { input?: number; output?: number } }).usage;
+		const usage = (event.message as { usage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number } }).usage;
 		if (!usage || currentRequest === "") {
 			return;
 		}
 		link.send({
 			type: "usage",
 			request_id: currentRequest,
-			input_tokens: usage.input ?? 0,
+			input_tokens: (usage.input ?? 0) + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0),
 			output_tokens: usage.output ?? 0,
 		});
 	});

@@ -147,6 +147,66 @@ type Runner struct {
 	// MaxAttempts bounds how often a RunAudit call may retry one path when the
 	// path itself carries no limit. MaxRepeatedOutputs comes from the policy.
 	MaxAttempts int
+	controls    *runnerControls
+}
+
+type runnerControls struct {
+	mu    sync.Mutex
+	paths map[string]map[*context.CancelFunc]struct{}
+}
+
+// Runners support zero-value control state in tests and policy-scoped copies in
+// the HTTP API. Initialize the shared pointer before copying; never copy a mutex
+// or give a narrowed request a separate cancellation registry.
+var runnerControlsInit sync.Mutex
+
+func (r *Runner) controlState() *runnerControls {
+	runnerControlsInit.Lock()
+	defer runnerControlsInit.Unlock()
+	if r.controls == nil {
+		r.controls = &runnerControls{paths: map[string]map[*context.CancelFunc]struct{}{}}
+	}
+	return r.controls
+}
+
+func (r *Runner) WithPolicy(policy ExplorationPolicy) *Runner {
+	controls := r.controlState()
+	clone := *r
+	clone.controls = controls
+	clone.Policy = policy
+	return &clone
+}
+
+// CancelPath interrupts local adapters after the caller has durably cancelled
+// the path. Remote workers observe the same cancellation through the path lease.
+// The path record, rather than this process-local signal, fences late results.
+func (r *Runner) CancelPath(pathID string) {
+	controls := r.controlState()
+	controls.mu.Lock()
+	defer controls.mu.Unlock()
+	for cancel := range controls.paths[pathID] {
+		(*cancel)()
+	}
+}
+
+func (r *Runner) trackPath(ctx context.Context, pathID string) (context.Context, func()) {
+	ctx, cancel := context.WithCancel(ctx)
+	controls := r.controlState()
+	controls.mu.Lock()
+	if controls.paths[pathID] == nil {
+		controls.paths[pathID] = map[*context.CancelFunc]struct{}{}
+	}
+	controls.paths[pathID][&cancel] = struct{}{}
+	controls.mu.Unlock()
+	return ctx, func() {
+		cancel()
+		controls.mu.Lock()
+		delete(controls.paths[pathID], &cancel)
+		if len(controls.paths[pathID]) == 0 {
+			delete(controls.paths, pathID)
+		}
+		controls.mu.Unlock()
+	}
 }
 
 // RunOnce claims one path of an audit, runs the adapter over it, decides
@@ -220,6 +280,8 @@ func (r *Runner) RunPath(ctx context.Context, pathID, owner string, ttl time.Dur
 // RunPath differ only in how the path was chosen, so everything from the task
 // build to the settlement lives here, once.
 func (r *Runner) execute(ctx context.Context, auditID string, p *path.Path, owner string, policy ExplorationPolicy, seed *runSeed) (*Run, error) {
+	ctx, untrack := r.trackPath(ctx, p.ID)
+	defer untrack()
 	ctx = path.WithLease(ctx, p.ID, p.LeaseEpoch)
 	// A scheduler claims a path by id and has no audit argument; the runtime
 	// choice lives on the path's audit, so the empty argument must not silently

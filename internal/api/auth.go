@@ -276,6 +276,18 @@ func requiredCapability(method, path string) (Capability, bool) {
 	rest := strings.TrimPrefix(path, "/api/")
 
 	switch {
+	case rest == "v2/plugin-stages" && method == http.MethodGet:
+		return CapRead, true
+	case (rest == "v2/plugins" || strings.HasPrefix(rest, "v2/plugins/")) && method == http.MethodGet:
+		return CapRead, true
+	case rest == "v2/plugins" && method == http.MethodPost:
+		return CapAdmin, true
+	case strings.HasPrefix(rest, "v2/plugins/") && method == http.MethodPost:
+		return CapAdmin, true
+	case (rest == "v2/plugin-installations" || strings.HasPrefix(rest, "v2/plugin-installations/")) && method == http.MethodGet:
+		return CapRead, true
+	case (rest == "v2/plugin-installations" || strings.HasPrefix(rest, "v2/plugin-installations/")) && (method == http.MethodPost || method == http.MethodPatch || method == http.MethodDelete):
+		return CapAdmin, true
 	case rest == "v1/storage/status" && method == http.MethodGet:
 		return CapAdmin, true
 	case rest == "v1/plugins" && method == http.MethodGet:
@@ -293,6 +305,12 @@ func requiredCapability(method, path string) (Capability, bool) {
 		}
 	case strings.HasPrefix(rest, "v1/projects/"):
 		_, action, _ := strings.Cut(strings.TrimPrefix(rest, "v1/projects/"), "/")
+		if action == "stop-paths" && method == http.MethodPost {
+			return CapWrite, true
+		}
+		if action == "stop-paths" && method == http.MethodGet {
+			return CapRead, true
+		}
 		if action == "" && method == http.MethodDelete {
 			return CapWrite, true
 		}
@@ -301,6 +319,9 @@ func requiredCapability(method, path string) (Capability, bool) {
 		}
 		if strings.HasPrefix(action, "imports/") && method == http.MethodPost {
 			return CapWrite, true
+		}
+		if action == "analysis-engine" && method == http.MethodGet {
+			return CapRead, true
 		}
 		if action == "analysis-runs" || strings.HasPrefix(action, "analysis-runs/") {
 			if method == http.MethodGet {

@@ -38,6 +38,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/access"
 	"github.com/open-mcp-ai/Codexploit/internal/agent"
 	"github.com/open-mcp-ai/Codexploit/internal/analysis"
+	"github.com/open-mcp-ai/Codexploit/internal/analysisengine"
 	"github.com/open-mcp-ai/Codexploit/internal/artifact"
 	"github.com/open-mcp-ai/Codexploit/internal/asg"
 	"github.com/open-mcp-ai/Codexploit/internal/findings"
@@ -63,18 +64,20 @@ const maxBodyBytes = 1 << 20
 
 // Server serves the REST API.
 type Server struct {
-	sourceImports    chan struct{}
-	Workflows        *workflow.Catalog
-	WorkflowRunner   *workflow.Runner
-	WorkflowCompiler *workflow.Compiler
-	Supervisor       *supervisor.Service
-	PluginCatalog    *plugin.Catalog
-	Plugins          *plugin.Host
-	snapshots        lifecycle.Snapshots
-	Store            storage.FullStore
-	Manager          *repository.Manager
-	Analyzer         *analysis.Analyzer
-	Artifacts        artifact.Store
+	AnalysisEngine    analysisengine.Provider
+	sourceImports     chan struct{}
+	Workflows         *workflow.Catalog
+	WorkflowRunner    *workflow.Runner
+	WorkflowCompiler  *workflow.Compiler
+	Supervisor        *supervisor.Service
+	PluginCatalog     *plugin.Catalog
+	PluginPackageRoot string
+	Plugins           *plugin.Host
+	snapshots         lifecycle.Snapshots
+	Store             storage.FullStore
+	Manager           *repository.Manager
+	Analyzer          *analysis.Analyzer
+	Artifacts         artifact.Store
 	// Knowledge is the pinned, project-scoped read view over the graph, the
 	// attack surface and the path queue. It is nil when no graph service is
 	// wired, which is what makes every knowledge route answer 501.
@@ -238,6 +241,7 @@ func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/storage/status", s.handleStorageStatus)
 	mux.HandleFunc("POST /api/v1/projects/{projectID}/analysis-runs", s.handleStartAnalysisRun)
+	mux.HandleFunc("GET /api/v1/projects/{projectID}/analysis-engine", s.handleAnalysisEngine)
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/agent-sessions", s.handleListSupervisorSessions)
 	mux.HandleFunc("POST /api/v1/projects/{projectID}/agent-sessions", s.handleCreateSupervisorSession)
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/agent-sessions/{sessionID}", s.handleGetSupervisorSession)
@@ -277,6 +281,17 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/findings/{findingID}", s.handleV1Finding)
 	mux.HandleFunc("PATCH /api/v1/projects/{projectID}/findings/{findingID}/severity", s.handleV1GradeFinding)
 	mux.HandleFunc("GET /api/v1/plugins/capabilities", s.handlePluginCapabilities)
+	mux.HandleFunc("GET /api/v2/plugin-stages", s.handlePluginStages)
+	mux.HandleFunc("GET /api/v2/plugins", s.handleListPluginsV2)
+	mux.HandleFunc("POST /api/v2/plugins", s.handleRegisterPluginV2)
+	mux.HandleFunc("GET /api/v2/plugins/{pluginID}/versions", s.handlePluginVersionsV2)
+	mux.HandleFunc("GET /api/v2/plugins/{pluginID}/versions/{pluginVersion}/releases", s.handlePluginReleasesV2)
+	mux.HandleFunc("POST /api/v2/plugins/{pluginID}/versions/{pluginVersion}/releases", s.handleRegisterReleaseV2)
+	mux.HandleFunc("GET /api/v2/plugin-installations", s.handleListInstallationsV2)
+	mux.HandleFunc("POST /api/v2/plugin-installations", s.handleInstallPluginV2)
+	mux.HandleFunc("POST /api/v2/plugin-installations/{installationID}/check", s.handleCheckInstallationV2)
+	mux.HandleFunc("PATCH /api/v2/plugin-installations/{installationID}", s.handleInstallationPolicyV2)
+	mux.HandleFunc("DELETE /api/v2/plugin-installations/{installationID}", s.handleUninstallPluginV2)
 	mux.HandleFunc("GET /api/v1/plugins", s.handleListPlugins)
 	mux.HandleFunc("POST /api/v1/projects/{projectID}/snapshots/{snapshotID}/plugin-invocations", s.withIdempotency(s.handleExecutePlugin))
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/snapshots/{snapshotID}/plugin-invocations", s.handleListInvocations)
@@ -293,6 +308,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/v1/projects", s.handleProjectDirectory)
 	mux.HandleFunc("POST /api/v1/projects", s.withIdempotency(s.handleCreateSourceProject))
 	mux.HandleFunc("DELETE /api/v1/projects/{projectID}", s.handleDeleteProject)
+	mux.HandleFunc("POST /api/v1/projects/{projectID}/stop-paths", s.handleStopProjectPaths)
+	mux.HandleFunc("GET /api/v1/projects/{projectID}/stop-paths", s.handleProjectPathStopStatus)
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/audit-input", s.handleGetProjectInput)
 	mux.HandleFunc("POST /api/v1/projects/{projectID}/imports/{sourceID}", s.handleImportSource)
 	mux.HandleFunc("GET /api/v1/projects/{id}/sources", s.handleListSources)

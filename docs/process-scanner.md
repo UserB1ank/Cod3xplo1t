@@ -1,6 +1,6 @@
 # 进程扫描器与 NDJSON JSON-RPC 适配器
 
-Issue #12 接入首个进程扫描器；当前固定打包版本为 `codexploit.static-patterns@1.0.6`。
+Issue #12 接入首个进程扫描器；当前固定打包版本为 `codexploit.static-patterns@1.0.13`。
 它作为独立进程运行，通过有界的 NDJSON JSON-RPC 2.0 与宿主通信，读取冻结的
 源码 tar，只解析 Go 语法并报告告警位置。它不构建、测试或执行目标仓库的代码，
 也不宣称污点流、可利用性或已确认漏洞。
@@ -15,7 +15,7 @@ CodeQL 等第三方工具没有随本切片内置：官方 CLI 体积大、许�
 
 ```
 plugin-packages/
-  codexploit.static-patterns@1.0.6/
+  codexploit.static-patterns@1.0.13/
     manifest.json
     scanner            # Windows 包为 scanner.exe
 ```
@@ -47,7 +47,7 @@ plugin-packages/
 构建与部署：
 
 ```bash
-# 生成 bin/plugin-packages/codexploit.static-patterns@1.0.6/
+# 生成 bin/plugin-packages/codexploit.static-patterns@1.0.13/
 make build-scanner
 
 # 或随完整构建
@@ -60,7 +60,7 @@ Docker 镜像在构建阶段编译扫描器并把同一版本的包复制到
 
 ## 扫描器能力
 
-`codexploit.static-patterns@1.0.6`：
+`codexploit.static-patterns@1.0.13`：
 
 - 语言：Go；
 - 消费：`source.snapshot`；生产：`scanner.alerts` 原始报告与 `security.facts`
@@ -172,4 +172,6 @@ API 路径沿用已认证的插件调用与知识发布端点，不新增绕过 
 
 ## 打包版本升级
 
-宿主源码契约更新会改变扫描器所链接的嵌入资源，从而改变二进制摘要。发布新包必须递增扫描器版本；当前为 1.0.6。旧 1.0.0 清单、调用和证据保持不变；未部署旧二进制时旧版本明确显示未安装，固定到旧版本的计划需要安装原包或重新编译计划，不会用新二进制冒充旧版本。
+宿主源码契约更新会改变扫描器所链接的嵌入资源，从而改变二进制摘要。发布新包必须递增扫描器版本；当前为 1.0.13。旧 1.0.0 清单、调用和证据保持不变；未部署旧二进制时旧版本明确显示未安装，固定到旧版本的计划需要安装原包或重新编译计划，不会用新二进制冒充旧版本。
+
+1.0.12 将审查路径查询契约更新后的扫描器作为新包发布；1.0.13 因知识源码切片与能力目录公开 Schema 更新而重新编译发布。两个版本的规则语义都保持 CP001 / CP002。旧 1.0.8 至 1.0.12 的清单、调用和证据继续保留；同版本的进程二进制摘要不同仍拒绝登记。升级不得通过删除插件目录记录或放宽完整性校验解决冲突。

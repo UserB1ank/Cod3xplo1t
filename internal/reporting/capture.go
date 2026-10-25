@@ -11,6 +11,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/open-mcp-ai/Codexploit/internal/agent"
 	"github.com/open-mcp-ai/Codexploit/internal/artifact"
 	"github.com/open-mcp-ai/Codexploit/internal/findings"
 	"github.com/open-mcp-ai/Codexploit/internal/knowledge"
@@ -30,6 +31,7 @@ type Store interface {
 	artifact.Index
 	publication.Store
 	GetSnapshot(context.Context, string) (*repository.Snapshot, error)
+	ListRuns(agent.RunQuery) ([]agent.Run, int, error)
 }
 
 type Request struct {
@@ -335,6 +337,39 @@ func (s *Service) collect(ctx context.Context, scope artifact.Scope, settings Se
 	}
 	sort.Slice(capture.Groups, func(i, j int) bool { return capture.Groups[i].Fingerprint < capture.Groups[j].Fingerprint })
 	sort.Slice(capture.Paths, func(i, j int) bool { return capture.Paths[i].ID < capture.Paths[j].ID })
+	capture.Reviews = []Review{}
+	for _, task := range capture.Tasks {
+		for offset := 0; ; {
+			if err := ctx.Err(); err != nil {
+				return Capture{}, err
+			}
+			runs, total, err := s.Store.ListRuns(agent.RunQuery{AuditID: task.ID, SnapshotID: scope.SnapshotID, Limit: 100, Offset: offset})
+			if err != nil {
+				return Capture{}, err
+			}
+			if total > 10000 || len(capture.Reviews)+len(runs) > 10000 {
+				return Capture{}, plugin.ErrBudget
+			}
+			for _, run := range runs {
+				if !pathIDs[run.PathID] || run.SnapshotID != scope.SnapshotID || run.AuditID != task.ID {
+					return Capture{}, ErrMissingEvidence
+				}
+				review := Review{RunID: run.ID, TaskID: run.AuditID, PathID: run.PathID, Version: run.Version, Status: run.Status, StopReason: run.StopReason, Runtime: run.Runtime, RuntimeVersion: run.RuntimeVersion, Pin: run.Pin, Answer: run.Answer, ToolCalls: run.ToolCalls, InputTokens: run.InputTokens, OutputTokens: run.OutputTokens, FinishedAt: run.FinishedAt}
+				if err := take(review); err != nil {
+					return Capture{}, err
+				}
+				capture.Reviews = append(capture.Reviews, review)
+			}
+			offset += len(runs)
+			if offset >= total {
+				break
+			}
+			if len(runs) == 0 {
+				return Capture{}, ErrChanged
+			}
+		}
+	}
+	sort.Slice(capture.Reviews, func(i, j int) bool { return capture.Reviews[i].RunID < capture.Reviews[j].RunID })
 	if _, err := s.Knowledge.Describe(ctx, view.Scope, view.ID); err != nil {
 		return Capture{}, err
 	}

@@ -1,5 +1,7 @@
 # 项目代码导入与统一 Web 入口：Issues 草案
 
+> 源码导入/端口相关已交付；本文保留历史规格。新项目将输入绑定隐含在创建流程，禁止据旧草案增加用户手动快照步骤或更新代码入口，见 [当前实施索引](interaction-issues.md)。
+
 日期：2026-10-19。状态：用户已要求与导航整理一起开始，发布 S01–S03 后逐项实施；S04 保留为可选方案，不纳入本轮。
 
 线上 Issue：S01 [#23](https://github.com/UserB1ank/Cod3xplo1t/issues/23)；S02 [#24](https://github.com/UserB1ank/Cod3xplo1t/issues/24)；S03 [#25](https://github.com/UserB1ank/Cod3xplo1t/issues/25)。

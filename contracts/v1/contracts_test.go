@@ -13,7 +13,7 @@ import (
 func loadSchemas(t *testing.T) map[string]*jsonschema.Resolved {
 	t.Helper()
 	names, err := fs.Glob(Files, "*.schema.json")
-	if err != nil || len(names) != 31 {
+	if err != nil || len(names) != 32 {
 		t.Fatalf("schemas: %d %v", len(names), err)
 	}
 	byID := map[string]*jsonschema.Schema{}
@@ -93,6 +93,27 @@ func TestSchemasResolveOfflineAndCompleteExamplesValidate(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+func TestCapabilityProtocolVersionKeepsQualifiedAndLegacyForms(t *testing.T) {
+	t.Parallel()
+	schemas := loadSchemas(t)
+	value := fixture(t, "plugin-capabilities")
+	capabilities := value["capabilities"].([]any)
+	parse := capabilities[1].(map[string]any)
+	adapter := parse["adapters"].([]any)[0].(map[string]any)
+	adapter["protocol_version"] = "builtin/v1"
+	if err := schemas["plugin-capabilities.schema.json"].Validate(value); err != nil {
+		t.Fatalf("qualified protocol version: %v", err)
+	}
+	adapter["protocol_version"] = "1"
+	if err := schemas["plugin-capabilities.schema.json"].Validate(value); err != nil {
+		t.Fatalf("legacy integer protocol version: %v", err)
+	}
+	adapter["protocol_version"] = "v1"
+	if err := schemas["plugin-capabilities.schema.json"].Validate(value); err == nil {
+		t.Fatal("an unqualified non-integer protocol version was accepted")
 	}
 }
 

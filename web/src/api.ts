@@ -1,4 +1,4 @@
-import type { AnalysisRun, Audit, PathSubtask, SupervisorSession, SupervisorRun, SupervisorMessage, AuditBudget, AuditDraft, AuditEvent, AuditPath, BudgetGrant, Connection, Finding, FindingDetail, GraphSummary, Project, ProjectDirectoryEntry, ProjectInput, Run, Scheduler, Snapshot, Workspace } from './types.ts';
+import type { AnalysisEngineStatus, AnalysisRun, Audit, PathSubtask, SupervisorSession, SupervisorRun, SupervisorMessage, AuditBudget, AuditDraft, AuditEvent, AuditPath, BudgetGrant, Connection, Finding, FindingDetail, GraphSummary, Project, ProjectDirectoryEntry, ProjectInput, Run, Scheduler, Snapshot, Workspace } from './types.ts';
 
 export class ApiError extends Error {
   status: number;
@@ -52,6 +52,9 @@ export class ApiClient {
     const response = await this.fetcher(this.connection.base + path, { ...options, headers, credentials: 'same-origin', redirect: 'error', cache: 'no-store' });
     if (!response.ok && !acceptedStatuses.includes(response.status)) {
       const body = await response.json().catch(() => ({})) as { error?: string; code?: string; diagnostics?: {path: string; code: string; message: string}[] };
+      if (response.status === 409 && body.code === 'project_active_work') {
+        throw new ApiError(response.status, body.code, '项目仍有未结束的工作。可先点击“停止所有路径”，等待活动运行结束后重试删除；独立插件、源码导入和验证环境请在对应面板查看。');
+      }
       const message = response.status === 401 ? (body.code === 'invalid_credentials' ? '账号或密码不正确。' : '登录已过期或访问凭据无效，请重新登录。') : response.status === 403 ? forbiddenMessage(body.code) : response.status === 412 ? '数据已被其他操作更新，请刷新后重试。' : body.error || `请求失败（${response.status}）`;
       throw new ApiError(response.status, body.code || 'request_failed', message, body.diagnostics);
     }
@@ -120,6 +123,7 @@ export class ApiClient {
   supervisorSession(projectID: string, sessionID: string, signal?: AbortSignal) { return this.get<{ session: SupervisorSession }>(`/v1/projects/${encodeURIComponent(projectID)}/agent-sessions/${encodeURIComponent(sessionID)}`, signal); }
   sendSupervisorMessage(projectID: string, sessionID: string, content: string, clientMessageID: string) { return this.post<{ message: SupervisorMessage; run: SupervisorRun }>(`/v1/projects/${encodeURIComponent(projectID)}/agent-sessions/${encodeURIComponent(sessionID)}/messages`, { api_version: "codexploit/v1", content, client_message_id: clientMessageID }); }
   cancelSupervisorRun(projectID: string, sessionID: string, runID: string) { return this.post<{ run: SupervisorRun }>(`/v1/projects/${encodeURIComponent(projectID)}/agent-sessions/${encodeURIComponent(sessionID)}/runs/${encodeURIComponent(runID)}/cancel`, { reason: "operator stop" }); }
+  analysisEngine(projectID: string, signal?: AbortSignal) { return this.get<{ analysis_engine: AnalysisEngineStatus }>(`/v1/projects/${encodeURIComponent(projectID)}/analysis-engine`, signal); }
   analysisRuns(projectID: string, signal?: AbortSignal) { return this.get<{ analysis_runs: AnalysisRun[] }>(`/v1/projects/${encodeURIComponent(projectID)}/analysis-runs?limit=20`, signal); }
   startAnalysis(projectID: string, body: { agent_assisted: boolean; runtime?: string; idempotency_key?: string }) { return this.post<{ analysis_run: AnalysisRun; reused: boolean }>(`/v1/projects/${encodeURIComponent(projectID)}/analysis-runs`, { api_version: 'codexploit/v1', ...body }); }
   analysisRun(projectID: string, analysisRunID: string, signal?: AbortSignal) { return this.get<{ analysis_run: AnalysisRun }>(`/v1/projects/${encodeURIComponent(projectID)}/analysis-runs/${encodeURIComponent(analysisRunID)}`, signal); }

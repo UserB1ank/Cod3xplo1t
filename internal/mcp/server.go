@@ -63,6 +63,15 @@ var (
 // graph store: those are wiring bugs, not request errors, and every tool call
 // would otherwise dereference nil.
 func NewServer(svc *graph.Service, store storage.FullStore, logger *slog.Logger) *mcp.Server {
+	return newServer(svc, store, logger, nil)
+}
+
+type registry struct {
+	server *mcp.Server
+	check  func(context.Context, string) error
+}
+
+func newServer(svc *graph.Service, store storage.FullStore, logger *slog.Logger, check func(context.Context, string) error) *mcp.Server {
 	if svc == nil {
 		panic("mcp: NewServer called with a nil graph service")
 	}
@@ -80,7 +89,7 @@ func NewServer(svc *graph.Service, store storage.FullStore, logger *slog.Logger)
 		Instructions: serverInstructions,
 		Logger:       logger,
 	})
-	registerTools(srv, svc)
+	registerTools(registry{srv, check}, svc)
 	return srv
 }
 
@@ -98,19 +107,36 @@ type snapshotScoped interface{ snapshotID() string }
 // register adapts a typed query to an MCP tool. Unmarshaling and schema
 // validation are the SDK's job; budget clamping is the service's. Classifying
 // errors here keeps every tool's failure mode identical.
-func register[In snapshotScoped, Out any](srv *mcp.Server, tool *mcp.Tool, query func(context.Context, In) (*Out, error)) {
+func register[In snapshotScoped, Out any](srv registry, tool *mcp.Tool, query func(context.Context, In) (*Out, error)) {
 	tool.Annotations = &mcp.ToolAnnotations{
 		ReadOnlyHint:    true,
 		IdempotentHint:  true,
 		OpenWorldHint:   &closedWorld,
 		DestructiveHint: &notDestructive,
 	}
-	mcp.AddTool(srv, tool, func(ctx context.Context, _ *mcp.CallToolRequest, in In) (*mcp.CallToolResult, *Out, error) {
+	mcp.AddTool(srv.server, tool, func(ctx context.Context, _ *mcp.CallToolRequest, in In) (*mcp.CallToolResult, *Out, error) {
 		if strings.TrimSpace(in.snapshotID()) == "" {
 			return nil, nil, coded(CodeInvalidArgument, errors.New("snapshot_id must not be empty"))
 		}
+		if srv.check != nil {
+			if err := srv.check(ctx, in.snapshotID()); err != nil {
+				return nil, nil, err
+			}
+		}
 		out, err := query(ctx, in)
 		if err != nil {
+			if srv.check != nil && errors.Is(err, graph.ErrNoGraph) {
+				return nil, nil, coded("graph_not_ready", errors.New("source may exist; inspect_project section=analysis and read_source_file work independently of the graph"))
+			}
+			if srv.check != nil {
+				var classified *classifiedError
+				if errors.As(err, &classified) {
+					return nil, nil, err
+				}
+				// Private application queries never expose driver diagnostics or
+				// physical workspace paths to the model.
+				return nil, nil, coded(classify(err), errors.New("project query unavailable; inspect source, analysis or system state"))
+			}
 			return nil, nil, coded(classify(err), err)
 		}
 		return nil, out, nil
@@ -123,8 +149,16 @@ func coded(code string, err error) error {
 	if code == "" {
 		return err
 	}
-	return fmt.Errorf("%s: %w", code, err)
+	return &classifiedError{code, err}
 }
+
+type classifiedError struct {
+	code  string
+	cause error
+}
+
+func (e *classifiedError) Error() string { return fmt.Sprintf("%s: %v", e.code, e.cause) }
+func (e *classifiedError) Unwrap() error { return e.cause }
 
 // classify maps a service error onto the code an agent branches on.
 func classify(err error) string {
@@ -235,7 +269,7 @@ var sliceIncludes = map[string]bool{
 	"neighbors":              true,
 }
 
-func registerTools(srv *mcp.Server, svc *graph.Service) {
+func registerTools(srv registry, svc *graph.Service) {
 	register(srv, &mcp.Tool{
 		Name:        "list_modules",
 		Description: "List the modules (build units) of one snapshot, with their file, symbol and line counts.",

@@ -1,0 +1,359 @@
+{
+  "api_version": "codexploit/plugin/v2",
+  "id": "codexploit.joern",
+  "version": "2.1.1",
+  "name": "Joern · 多语言污点分析",
+  "description": "完整 Joern 前端、原生 CPG、可配置 source/sink 数据流查询与固定来源的候选路径。",
+  "languages": [
+    "C",
+    "C++",
+    "C#",
+    "Go",
+    "Java",
+    "Java bytecode",
+    "JavaScript",
+    "TypeScript",
+    "Kotlin",
+    "PHP",
+    "Python",
+    "Ruby",
+    "Rust",
+    "Swift",
+    "ABAP",
+    "Binary",
+    "Mixed"
+  ],
+  "runtime": {
+    "kind": "process",
+    "protocol": "codexploit/file-job/v2",
+    "entrypoint": "bin/joern-adapter"
+  },
+  "permissions": {
+    "network": "none",
+    "source_write": false,
+    "target_execution": false
+  },
+  "operations": [
+    {
+      "id": "parse",
+      "stage": "parse",
+      "capability": "parse",
+      "profile": "standard",
+      "inputs": [
+        {
+          "name": "source",
+          "kind": "source.snapshot",
+          "schema_id": "codexploit/source-tar/v1",
+          "cardinality": "one",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "cpg",
+          "kind": "tool.native",
+          "schema_id": "joern/cpg/v1",
+          "cardinality": "many",
+          "required": true
+        },
+        {
+          "name": "code",
+          "kind": "code.facts",
+          "schema_id": "codexploit/code-facts/v2",
+          "cardinality": "one",
+          "required": true
+        }
+      ],
+      "config_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "heap_mib": {
+            "type": "integer",
+            "minimum": 256,
+            "maximum": 4096,
+            "default": 1024
+          },
+          "frontend": {
+            "type": "string",
+            "enum": [
+              "AUTO",
+              "C",
+              "CSHARPSRC",
+              "GOLANG",
+              "JAVASRC",
+              "JAVA",
+              "JAVASCRIPT",
+              "KOTLIN",
+              "PHP",
+              "PYTHONSRC",
+              "RUBYSRC",
+              "RUST",
+              "SWIFTSRC",
+              "ABAP",
+              "GHIDRA"
+            ],
+            "default": "AUTO"
+          },
+          "input_path": {
+            "type": "string",
+            "maxLength": 1024
+          }
+        }
+      }
+    },
+    {
+      "id": "taint",
+      "stage": "semantic",
+      "capability": "semantic",
+      "profile": "standard",
+      "inputs": [
+        {
+          "name": "source",
+          "kind": "source.snapshot",
+          "schema_id": "codexploit/source-tar/v1",
+          "cardinality": "one",
+          "required": true
+        },
+        {
+          "name": "code",
+          "kind": "code.facts",
+          "schema_id": "codexploit/code-facts/v2",
+          "cardinality": "one",
+          "required": true
+        },
+        {
+          "name": "cpg",
+          "kind": "tool.native",
+          "schema_id": "joern/cpg/v1",
+          "cardinality": "many",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "flows",
+          "kind": "tool.native",
+          "schema_id": "codexploit/native-bytes/v1",
+          "cardinality": "one",
+          "required": true
+        },
+        {
+          "name": "security",
+          "kind": "security.facts",
+          "schema_id": "codexploit/security-facts/v2",
+          "cardinality": "one",
+          "required": true
+        }
+      ],
+      "config_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "rules": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 32,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "source",
+                "sink"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "source": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "kind",
+                    "method"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "parameter",
+                        "call_return"
+                      ]
+                    },
+                    "method": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 512
+                    },
+                    "index": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 64,
+                      "default": 0
+                    },
+                    "code_pattern": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 512
+                    }
+                  }
+                },
+                "sink": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "method",
+                    "argument_index"
+                  ],
+                  "properties": {
+                    "method": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 512
+                    },
+                    "argument_index": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 64
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "max_flows": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "default": 100
+          },
+          "max_call_depth": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10,
+            "default": 4
+          },
+          "heap_mib": {
+            "type": "integer",
+            "minimum": 256,
+            "maximum": 4096,
+            "default": 1024
+          }
+        }
+      }
+    },
+    {
+      "id": "paths",
+      "stage": "path.generate",
+      "capability": "path",
+      "profile": "standard",
+      "inputs": [
+        {
+          "name": "code",
+          "kind": "code.facts",
+          "schema_id": "codexploit/code-facts/v2",
+          "cardinality": "one",
+          "required": true
+        },
+        {
+          "name": "security",
+          "kind": "security.facts",
+          "schema_id": "codexploit/security-facts/v2",
+          "cardinality": "one",
+          "required": true
+        },
+        {
+          "name": "flows",
+          "kind": "tool.native",
+          "schema_id": "codexploit/native-bytes/v1",
+          "cardinality": "one",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "paths",
+          "kind": "discovery.paths",
+          "schema_id": "codexploit/discovery-paths/v2",
+          "cardinality": "one",
+          "required": true
+        }
+      ],
+      "config_schema": {
+        "type": "object",
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "enhance",
+      "stage": "path.enhance",
+      "profile": "standard",
+      "inputs": [
+        {
+          "name": "paths",
+          "kind": "discovery.paths",
+          "schema_id": "codexploit/discovery-paths/v2",
+          "required": true,
+          "cardinality": "one"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "paths",
+          "kind": "discovery.paths",
+          "schema_id": "codexploit/discovery-paths/v2",
+          "required": true,
+          "cardinality": "one"
+        },
+        {
+          "name": "selection",
+          "kind": "path.enhancement",
+          "schema_id": "codexploit/path-enhancement/v2",
+          "required": true,
+          "cardinality": "one"
+        }
+      ],
+      "config_schema": {
+        "type": "object",
+        "properties": {
+          "max_paths": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          }
+        },
+        "additionalProperties": false
+      },
+      "capability": "path"
+    }
+  ],
+  "tools": [
+    {
+      "id": "joern",
+      "version": "4.0.664",
+      "entrypoint": "vendor/joern-cli/joern"
+    },
+    {
+      "id": "temurin-jdk",
+      "version": "21.0.9+10",
+      "entrypoint": "vendor/jdk/bin/java"
+    },
+    {
+      "id": "php",
+      "version": "8.5.12",
+      "entrypoint": "vendor/php/bin/php"
+    },
+    {
+      "id": "rustc",
+      "version": "1.95.0",
+      "entrypoint": "vendor/rust/bin/rustc"
+    },
+    {
+      "id": "cargo",
+      "version": "1.95.0",
+      "entrypoint": "vendor/rust/bin/cargo"
+    }
+  ]
+}

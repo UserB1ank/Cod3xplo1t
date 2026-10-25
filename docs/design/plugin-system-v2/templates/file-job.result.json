@@ -1,0 +1,28 @@
+{
+  "api_version": "codexploit/file-job/v1",
+  "invocation_id": "example-report-001",
+  "status": "SUCCEEDED",
+  "outputs": [
+    {
+      "port": "document",
+      "kind": "report.document",
+      "schema_id": "codexploit/report/v1",
+      "path": "report.md",
+      "media_type": "text/markdown",
+      "bytes": 92,
+      "sha256": "06c0bffffd2b675074b60dcd7e2ae9aacba44f4494b2bd0424de7a9cff924824"
+    }
+  ],
+  "coverage": {
+    "unit": "files",
+    "seen": 1,
+    "analyzed": 1,
+    "skipped": 0,
+    "failed": 0,
+    "truncated": false,
+    "reasons": []
+  },
+  "limitations": [
+    "仅为协议样例；fixtures/report.md 没有由工具执行生成。"
+  ]
+}

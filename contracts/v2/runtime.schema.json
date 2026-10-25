@@ -1,0 +1,212 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codexploit.invalid/contracts/v2/runtime.schema.json",
+  "type": "object",
+  "properties": {
+    "api_version": {
+      "const": "codexploit/v2"
+    },
+    "plugin": {
+      "$ref": "https://codexploit.invalid/contracts/v1/plugin-runtime.schema.json#/$defs/Record"
+    },
+    "plugins": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "$ref": "https://codexploit.invalid/contracts/v1/plugin-runtime.schema.json#/$defs/Record"
+      }
+    },
+    "next_cursor": {
+      "type": "string"
+    },
+    "stages": {
+      "type": "array",
+      "minItems": 10,
+      "maxItems": 10,
+      "items": {
+        "type": "object"
+      }
+    },
+    "versions": {
+      "type": "array",
+      "items": {
+        "$ref": "https://codexploit.invalid/contracts/v1/plugin-runtime.schema.json#/$defs/Record"
+      }
+    },
+    "releases": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Release"
+      }
+    },
+    "installations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Installation"
+      }
+    },
+    "installation": {
+      "$ref": "#/$defs/Installation"
+    },
+    "host": {
+      "type": "object",
+      "properties": {
+        "os": {
+          "type": "string"
+        },
+        "arch": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "os",
+        "arch"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "api_version"
+  ],
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "required": [
+        "plugin"
+      ]
+    },
+    {
+      "required": [
+        "plugins",
+        "next_cursor"
+      ]
+    },
+    {
+      "required": [
+        "stages"
+      ]
+    },
+    {
+      "required": [
+        "versions"
+      ]
+    },
+    {
+      "required": [
+        "releases"
+      ]
+    },
+    {
+      "required": [
+        "installations"
+      ]
+    },
+    {
+      "required": [
+        "installation"
+      ]
+    }
+  ],
+  "$defs": {
+    "Release": {
+      "type": "object",
+      "properties": {
+        "plugin_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "plugin_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "os": {
+          "type": "string",
+          "minLength": 1
+        },
+        "arch": {
+          "type": "string",
+          "minLength": 1
+        },
+        "package_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "manifest_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "build_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "plugin_id",
+        "plugin_version",
+        "os",
+        "arch",
+        "package_digest",
+        "manifest_digest"
+      ],
+      "additionalProperties": false
+    },
+    "Installation": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "release": {
+          "$ref": "#/$defs/Release"
+        },
+        "worker_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "installed": {
+          "type": "boolean"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "integrity": {
+          "enum": [
+            "unknown",
+            "verified",
+            "failed"
+          ]
+        },
+        "probe": {
+          "enum": [
+            "not_run",
+            "passed",
+            "failed"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "checked_at": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "id",
+        "release",
+        "worker_id",
+        "installed",
+        "enabled",
+        "integrity",
+        "probe",
+        "version"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

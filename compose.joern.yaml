@@ -1,0 +1,16 @@
+# Optional overlay for the default PostgreSQL stack. Requires Compose 2.24.4+.
+# Mount a Linux package matching the app architecture, never a macOS package.
+services:
+  codexploit:
+    build:
+      args:
+        RUNTIME_IMAGE: debian:trixie-slim
+    volumes:
+      - type: bind
+        source: ${CODEXPLOIT_JOERN_PACKAGE_DIR:?Set CODEXPLOIT_JOERN_PACKAGE_DIR to the Linux Joern package directory}
+        target: /app/plugin-packages/codexploit.joern@2.1.1
+        read_only: true
+    # Every job verifies and copies its ~3 GiB offline release. The default
+    # 256 MiB scratch mount cannot hold this package and the JVM work files.
+    tmpfs: !override
+      - /tmp:rw,exec,mode=1777,size=8g

@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"sort"
 
 	"github.com/open-mcp-ai/Codexploit/internal/path"
@@ -49,7 +50,11 @@ func (m *Memory) CreateAnalysisRun(_ context.Context, run AnalysisRun, idempoten
 	if run.Stages == nil {
 		run.Stages = []AnalysisRunStage{}
 	}
-	m.analysisRuns[run.ID] = run
+	copy, err := cloneDocument(run)
+	if err != nil {
+		return AnalysisRun{}, err
+	}
+	m.analysisRuns[run.ID] = copy
 	return cloneDocument(run)
 }
 
@@ -112,12 +117,16 @@ func (m *Memory) UpdateAnalysisRun(_ context.Context, run AnalysisRun) (Analysis
 	if !ok || existing.ProjectID != run.ProjectID {
 		return AnalysisRun{}, fmt.Errorf("%w: analysis run %s", ErrNotFound, run.ID)
 	}
-	if existing.Version != run.Version {
+	if existing.Version != run.Version || !reflect.DeepEqual(existing.Engine, run.Engine) {
 		return AnalysisRun{}, fmt.Errorf("%w: analysis run version", ErrConflict)
 	}
 	run.Version = existing.Version + 1
 	run.CreatedAt = existing.CreatedAt
-	m.analysisRuns[run.ID] = run
+	copy, err := cloneDocument(run)
+	if err != nil {
+		return AnalysisRun{}, err
+	}
+	m.analysisRuns[run.ID] = copy
 	return cloneDocument(run)
 }
 

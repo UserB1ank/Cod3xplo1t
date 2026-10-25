@@ -1,0 +1,57 @@
+{
+  "api_version": "codexploit/plugin/v2",
+  "id": "example.verification",
+  "version": "0.1.0",
+  "name": "验证执行开发模板",
+  "description": "仅为接口声明模板；未提供可执行实现，不可登记为已实测。",
+  "languages": [
+    "Go"
+  ],
+  "runtime": {
+    "kind": "verification_executor",
+    "protocol": "codexploit/verification-executor/v1"
+  },
+  "permissions": {
+    "network": "none",
+    "source_write": false,
+    "target_execution": true
+  },
+  "operations": [
+    {
+      "id": "execute",
+      "stage": "verification",
+      "capability": "verification",
+      "profile": "standard",
+      "inputs": [
+        {
+          "name": "plan",
+          "kind": "verification.plan",
+          "schema_id": "codexploit/verification-plan/v1",
+          "cardinality": "one",
+          "required": true
+        },
+        {
+          "name": "environment",
+          "kind": "environment.receipt",
+          "schema_id": "codexploit/environment-receipt/v1",
+          "cardinality": "one",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "evidence",
+          "kind": "verification.evidence",
+          "schema_id": "codexploit/verification-evidence/v1",
+          "cardinality": "one",
+          "required": true
+        }
+      ],
+      "config_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      }
+    }
+  ]
+}

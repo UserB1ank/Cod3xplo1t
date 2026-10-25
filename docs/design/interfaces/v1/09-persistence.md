@@ -1,8 +1,8 @@
 # L9 持久化接口与独立 Docker 数据服务
 
-目标：数据库与产物由独立 Docker 数据服务承载，应用通过领域存储接口访问。推荐 PostgreSQL 作为首个外部数据库适配器；SQLite 保留轻量开发用途，其他数据库通过契约验收后接入。
+目标：数据库与产物由独立 Docker 数据服务承载，应用通过领域存储接口访问。PostgreSQL是唯一维护的业务后端；Memory可作快速测试双，SQLite只保留旧数据读取/单向迁移，不再增加SQLite功能、部署或CI门槛。
 
-Schema：[storage.schema.json](../../../../contracts/v1/storage.schema.json)。示例：[storage.json](../../../../contracts/v1/examples/storage.json)。原型可选择后端、校验字段并导出配置；它不创建真实连接。
+Schema：[storage.schema.json](../../../../contracts/v1/storage.schema.json)。示例：[storage.json](../../../../contracts/v1/examples/storage.json)。旧原型存储编辑属于历史设计，当前原型主入口不提供数据库管理或真实连接。
 
 ## 目标部署拓扑
 
@@ -24,7 +24,7 @@ flowchart LR
 
 | 位置 | 保存内容 |
 |---|---|
-| PostgreSQL / MetadataStore | 项目、代码源定义、快照元数据、产物索引、图谱节点/边/观察/版本、工作流与执行状态、事件、发现、证据索引、幂等记录、账号摘要、会话、加密配置 |
+| PostgreSQL / MetadataStore | 待接入的项目输入绑定/阶段运行/主Agent会话与消息/工具配对/主子关联/指令回执/控制批次/覆盖账本修订，以及已有项目、代码源定义、快照元数据、产物索引、图谱节点/边/观察/版本、工作流与执行状态、事件、发现、证据索引、幂等记录、账号摘要、会话、加密配置 |
 | ArtifactStore | 源码树、文件清单、原生 AST、完整工具报告、证据正文、导出报告 |
 | 外部密钥来源 | LLM / 仓库 / 数据库凭据，或解密上述凭据所需的安装密钥 |
 | 应用/Worker 缓存 | 可重建源码工作目录、解析缓存、临时结果 |

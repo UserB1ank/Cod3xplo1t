@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/open-mcp-ai/Codexploit/internal/agent"
+	"github.com/open-mcp-ai/Codexploit/internal/analysisengine"
 	"github.com/open-mcp-ai/Codexploit/internal/artifact"
 	"github.com/open-mcp-ai/Codexploit/internal/findings"
 	"github.com/open-mcp-ai/Codexploit/internal/graph"
@@ -29,6 +30,8 @@ type pathReport struct {
 }
 
 type Effects struct {
+	Engine    analysisengine.Provider
+	projected bool
 	Store     storage.FullStore
 	Host      *plugin.Host
 	Artifacts artifact.Store
@@ -51,6 +54,7 @@ func (e *Effects) Bind(_ context.Context, enabled bool, prior workflow.ModelPin)
 	copy := *e
 	copy.enabled = enabled
 	copy.native = nil
+	copy.projected = false
 	copy.pathReports = nil
 	copy.origins = nil
 	copy.truncated = false
@@ -129,6 +133,16 @@ func (e *Effects) Execute(ctx context.Context, run workflow.Run, plan workflow.P
 			return workflow.NodeResult{}, err
 		}
 	}
+
+	if e.native == nil || e.native.Paths == nil {
+		for _, nr := range run.Nodes {
+			for _, ref := range nr.Outputs {
+				if ref.SchemaID == "codexploit/discovery-paths/v2" {
+					return workflow.NodeResult{Status: "FAILED", ErrorCode: "engine_projection_unavailable", Note: "The selected graph engine has no compatible review projection"}, plugin.ErrUnsupported
+				}
+			}
+		}
+	}
 	if e.native == nil || e.native.Paths == nil || len(e.native.Paths.Paths) == 0 {
 		return workflow.NodeResult{Status: "SKIPPED", Note: "No candidate paths were produced"}, nil
 	}
@@ -173,13 +187,16 @@ func (e *Effects) restorePublishedInputs(ctx context.Context, run workflow.Run, 
 			}
 		}
 	}
-	return nil
+	return e.restoreEngine(ctx, run, plan)
 }
 
 func (e *Effects) publish(ctx context.Context, run workflow.Run, plan workflow.Plan, node workflow.NodeRun) (workflow.NodeResult, error) {
 	store, ok := e.Store.(publication.Store)
 	if !ok {
 		return workflow.NodeResult{}, workflow.ErrInvalid
+	}
+	if err := e.restoreEngine(ctx, run, plan); err != nil {
+		return workflow.NodeResult{}, err
 	}
 	publisher := publication.NewPublisher(store)
 	result := workflow.NodeResult{Status: "SUCCEEDED", Knowledge: []workflow.KnowledgePin{}}
@@ -192,6 +209,44 @@ func (e *Effects) publish(ctx context.Context, run workflow.Run, plan workflow.P
 			return result, err
 		}
 		if inv.Request.PluginID == plugin.BuiltinID {
+			continue
+		}
+		standard, err := e.Host.StandardResults(ctx, run.Scope, inv.ID, 64<<20)
+		if err != nil {
+			return result, err
+		}
+		for i, document := range standard {
+			if document.Kind == "discovery.paths" && plan.PathSourceNodeID != "" && nr.NodeID != plan.PathSourceNodeID {
+				continue
+			}
+			document.Producer.TaskID = run.TaskID
+			batch, err := publication.BatchFromStage(fmt.Sprintf("batch-%s-%s-stage-%d", run.ID, nr.NodeID, i), document, "")
+			if err != nil {
+				return result, err
+			}
+			var revision *publication.Revision
+			for range 5 {
+				batch.BaseRevision, err = store.KnowledgeHead(ctx, batch.Scope)
+				if err != nil {
+					return result, err
+				}
+				revision, err = publisher.Publish(ctx, batch)
+				if !errors.Is(err, publication.ErrVersionConflict) {
+					break
+				}
+			}
+			if err != nil {
+				return result, err
+			}
+			result.Knowledge = append(result.Knowledge, workflow.KnowledgePin{Revision: revision.ID, Digest: revision.Digest})
+		}
+		publishable := false
+		for _, ref := range inv.Outputs {
+			if ref.SchemaID == "codexploit/discovery/v1" {
+				publishable = true
+			}
+		}
+		if !publishable {
 			continue
 		}
 		document, err := e.Host.Result(ctx, run.Scope, inv.ID, 8<<20)
@@ -296,6 +351,11 @@ func (e *Effects) materialize(ctx context.Context, run workflow.Run) error {
 	if e.native.Graph == nil || e.native.Surface == nil {
 		return workflow.ErrInvalid
 	}
+	if e.projected {
+		if err := e.Store.ReplaceGraphLayers(ctx, run.Scope.SnapshotID, e.native.Graph, e.native.Surface); err != nil {
+			return err
+		}
+	}
 	summary, err := e.Store.GraphSummary(ctx, run.Scope.SnapshotID)
 	if errors.Is(err, storage.ErrNotFound) {
 		if err := e.Store.ReplaceGraph(ctx, run.Scope.SnapshotID, e.native.Graph); err != nil {
@@ -308,6 +368,7 @@ func (e *Effects) materialize(ctx context.Context, run workflow.Run) error {
 	if summary.GraphVersion != e.native.Graph.GraphVersion {
 		return workflow.ErrConflict
 	}
+
 	if _, err := e.Store.ASGSummary(ctx, run.Scope.SnapshotID); errors.Is(err, storage.ErrNotFound) {
 		if err := e.Store.ReplaceASG(ctx, run.Scope.SnapshotID, e.native.Surface); err != nil {
 			return err
@@ -352,6 +413,7 @@ func (e *Effects) materialize(ctx context.Context, run workflow.Run) error {
 			candidate.AuditID = task.ID
 			candidate.Status = audit.StatusQueued
 			candidate.Budget = task.Budget
+			candidate.MaxAttempts = task.Limits.MaxAttempts
 			candidate.Objectives = append([]string{task.Objective}, candidate.Objectives...)
 			// The enhancement stage already scored and selected this path with
 			// pinned weights. Recomputing would silently replace its explanation.

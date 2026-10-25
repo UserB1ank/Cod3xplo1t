@@ -1,10 +1,34 @@
 # Codexploit architecture
 
-The target extensible architecture and ARTEX-inspired interactive prototype are
-documented in [layered interfaces v1](design/interfaces/v1/README.md). That design
-covers explicit source types, plugin workflows and an independent PostgreSQL
-data service. It distinguishes target interfaces from the implemented system
-described below. The design prototype is available at `/prototype/` after building.
+The current target architecture is the [project audit and supervisor design](design/project-agent-architecture.md), accepted on 2026-10-21. Its [ADR](adr/0001-project-supervisor-interaction.md), [development issues](design/interaction-issues.md), and [DeepSeek handoff](design/deepseek-handoff.md) define the next work. The interactive prototype is available at `/prototype/` and remains simulated.
+
+A new project represents one source input and one audit. Source capture is implicit in creation. One click runs four tool-based preparation stages; a project supervisor then handles open conversation and chooses MCP tools to query, propose paths, and coordinate child path agents. The host retains process, scope, lease, budget, and evidence authority. This supervisor layer and its write tools are **planned**, not part of the existing nine-tool stdio server.
+
+### Target architecture (not yet fully wired)
+
+```mermaid
+flowchart LR
+  Human[人 / 开放对话与直接控制] --> UI[正式 WebUI]
+  UI --> Session[会话与事件应用服务]
+  Session --> Master[主 Agent Runtime / 模型]
+  Master -->|自主请求工具| Gate[Go 宿主工具门控]
+  Gate --> MCP[项目作用域 MCP 适配器]
+  MCP --> Domain[共享领域应用服务]
+  Domain --> Graph[代码与攻击面查询]
+  Domain --> Paths[候选路径登记与去重]
+  Domain --> Queue[任务调度 / 消息 / 控制]
+  Queue --> Child[路径审查子 Agent Runtime]
+  Child --> Gate
+  Child --> Evidence[证据与结构化答案校验]
+  Evidence --> Domain
+  Domain --> PG[(PostgreSQL / 会话与领域记录)]
+  Domain --> Artifact[ArtifactStore / 内容产物]
+  Domain --> Events[有序事件 / 查询与订阅]
+  Events --> UI
+  MCP -->|工具结果回灌| Master
+```
+
+The package map and pipeline below describe implemented building blocks. Keep these reusable services while adding project/session application services; do not rebuild the pipeline or convert the existing read-only MCP server into an unauthenticated management endpoint.
 
 The implemented PostgreSQL execution profile is documented in
 [postgres-catalog.md](postgres-catalog.md). It persists catalog/graph/publication state,
@@ -22,7 +46,7 @@ and [`mcp-tools.md`](mcp-tools.md) (MCP tools); the graph model itself is in
 
 The module path is `github.com/open-mcp-ai/Codexploit`.
 
-## Pipeline
+## Implemented pipeline
 
 ```text
 source (git URL | local git | plain directory)
@@ -52,8 +76,7 @@ semantics from the SCG: entry points, attacker-controlled inputs, trust
 boundaries, security controls, sensitive operations and the assets they touch,
 plus bounded call-graph reachability between them. It is rule-based and derived —
 it reads the SCG and never writes to it — and every node and edge records the SCG
-facts it came from. The semantic-agent and verification layers that attach
-hypotheses and confirmed results are later phases. See [`asg.md`](asg.md).
+facts it came from. Optional semantic enrichment must retain hypothesis provenance. Path runtimes and verification primitives already exist; the new project supervisor and full environment plugins remain separate work. See [`asg.md`](asg.md).
 
 The AuditPath engine turns that attack surface into scheduled work: bounded
 candidate enumeration over observed call chains, exact dedup by canonical edge
@@ -92,7 +115,7 @@ agent's internal reasoning is. See [`agent-runtime.md`](agent-runtime.md).
 | `internal/llm` | Encrypted model settings (workspace file or shared ciphertext), installation-key loading, CAS versions, OpenAI-compatible clients and the real connection test | never return the API key or installation key through a public value; never reset ciphertext when the key is missing | `internal/app`, `internal/api`, `internal/agent` |
 | `internal/api` | REST adapter: routing, request decoding and body limits, capability-based authentication, `Idempotency-Key` handling, ETag/If-Match, JSON error mapping | contains no analysis logic and no driver choice; never exposes a route without a capability rule | `cmd/server` |
 | `internal/mcp` | MCP adapter: nine read-only graph tools, argument validation, error classification, provenance block | no writes, no shell, no arbitrary file access, no free-form query language | `cmd/mcp` |
-| `internal/app` | Composition root: the single place where the SQLite driver, the migration set, the frontends, the store, the graph service, the attack-surface service and the path engine are chosen and wired | must stay free of HTTP and CLI concerns | `cmd/cli`, `cmd/server`, `cmd/mcp` |
+| `internal/app` | Composition root: the single place where storage drivers, the migration set, the frontends, the store, the graph service, the attack-surface service and the path engine are chosen and wired | must stay free of HTTP and CLI concerns | `cmd/cli`, `cmd/server`, `cmd/mcp` |
 | `cmd/cli` | Developer entry point: `manifest`, `snapshot`, `snapshots list\|remove`, all `scg` subcommands; human summaries or `--json` | does not own a database (stateless commands use an in-memory store; `scg` commands open the file store) | operator |
 | `cmd/server` | REST process: flags, authentication construction, HTTP server timeouts, graceful shutdown | does not build tokens from anywhere but flags or `CODEXPLOIT_API_TOKENS` | operator |
 | `cmd/scanner` | fixed-version process scanner: bounded NDJSON JSON-RPC, frozen tar parsing, alert-only normalization input | never builds/tests/executes target code; never writes a verdict | `internal/scanner`, `internal/processplugin` |

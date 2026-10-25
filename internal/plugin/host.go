@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"sync"
 	"time"
@@ -14,6 +15,7 @@ import (
 )
 
 var ErrBudget = errors.New("plugin: execution budget exceeded")
+var ErrCapacity = fmt.Errorf("%w: execution capacity is busy", ErrBudget)
 
 type Budget struct {
 	MaxInputBytes  int64 `json:"max_input_bytes"`
@@ -49,6 +51,28 @@ func (b Budget) defaults() (Budget, error) {
 	return b, nil
 }
 
+func (b Budget) stageDefaults() (Budget, error) {
+	output, timeout := b.MaxOutputBytes, b.TimeoutSeconds
+	b.MaxOutputBytes = 1
+	b.TimeoutSeconds = 1
+	validated, err := b.defaults()
+	if err != nil {
+		return Budget{}, err
+	}
+	if output == 0 {
+		output = 256 << 20
+	}
+	if timeout == 0 {
+		timeout = 300
+	}
+	if output < 1 || output > artifact.MaxBytes || timeout < 1 || timeout > 3600 {
+		return Budget{}, ErrInvalid
+	}
+	validated.MaxOutputBytes = output
+	validated.TimeoutSeconds = timeout
+	return validated, nil
+}
+
 type Request struct {
 	APIVersion    string          `json:"api_version"`
 	ID            string          `json:"invocation_id,omitempty"`
@@ -59,16 +83,21 @@ type Request struct {
 	Inputs        []artifact.Ref  `json:"inputs"`
 	Config        json.RawMessage `json:"config"`
 	Budget        Budget          `json:"budget"`
+	OperationID   string          `json:"operation_id,omitempty"`
+	InputPorts    []string        `json:"input_ports,omitempty"`
+	WorkerID      string          `json:"worker_id,omitempty"`
 }
 type Coverage struct {
-	Truncated       bool  `json:"truncated,omitempty"`
-	DescriptorFiles int   `json:"descriptor_files"`
-	InputFiles      int   `json:"input_files"`
-	ParsedFiles     int   `json:"parsed_files"`
-	PartialFiles    int   `json:"partial_files"`
-	UnparsedFiles   int   `json:"unparsed_files"`
-	UnhandledFiles  int   `json:"unhandled_files"`
-	InputBytes      int64 `json:"input_bytes"`
+	Events          []StageEvent   `json:"-"`
+	Stage           *StageCoverage `json:"-"`
+	Truncated       bool           `json:"truncated,omitempty"`
+	DescriptorFiles int            `json:"descriptor_files"`
+	InputFiles      int            `json:"input_files"`
+	ParsedFiles     int            `json:"parsed_files"`
+	PartialFiles    int            `json:"partial_files"`
+	UnparsedFiles   int            `json:"unparsed_files"`
+	UnhandledFiles  int            `json:"unhandled_files"`
+	InputBytes      int64          `json:"input_bytes"`
 }
 type Invocation struct {
 	Analysis      *AnalysisResult `json:"analysis,omitempty"`
@@ -84,6 +113,8 @@ type Invocation struct {
 	ErrorCode     string          `json:"error_code,omitempty"`
 	CreatedAt     string          `json:"created_at"`
 	UpdatedAt     string          `json:"updated_at"`
+	StageCoverage *StageCoverage  `json:"stage_coverage,omitempty"`
+	StageEvents   []StageEvent    `json:"stage_events,omitempty"`
 }
 
 func Terminal(status string) bool {
@@ -115,14 +146,50 @@ type Deps struct {
 	Executors  []Executor
 }
 type Host struct {
-	executors map[string]Executor
-	deps      Deps
-	ctx       context.Context
-	cancel    context.CancelFunc
-	mu        sync.Mutex
-	active    map[string]context.CancelFunc
-	wg        sync.WaitGroup
-	closed    bool
+	executorMu sync.RWMutex
+	executors  map[string]Executor
+	deps       Deps
+	ctx        context.Context
+	cancel     context.CancelFunc
+	mu         sync.Mutex
+	active     map[string]context.CancelFunc
+	wg         sync.WaitGroup
+	closed     bool
+}
+
+func (h *Host) executor(request Request) Executor {
+	h.executorMu.RLock()
+	defer h.executorMu.RUnlock()
+	return h.executors[executionKey(request.PluginID, request.PluginVersion, request.OperationID)]
+}
+
+func (h *Host) AddExecutors(ctx context.Context, executors []Executor) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.closed {
+		return ErrUnsupported
+	}
+	for _, executor := range executors {
+		if executor.Run == nil && executor.RunOutputs == nil {
+			return ErrInvalid
+		}
+		var manifest Manifest
+		if json.Unmarshal(executor.Manifest, &manifest) != nil {
+			return ErrInvalid
+		}
+		if manifest.APIVersion == DefinitionVersion {
+			if _, err := manifest.Operation(executor.OperationID); err != nil {
+				return err
+			}
+		}
+		if err := h.deps.Catalog.install(ctx, executor.Manifest, executor.PackageDigest, executor.Source); err != nil {
+			return err
+		}
+		h.executorMu.Lock()
+		h.executors[executionKey(manifest.ID, manifest.Version, executor.OperationID)] = executor
+		h.executorMu.Unlock()
+	}
+	return nil
 }
 
 func NewHost(deps Deps) (*Host, error) {
@@ -131,7 +198,7 @@ func NewHost(deps Deps) (*Host, error) {
 	}
 	executors := map[string]Executor{}
 	for _, executor := range deps.Executors {
-		if executor.Run == nil || len(executor.InputSchemas) == 0 {
+		if executor.Run == nil && executor.RunOutputs == nil {
 			return nil, ErrInvalid
 		}
 		source := executor.Source
@@ -143,10 +210,17 @@ func NewHost(deps Deps) (*Host, error) {
 		}
 		var manifest Manifest
 		_ = json.Unmarshal(executor.Manifest, &manifest)
-		if (manifest.Kind == "reporter") != (executor.DocumentMediaType != nil) {
+		if manifest.APIVersion == DefinitionVersion {
+			op, opErr := manifest.Operation(executor.OperationID)
+			if opErr != nil || executor.RunOutputs == nil {
+				return nil, ErrInvalid
+			}
+			executor.OperationID = op.ID
+		}
+		if manifest.APIVersion != DefinitionVersion && (manifest.Kind == "reporter") != (executor.DocumentMediaType != nil) {
 			return nil, ErrInvalid
 		}
-		executors[manifest.ID+"@"+manifest.Version] = executor
+		executors[executionKey(manifest.ID, manifest.Version, executor.OperationID)] = executor
 	}
 	recoverCtx, done := context.WithTimeout(context.Background(), 15*time.Second)
 	defer done()
@@ -178,7 +252,11 @@ func (h *Host) Execute(ctx context.Context, request Request) (Invocation, error)
 	if scope != request.Scope {
 		return Invocation{}, ErrNotFound
 	}
-	request.Budget, err = request.Budget.defaults()
+	if entry.Manifest.APIVersion == DefinitionVersion {
+		request.Budget, err = request.Budget.stageDefaults()
+	} else {
+		request.Budget, err = request.Budget.defaults()
+	}
 	if err != nil {
 		return Invocation{}, err
 	}
@@ -189,7 +267,27 @@ func (h *Host) Execute(ctx context.Context, request Request) (Invocation, error)
 	if json.Unmarshal(request.Config, &config) != nil {
 		return Invocation{}, ErrInvalid
 	}
-	schema, err := resolveConfig(entry.Manifest.ConfigSchema)
+	configSchema := entry.Manifest.ConfigSchema
+	if entry.Manifest.APIVersion == DefinitionVersion {
+		op, err := entry.Manifest.Operation(request.OperationID)
+		if err != nil {
+			return Invocation{}, err
+		}
+		request.OperationID = op.ID
+		selected := request
+		selected.OperationID = op.ID
+		if h.executor(selected).RunOutputs == nil && h.executor(selected).Run == nil {
+			return Invocation{}, ErrUnsupported
+		}
+		request.InputPorts, err = BindInputPorts(op, request.Inputs, request.InputPorts)
+		if err != nil {
+			return Invocation{}, err
+		}
+		configSchema = op.ConfigSchema
+	} else if request.OperationID != "" || len(request.InputPorts) > 0 {
+		return Invocation{}, ErrInvalid
+	}
+	schema, err := resolveConfig(configSchema)
 	if err != nil || schema.Validate(config) != nil {
 		return Invocation{}, ErrInvalid
 	}
@@ -212,9 +310,12 @@ func (h *Host) Execute(ctx context.Context, request Request) (Invocation, error)
 			return Invocation{}, ErrInvalid
 		}
 	}
+	request.WorkerID = ""
 	raw, _ := json.Marshal(request)
+	request.WorkerID = h.deps.Catalog.WorkerID
+	detachedRaw, _ := json.Marshal(request)
 	var detached Request
-	if err := json.Unmarshal(raw, &detached); err != nil {
+	if err := json.Unmarshal(detachedRaw, &detached); err != nil {
 		return Invocation{}, ErrInvalid
 	}
 	request = detached
@@ -222,6 +323,9 @@ func (h *Host) Execute(ctx context.Context, request Request) (Invocation, error)
 	inv := Invocation{ID: request.ID, Request: request, RequestDigest: digest(raw), ConfigDigest: digest(request.Config), Status: "CREATED", Version: 1, Outputs: []artifact.Ref{}, Limitations: []string{"Go syntax only; no type checking, dependency execution or vulnerability verdicts"}, CreatedAt: now, UpdatedAt: now}
 	if request.PluginID != BuiltinID {
 		inv.Limitations = []string{"Static analysis observations are candidates; no taint flow or exploitability is established"}
+	}
+	if entry.Manifest.APIVersion == DefinitionVersion {
+		inv.Limitations = []string{"Results are accepted only after validating the registered stage boundary"}
 	}
 	if entry.Manifest.Kind == "reporter" {
 		inv.Limitations = []string{"Report preserves captured verdicts and coverage; it performs no analysis or verification"}
@@ -242,7 +346,7 @@ func (h *Host) Execute(ctx context.Context, request Request) (Invocation, error)
 		return Invocation{}, lookupErr
 	}
 	if len(h.active) >= 2 {
-		return Invocation{}, ErrBudget
+		return Invocation{}, ErrCapacity
 	}
 	stored, created, err := h.deps.Repository.CreateInvocation(ctx, inv)
 	if err != nil || !created {
@@ -272,12 +376,14 @@ func (h *Host) run(ctx context.Context, cancel context.CancelFunc, inv Invocatio
 	var coverage Coverage
 	var limitations []string
 	var err error
-	if inv.Request.PluginID == BuiltinID {
+	if inv.Request.PluginID == BuiltinID && inv.Request.OperationID == "" {
 		outputs, coverage, limitations, err = h.parse(ctx, inv)
 	} else {
 		outputs, coverage, limitations, err = h.analyze(ctx, inv)
 	}
 	inv.Coverage = coverage
+	inv.StageCoverage = coverage.Stage
+	inv.StageEvents = coverage.Events
 	inv.Limitations = append(inv.Limitations, limitations...)
 	inv.Status = "SUCCEEDED"
 	if coverage.Truncated || coverage.PartialFiles+coverage.UnparsedFiles+coverage.UnhandledFiles > 0 {
@@ -320,7 +426,7 @@ func (h *Host) run(ctx context.Context, cancel context.CancelFunc, inv Invocatio
 				inv.ErrorCode = "unsupported_report_version"
 			}
 		}
-	} else if coverage.ParsedFiles+coverage.PartialFiles+coverage.UnparsedFiles == 0 && h.executors[inv.Request.PluginID+"@"+inv.Request.PluginVersion].DocumentMediaType == nil {
+	} else if coverage.ParsedFiles+coverage.PartialFiles+coverage.UnparsedFiles == 0 && h.executor(inv.Request).DocumentMediaType == nil && inv.Request.OperationID == "" {
 		inv.Status = "UNSUPPORTED"
 		inv.ErrorCode = "no_supported_files"
 		inv.Outputs = []artifact.Ref{}
@@ -330,11 +436,14 @@ func (h *Host) run(ctx context.Context, cancel context.CancelFunc, inv Invocatio
 	inv.Version++
 	inv.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	commitCtx, done := context.WithTimeout(context.Background(), 5*time.Second)
-	if inv.Request.PluginID != BuiltinID && h.executors[inv.Request.PluginID+"@"+inv.Request.PluginVersion].DocumentMediaType == nil {
+	if inv.Request.PluginID != BuiltinID && h.executor(inv.Request).DocumentMediaType == nil && inv.Request.OperationID == "" {
 		inv.Analysis = analysisResult(inv)
 	}
 	defer done()
-	_ = h.deps.Repository.SaveInvocation(commitCtx, inv, 2)
+	commitErr := h.deps.Repository.SaveInvocation(commitCtx, inv, 2)
+	if commitErr == nil {
+		h.deps.Catalog.recordProbe(commitCtx, inv)
+	}
 }
 
 // PublishableOutput permits failed normalization to retain only its raw report.

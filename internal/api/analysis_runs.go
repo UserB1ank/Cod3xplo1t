@@ -35,10 +35,10 @@ type analysisStageDefinition struct {
 }
 
 var analysisStageDefinitions = []analysisStageDefinition{
-	{Key: "parse", Label: "代码图谱", NodeID: "parse", PluginID: "builtin.go-parser", PluginVersion: "1.2.0"},
-	{Key: "semantic", Label: "安全语义与攻击面", NodeID: "semantic", PluginID: "builtin.security-semantics", PluginVersion: "1.2.0"},
-	{Key: "paths", Label: "候选路径", NodeID: "paths", PluginID: "builtin.discovery-paths", PluginVersion: "1.2.0"},
-	{Key: "enhance", Label: "路径筛选与评分", NodeID: "enhance", PluginID: "builtin.path-enhancer", PluginVersion: "1.0.0"},
+	{Key: "parse", Label: "代码图谱", NodeID: "parse", PluginID: workflow.DefaultEnginePluginID, PluginVersion: workflow.DefaultEnginePluginVersion},
+	{Key: "semantic", Label: "安全语义与攻击面", NodeID: "semantic", PluginID: workflow.DefaultEnginePluginID, PluginVersion: workflow.DefaultEnginePluginVersion},
+	{Key: "paths", Label: "候选路径", NodeID: "paths", PluginID: workflow.DefaultEnginePluginID, PluginVersion: workflow.DefaultEnginePluginVersion},
+	{Key: "enhance", Label: "路径筛选与评分", NodeID: "enhance", PluginID: workflow.DefaultEnginePluginID, PluginVersion: workflow.DefaultEnginePluginVersion},
 	{Key: "publish", Label: "共享知识发布", NodeID: "$publish", PluginID: "codexploit.workflow"},
 	{Key: "analyze", Label: "Agent 辅助分析", NodeID: "$analyze", PluginID: "codexploit.workflow"},
 }
@@ -187,23 +187,45 @@ func (s *Server) handleStartAnalysisRun(w http.ResponseWriter, r *http.Request) 
 			runtimeName = info.Name
 		}
 	}
-	raw, err := json.Marshal(workflow.DefaultAnalysisSpec())
+	engine, err := s.analysisEngineStatus(r.Context())
 	if err != nil {
 		writeAnalysisError(w, err)
 		return
 	}
-	if _, err := s.Workflows.Save(r.Context(), projectID, raw, ""); err != nil {
+	if !engine.Ready {
+		writeError(w, http.StatusServiceUnavailable, "analysis_engine_unavailable", errors.New(engine.Reason))
+		return
+	}
+	spec := s.analysisProvider().Workflow()
+	raw, err := json.Marshal(spec)
+	if err != nil {
+		writeAnalysisError(w, err)
+		return
+	}
+	expected := ""
+	entries, listErr := s.Workflows.List(r.Context(), projectID, spec.ID+"@", 1)
+	if listErr != nil {
+		writeWorkflowError(w, listErr)
+		return
+	}
+	for _, entry := range entries {
+		if entry.Spec.ID == spec.ID {
+			expected = entry.HeadDigest
+			break
+		}
+	}
+	if _, err := s.Workflows.Save(r.Context(), projectID, raw, expected); err != nil {
 		writeWorkflowError(w, err)
 		return
 	}
-	plan, err := s.WorkflowCompiler.Compile(r.Context(), projectID, workflow.DefaultAnalysisWorkflowID, workflow.DefaultAnalysisWorkflowVersion, workflow.CompileRequest{
-		APIVersion: "codexploit/v1", SnapshotID: input.SnapshotID, Inputs: []string{root.ID}, Language: "Go",
+	plan, err := s.WorkflowCompiler.Compile(r.Context(), projectID, spec.ID, spec.Version, workflow.CompileRequest{
+		APIVersion: "codexploit/v1", SnapshotID: input.SnapshotID, Inputs: []string{root.ID}, Language: analysisLanguage(spec),
 	})
 	if err != nil {
 		writeWorkflowError(w, err)
 		return
 	}
-	accepted := []string{"paths", "enhance", "$publish"}
+	accepted := []string{"parse", "semantic", "paths", "enhance", "$publish"}
 	if req.AgentAssisted {
 		accepted = append(accepted, "$analyze")
 	}
@@ -220,7 +242,7 @@ func (s *Server) handleStartAnalysisRun(w http.ResponseWriter, r *http.Request) 
 	record := storage.AnalysisRun{
 		ID: "analysis-" + rand.Text(), ProjectID: projectID, SnapshotID: input.SnapshotID,
 		TaskID: run.TaskID, WorkflowRunID: run.ID, PlanID: plan.ID, PlanDigest: plan.Digest,
-		WorkflowID: workflow.DefaultAnalysisWorkflowID, WorkflowVersion: workflow.DefaultAnalysisWorkflowVersion,
+		WorkflowID: spec.ID, WorkflowVersion: spec.Version, Engine: &engine.Pin,
 		State: "QUEUED", AgentAssisted: req.AgentAssisted, CreatedAt: now, UpdatedAt: now, Version: 1,
 	}
 	created, err := s.Store.CreateAnalysisRun(r.Context(), record, req.IdempotencyKey)
@@ -470,6 +492,7 @@ func applyPlanVersions(stages []storage.AnalysisRunStage, plan workflow.Plan) {
 	}
 	for i := range stages {
 		if node, ok := byID[stages[i].NodeID]; ok {
+			stages[i].OperationID = node.OperationID
 			stages[i].PluginID = node.PluginID
 			stages[i].PluginVersion = node.PluginVersion
 		}

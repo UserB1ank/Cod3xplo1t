@@ -1,6 +1,8 @@
 # 版本化插件与内置 Go 解析器
 
-Issue #6 将插件目录、内置执行器和正式插件中心接到真实存储。插件目录在工作区共享，调用与产物严格限定 project / source / snapshot。当前安装 `builtin.go-parser@1.2.0`、两个内置分析插件，以及部署目录提供的固定版本进程扫描器 `codexploit.static-patterns@1.0.6`。进程扫描器通过有界 NDJSON JSON-RPC 读取冻结源码 tar，只报告告警位置，不运行目标项目的 build、test、hook 或依赖安装；包格式、协议、归一化和局限见 [进程扫描器](process-scanner.md)。
+分阶段黑盒插件 v2 已接入宿主、PostgreSQL、认证 API、工作流和正式管理页。请先阅读 [运行与开发手册](plugins-v2.md)，以及 [ScopeSentry 参考方案与开发模板](design/plugin-system-v2/README.md)。下文描述保留的 v1 内置和扫描器兼容接口。
+
+Issue #6 将插件目录、内置执行器和正式插件中心接到真实存储。插件目录在工作区共享，调用与产物严格限定 project / source / snapshot。当前安装 `builtin.go-parser@1.2.0`、两个内置分析插件，以及部署目录提供的固定版本进程扫描器 `codexploit.static-patterns@1.0.13`。进程扫描器通过有界 NDJSON JSON-RPC 读取冻结源码 tar，只报告告警位置，不运行目标项目的 build、test、hook 或依赖安装；包格式、协议、归一化和局限见 [进程扫描器](process-scanner.md)。
 
 ## 标准接口
 
@@ -17,9 +19,9 @@ Go 端口在 `internal/plugin`：
 
 清单使用 `contracts/v1/plugin.schema.json`，运行时目录与调用响应使用 `plugin-runtime.schema.json`。认证接口返回前执行离线 Schema 校验。`examples/plugin-runtime.json` 提供外部清单仅登记的完整样例。
 
-清单登记不下载或安装程序，也不会因为 runtime.kind 写成 builtin 就获得执行权限。内置可用性要求 ID、版本、规范清单摘要和编译包摘要全部匹配宿主。部署目录中的 process 包在启动时校验摘要和安全相对 entrypoint 后登记并安装；容器 / 远程 worker 以及 HTTP 安装仍由后续 Issue 提供。参数 Schema 的外部引用被拒绝，不能触发网络下载。
+清单登记不下载或安装程序，也不会因为 runtime.kind 写成 builtin 就获得执行权限。内置可用性要求 ID、版本、规范清单摘要和编译包摘要全部匹配宿主。部署目录中的 process 包在启动时校验摘要和安全相对 entrypoint 后登记并安装；v2 可通过认证管理 API 安装已核验的本机部署包；远程分发不在当前实现范围。参数 Schema 的外部引用被拒绝，不能触发网络下载。
 
-内置包摘要绑定宿主适配器源码、Go frontend 源码和 Go 工具链版本。它是可复现的编译输入指纹，不是整个服务器可执行文件的摘要。进程包摘要绑定规范化清单和包内每个普通文件。修改包内容或工具链后需要提升插件版本，不能在已有数据库中静默替换相同 ID/version；升级前应保留旧版本记录和已有调用。
+内置包摘要绑定宿主适配器源码、Go frontend 源码和 Go 工具链版本。它是可复现的编译输入指纹，不是整个服务器可执行文件的摘要。进程包摘要绑定规范化清单和包内每个普通文件。外部 process 包修改后必须提升版本；宿主内编译的兼容插件另存不可变 build_id，见 v2 手册；升级前应保留旧版本记录和已有调用。
 
 `Record` 同时返回 `installed` 与 `executable`：前者表示部署目录中存在通过摘要/入口校验的包，后者表示宿主实际注册了执行适配器。手工导入但没有本地包的 process 清单只显示“已登记 · 未安装 · 不可执行”，不会退化为可执行。
 
@@ -78,7 +80,7 @@ Issue #7 已接通内置语义和路径分析、Normalizer、AnalysisResult 与�
 
 请求非法为 400，未认证 401，权限不足 403，错误 Scope/记录 404，相同版本/ID 冲突 409，未安装版本 409 `plugin_unsupported`，取消的陈旧版本 412，预算/容量 413，缺少 If-Match 428，能力未配置 501，存储故障 503。损坏或缺失输入沿用 ArtifactStore 的公开错误。失败状态和有限 error_code 如实保存，不返回隐藏推理或真实密钥。
 
-正式插件中心可导入清单、查看注册/安装/可执行状态、能力/Schema、选择快照和版本、编辑参数与预算、发起/取消并查看记录。进程扫描器调用额外显示标准候选与原始告警报告；任务页显示原始报告、标准告警、来源和知识发布版本。产物入口进入已有“产物与证据”，支持 Go AST / 代码事实预览和认证下载。LLM 设置、登录、CLI / MCP 和旧 `/api` 图谱行为保持兼容。
+正式插件中心可导入清单、查看注册/安装/可执行状态、能力/Schema、选择快照和版本、编辑参数与预算、发起/取消并查看记录。执行表单先展示固定输入、权限与准备状态；唯一匹配的产物自动预选，多个候选必须显式选择，缺少必需输入时提交按钮不可用。取消与执行位于滚动表单的固定底栏，关闭对话框不会创建空调用。进程扫描器调用额外显示标准候选与原始告警报告；任务页显示原始报告、标准告警、来源和知识发布版本。产物入口进入已有“产物与证据”，支持 Go AST / 代码事实预览和认证下载。LLM 设置、登录、CLI / MCP 和旧 `/api` 图谱行为保持兼容。
 
 ## 验收
 
@@ -106,7 +108,7 @@ Issue #7 已接通内置语义和路径分析、Normalizer、AnalysisResult 与�
 - `installed`：部署中是否存在通过校验的包或已配置后端；
 - `measured`：宿主是否真的完成了握手或探测，能执行该阶段。
 
-插件 Runtime 与目标环境 backend 不再混成一个概念：Agent Runtime 的 readiness 来自 `agent.RuntimeInfo`，环境 backend 的能力来自 `verify.EnvironmentProvider.Capabilities()`，验证执行器来自 `verify.Executor.Capabilities()`。没有配置时目录显示占位适配器和真实原因，不会把阶段隐藏，也不会声称动态验证可用。`protocol_version` 记录宿主实际使用的协议（内置 `builtin/v1`、进程 `ndjson-jsonrpc/v1`）；清单可声明 `runtime.protocol`，与宿主不一致时只登记、不可执行，编译在运行前拒绝。
+插件 Runtime 与目标环境 backend 不再混成一个概念：Agent Runtime 的 readiness 来自 `agent.RuntimeInfo`，环境 backend 的能力来自 `verify.EnvironmentProvider.Capabilities()`，验证执行器来自 `verify.Executor.Capabilities()`。没有配置时目录显示占位适配器和真实原因，不会把阶段隐藏，也不会声称动态验证可用。`protocol_version` 记录宿主实际使用的协议（内置 `builtin/v1`、进程 `ndjson-jsonrpc/v1`）；清单可声明 `runtime.protocol`，与宿主不一致时只登记、不可执行，编译在运行前拒绝。Agent runtime 的既有 pin 使用裸整数（当前为 `1`），能力目录按显式兼容规则接受这种历史协议版本，同时继续拒绝 `v1`、任意文本或伪造的限定版本；插件执行协议仍使用限定名称。
 
 版本化领域协议存放在本地 `contracts/v1/domain-protocols.json`，不依赖网络解析：
 

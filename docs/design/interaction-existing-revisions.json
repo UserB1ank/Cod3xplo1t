@@ -1,0 +1,110 @@
+[
+  {
+    "number": 19,
+    "title": "独立产物容器保存与恢复源码和分析结果",
+    "file": "docs/design/interaction-issues/revised/19.md",
+    "url": "https://github.com/UserB1ank/Cod3xplo1t/issues/19"
+  },
+  {
+    "number": 20,
+    "title": "PostgreSQL 备份恢复与旧 SQLite 数据单向迁移演练",
+    "file": "docs/design/interaction-issues/revised/20.md",
+    "url": "https://github.com/UserB1ank/Cod3xplo1t/issues/20"
+  },
+  {
+    "number": 21,
+    "title": "通过受控容器 Worker 执行扫描插件",
+    "file": "docs/design/interaction-issues/revised/21.md",
+    "url": "https://github.com/UserB1ank/Cod3xplo1t/issues/21"
+  },
+  {
+    "number": 22,
+    "title": "项目总览与搜索展示真实阶段、主子任务和审计产出",
+    "file": "docs/design/interaction-issues/revised/22.md",
+    "url": "https://github.com/UserB1ank/Cod3xplo1t/issues/22"
+  },
+  {
+    "number": 27,
+    "title": "服务启动创建真实示例项目并沿新项目流程展示",
+    "file": "docs/design/interaction-issues/revised/27.md",
+    "url": "https://github.com/UserB1ank/Cod3xplo1t/issues/27"
+  },
+  {
+    "number": 28,
+    "title": "在插件中心和工作流编译时核验版本化能力与输入输出契约",
+    "file": "docs/design/interaction-issues/revised/28.md",
+    "url": "https://github.com/UserB1ank/Cod3xplo1t/issues/28"
+  },
+  {
+    "number": 29,
+    "title": "确定性路径增强插件接入一键分析并解释筛选依据",
+    "file": "docs/design/interaction-issues/revised/29.md",
+    "url": "https://github.com/UserB1ank/Cod3xplo1t/issues/29"
+  },
+  {
+    "number": 30,
+    "title": "在候选详情生成并审批绑定环境要求的固定验证计划",
+    "file": "docs/design/interaction-issues/revised/30.md",
+    "url": "https://github.com/UserB1ank/Cod3xplo1t/issues/30"
+  },
+  {
+    "number": 31,
+    "title": "通过环境供应插件创建并销毁真实容器验证环境",
+    "file": "docs/design/interaction-issues/revised/31.md",
+    "url": "https://github.com/UserB1ank/Cod3xplo1t/issues/31"
+  },
+  {
+    "number": 32,
+    "title": "在授权容器环境验证单服务候选并基于真实证据派生裁定",
+    "file": "docs/design/interaction-issues/revised/32.md",
+    "url": "https://github.com/UserB1ank/Cod3xplo1t/issues/32"
+  },
+  {
+    "number": 33,
+    "title": "验证带数据库依赖的多服务目标并恢复已知基线",
+    "file": "docs/design/interaction-issues/revised/33.md",
+    "url": "https://github.com/UserB1ank/Cod3xplo1t/issues/33"
+  },
+  {
+    "number": 34,
+    "title": "重启或 worker 失联后回收验证环境并拒绝旧执行结果",
+    "file": "docs/design/interaction-issues/revised/34.md",
+    "url": "https://github.com/UserB1ank/Cod3xplo1t/issues/34"
+  },
+  {
+    "number": 35,
+    "title": "用第二种虚拟机供应器复用同一验证工具完成真实验证",
+    "file": "docs/design/interaction-issues/revised/35.md",
+    "url": "https://github.com/UserB1ank/Cod3xplo1t/issues/35"
+  },
+  {
+    "number": 36,
+    "title": "固定报告展示验证环境、结构化断言与完整证据链",
+    "file": "docs/design/interaction-issues/revised/36.md",
+    "url": "https://github.com/UserB1ank/Cod3xplo1t/issues/36"
+  },
+  {
+    "number": 47,
+    "title": "覆盖合同与版本化账本计算四阶段和主子 Agent 的审计完成性",
+    "file": "docs/design/interaction-issues/revised/47.md",
+    "url": "https://github.com/UserB1ank/Cod3xplo1t/issues/47"
+  },
+  {
+    "number": 48,
+    "title": "固定报告展示审计边界、主子 Agent 来源与未决前沿",
+    "file": "docs/design/interaction-issues/revised/48.md",
+    "url": "https://github.com/UserB1ank/Cod3xplo1t/issues/48"
+  },
+  {
+    "number": 50,
+    "title": "补齐文本搜索与未解析调用查询工具",
+    "file": "docs/design/interaction-issues/revised/50.md",
+    "url": "https://github.com/UserB1ank/Cod3xplo1t/issues/50"
+  },
+  {
+    "number": 51,
+    "title": "补齐攻击面查询与仓库地图工具",
+    "file": "docs/design/interaction-issues/revised/51.md",
+    "url": "https://github.com/UserB1ank/Cod3xplo1t/issues/51"
+  }
+]

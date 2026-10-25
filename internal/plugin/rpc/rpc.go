@@ -366,7 +366,9 @@ func (c *Conn) write(message any) error {
 	defer c.writeMu.Unlock()
 	select {
 	case <-c.closed:
-		return ErrClosed
+		// Preserve the first framing error even when a subsequent call reaches
+		// write after Serve has already closed the peer.
+		return c.Err()
 	default:
 	}
 	_, err = c.writer.Write(raw)

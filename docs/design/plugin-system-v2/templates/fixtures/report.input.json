@@ -1,0 +1,24 @@
+{
+  "api_version": "codexploit/v1",
+  "kind": "report.input",
+  "scope": {
+    "project_id": "example-project",
+    "source_id": "example-source",
+    "snapshot_id": "example-snapshot"
+  },
+  "findings": [],
+  "evidence": [],
+  "knowledge_revisions": [],
+  "coverage": {
+    "unit": "files",
+    "seen": 1,
+    "analyzed": 1,
+    "skipped": 0,
+    "failed": 0,
+    "truncated": false,
+    "reasons": []
+  },
+  "limitations": [
+    "仅为模板协议样例，不代表真实扫描。"
+  ]
+}

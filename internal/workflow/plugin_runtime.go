@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/open-mcp-ai/Codexploit/internal/artifact"
@@ -29,7 +30,29 @@ func (e PluginExecutor) Execute(ctx context.Context, node CompiledNode, scope ar
 	if record.PackageDigest != node.Plugin.PackageDigest || record.ManifestDigest != node.Plugin.ManifestDigest {
 		return NodeResult{}, ErrConflict
 	}
-	inv, err := e.Host.Execute(ctx, plugin.Request{APIVersion: "codexploit/v1", ID: id, PluginID: node.PluginID, PluginVersion: node.PluginVersion, PackageDigest: record.PackageDigest, Scope: scope, Inputs: inputs, Config: node.Config, Budget: plugin.Budget{TimeoutSeconds: node.TimeoutSeconds}})
+	names := []string{}
+	if node.Operation != nil {
+		var bindErr error
+		names, bindErr = plugin.BindInputPorts(*node.Operation, inputs, node.BoundInputPorts)
+		if bindErr != nil {
+			return NodeResult{}, bindErr
+		}
+	}
+	request := plugin.Request{APIVersion: "codexploit/v1", ID: id, PluginID: node.PluginID, PluginVersion: node.PluginVersion, PackageDigest: record.PackageDigest, Scope: scope, Inputs: inputs, Config: node.Config, Budget: plugin.Budget{TimeoutSeconds: node.TimeoutSeconds}, OperationID: node.OperationID, InputPorts: names}
+	var inv plugin.Invocation
+	for {
+		inv, err = e.Host.Execute(ctx, request)
+		if !errors.Is(err, plugin.ErrCapacity) {
+			break
+		}
+		timer := time.NewTimer(10 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return NodeResult{}, ctx.Err()
+		case <-timer.C:
+		}
+	}
 	if err != nil {
 		return NodeResult{}, err
 	}

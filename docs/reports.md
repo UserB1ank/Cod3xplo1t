@@ -29,7 +29,7 @@ confirmed / refuted 结论，会拒绝生成。
 
 ## Reporter 与原子性
 
-`builtin.reporter@1.0.0` 是已安装的内置 reporter，消费 `discovery.findings`
+`builtin.reporter@1.1.0` 是已安装的内置 reporter，消费 `discovery.findings`
 （Schema `codexploit/report-input/v1`），只渲染保存的输入，不读取最新数据库、不扫描目标、
 不改变裁定。输出为 `report.document`（`codexploit/report-document/v1`）。
 
@@ -102,3 +102,10 @@ Markdown 以文本预览，不执行 HTML；预览最多显示 100,000 字符，
 验收覆盖真实 HTTP API、Memory / SQLite、超过一页的发现、三种格式、候选策略、分组来源、
 旧知识版本、授权下载、预算失败、取消迟到输出、快照删除栅栏及数据库重启。
 隔离容器使用合成 Go 服务和真实 process scanner；不执行目标 build / test / hook。
+
+
+### 路径审查闭环
+
+1.1.0 在固定输入中增加 `capture.reviews`，保留所选任务的每次 Agent 运行身份、版本、状态、停止原因、运行时 / 模型 pin、工具和 token 用量，以及已接受的结构化答案、义务判定和证据引用。证据不足、排除或未形成漏洞的审查也进入报告；`include_candidates` 仅筛选漏洞发现，不会隐藏这些审查结果。Markdown 提供独立的 Path review results 段，JSON 直接保留 capture，SARIF 在 run properties 中保留 capture，不为普通审查伪造漏洞结果。
+
+模型审查结论与验证裁定分别记录。报告采集连续读取两次完整输入以检查一致性，最多 10,000 次运行，仍受输入字节预算限制；缺失路径、输入变化或超限时失败。1.0.0 历史报告与产物保持原样。

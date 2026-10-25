@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codexploit.invalid/contracts/v1/project-path-stop.schema.json",
+  "title": "Existing project path queues and outstanding executor acknowledgements",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["api_version", "project_id", "state", "cancelled_paths", "paused_tasks", "remaining_paths", "pending_agent_runs", "pending_verification_runs", "pending_workflows", "errors"],
+  "properties": {
+    "api_version": { "const": "codexploit/v1" },
+    "project_id": { "type": "string", "minLength": 1 },
+    "state": { "enum": ["STOPPED", "STOPPING", "PARTIAL"] },
+    "cancelled_paths": { "type": "integer", "minimum": 0 },
+    "paused_tasks": { "type": "integer", "minimum": 0 },
+    "remaining_paths": { "type": "integer", "minimum": 0 },
+    "pending_agent_runs": { "type": "integer", "minimum": 0 },
+    "pending_verification_runs": { "type": "integer", "minimum": 0 },
+    "pending_workflows": { "type": "integer", "minimum": 0 },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["kind", "id", "message"],
+        "properties": {
+          "kind": { "enum": ["workflow", "task", "path", "agent_run"] },
+          "id": { "type": "string", "minLength": 1 },
+          "message": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

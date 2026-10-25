@@ -190,9 +190,7 @@ func (s *Server) narrowedRunner(req explorationPolicyRequest) (*agent.Runner, er
 	effective.TimeoutSeconds = narrowerLimit(req.TimeoutSeconds, base.TimeoutSeconds)
 	effective.TokenBudget = narrowerLimit(req.TokenBudget, base.TokenBudget)
 
-	clone := *s.Agent
-	clone.Policy = effective
-	return &clone, nil
+	return s.Agent.WithPolicy(effective), nil
 }
 
 // checkAllowedTools rejects a request that names a tool the registry cannot

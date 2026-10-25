@@ -48,6 +48,7 @@ func testAuthenticator(t *testing.T) *Authenticator {
 
 // testEnv is a runtime served over httptest, with a local repository fixture.
 type testEnv struct {
+	server    *Server
 	ts        *httptest.Server
 	rt        *app.Runtime
 	source    string

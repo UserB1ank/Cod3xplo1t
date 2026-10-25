@@ -20,12 +20,13 @@ documentation lives under [`docs/`](docs/) — see the
 | P1 | Workspace, immutable snapshot chain, repository manifest (languages, frameworks, dependencies, entrypoints, build descriptors, coverage, unknowns) | **implemented** |
 | P2 | Source Code Graph (modules, files, symbols, call sites, arguments, call edges), bounded graph queries, REST API and MCP server | **implemented** (Go frontend) |
 | P3 | Attack surface extraction: entry points, inputs, sinks, controls, assets, bounded reachability, ASG candidate, REST + CLI | **implemented** (rule-based; the semantic-agent and verification layers are later phases) |
-| P4 | AuditPath generation (bounded, evidence-linked), exact and approximate dedup, versioned risk/value scoring, scheduling queue with leases, events and state machine, REST + CLI | **implemented** (rule and graph based; the agent runtime and verification are later phases) |
-| P5 | Agent runtime: bounded task building with a minimal code slice, structured hypotheses with cited evidence, tool allowlist enforced in Go, expansion policy, run/event/hypothesis store, REST + CLI | **implemented** (scripted and generic CLI adapters; verification is the next phase) |
+| P4 | AuditPath generation (bounded, evidence-linked), exact and approximate dedup, versioned risk/value scoring, scheduling queue with leases, events and state machine, REST + CLI | **implemented** (rule and graph based; one-click project preparation and supervisor are planned) |
+| P5 | Agent runtime: bounded task building with a minimal code slice, structured hypotheses with cited evidence, tool allowlist enforced in Go, expansion policy, run/event/hypothesis store, REST + CLI | **implemented** (Pi and native llm path adapters, scripted/CLI compatibility; project supervisor is planned) |
 | P6 | Verification: bounded plans with a stated disproof condition, scope and approval gates, isolated execution with quotas, immutable redacted evidence, findings that stay apart (confirmed / refuted / inconclusive / blocked), reports (Markdown, JSON, SARIF) | **implemented** (scripted and restricted CLI executors; isolation is a deployment contract) |
 | P7 | Resident scheduler: due-path dispatch under a concurrency budget, bounded retries with durable backoff, lease-based crash recovery, metrics, REST + CLI | **implemented** |
 | Web UI | Project → task workbench, shared versioned knowledge, execution events, three-grade findings, embedded server and Docker deployment | **implemented** |
-| Not yet | Incremental analysis and change-impact caching, score calibration, MCP exposure of paths/runs/findings | not started |
+| Target UI / supervisor | Single-source project flow, one-click four-stage preparation, open project conversation, MCP-selected discovery/child coordination and global controls (#63–#69) | **in progress**: #63 single-source project input/editing/deletion, #28 versioned capability catalog, #29 deterministic path enhancement and #64 one-click four-stage analysis, #65 entry graph/path selection, and #66 project supervisor chat delivered; #67–#69 planned |
+| Not yet | Incremental analysis and change-impact caching, score calibration, project-scoped write MCP and complete isolated environment providers | not fully implemented |
 
 The Go frontend is currently the only language frontend; files in other source
 languages are listed and counted, never silently dropped. See
@@ -116,11 +117,15 @@ The Docker build includes the complete frontend and needs no host Go or Node
 installation. See [Web UI and deployment](docs/webui.md) for local source mounts,
 Agent configuration, development, upgrade and backup procedures.
 
-The separate [interactive design prototype](http://127.0.0.1:18085/prototype/#tasks)
-demonstrates an ARTEX-inspired task table, explicit folder/Git sources, shared
-graphs, plugin manifests, typed workflows and an independent PostgreSQL storage
-plan. It uses page-memory examples and does not scan code or change production
-data. See the [layered interface specification](docs/design/interfaces/v1/README.md).
+The separate [interactive design prototype](http://127.0.0.1:18085/prototype/)
+demonstrates one-source audit projects, one-click four-stage preparation, local
+entry-point graphs, path selection, and an open-conversation supervisor with
+child-agent controls. It uses page-memory examples and does not scan code or change production
+data. The one-source project input and project management path is now wired to the
+real API (#63); the four-stage preparation, project conversation and supervisor are
+still target designs. See the [current architecture](docs/design/project-agent-architecture.md),
+[development issues](docs/design/interaction-issues.md), and
+[DeepSeek handoff](docs/design/deepseek-handoff.md).
 
 ## Workspace
 
@@ -509,8 +514,11 @@ codes: [`docs/mcp-tools.md`](docs/mcp-tools.md).
 
 | Document | Contents |
 |---|---|
-| [`docs/design/interfaces/v1/README.md`](docs/design/interfaces/v1/README.md) | 分层接口方案、代码源、统一插件与工作流、独立 PostgreSQL 存储和 ARTEX 参考原型 |
+| [`docs/design/interfaces/v1/README.md`](docs/design/interfaces/v1/README.md) | 分层接口、项目准备、主Agent开放会话/MCP目标与现有能力映射 |
 | [`contracts/v1/README.md`](contracts/v1/README.md) | JSON Schema、完整示例与离线契约校验；`make check-contracts` |
+| [`docs/design/deepseek-handoff.md`](docs/design/deepseek-handoff.md) | current development sequence and copyable implementation handoff |
+| [`docs/design/project-agent-architecture.md`](docs/design/project-agent-architecture.md) | accepted project/supervisor architecture, diagrams and implementation boundaries |
+| [`docs/design/interaction-issues.md`](docs/design/interaction-issues.md) | updated GitHub issues, dependency graph and current scope |
 | [`docs/architecture.md`](docs/architecture.md) | pipeline, package responsibilities, storage schema, layering rules, configuration wiring |
 | [`docs/postgres-catalog.md`](docs/postgres-catalog.md) | experimental PostgreSQL execution profile, independent database container, durable tasks/workflows, shared accounts/sessions/encrypted settings, worker leases and isolated `make test-postgres` acceptance |
 | [`docs/contracts.md`](docs/contracts.md) | every invariant the code enforces, with the file that enforces it |
@@ -539,3 +547,5 @@ codes: [`docs/mcp-tools.md`](docs/mcp-tools.md).
 The guarantees behind these statements, and the limits that come with them, are
 specified in [`docs/contracts.md`](docs/contracts.md) and
 [`docs/scg.md`](docs/scg.md).
+
+项目默认使用固定 Joern 主引擎完成 CPG、污点查询和候选路径。`make run` 的镜像包含完整离线包；首轮构建需要下载锁定的上游发行物。接口、状态与整体替换边界见 [项目主图谱引擎](docs/analysis-engine.md)。

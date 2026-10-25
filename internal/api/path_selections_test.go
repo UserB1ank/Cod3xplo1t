@@ -1,6 +1,8 @@
 package api
 
 import (
+	"fmt"
+	"github.com/open-mcp-ai/Codexploit/internal/agent"
 	"net/http"
 	"testing"
 )
@@ -39,6 +41,9 @@ func TestSelectingPathsStartsIndependentIdempotentRuns(t *testing.T) {
 	}
 	if result.Selections[0].AuditID != audit.Audit.ID || result.Selections[0].PathID != selected[0] || result.Selections[0].Source != "agent" {
 		t.Fatalf("mapping = %+v", result.Selections[0])
+	}
+	if result.Selections[0].EntrySubject == "" || result.Selections[0].TargetSubject == "" {
+		t.Fatalf("subtask lost its review object: %+v", result.Selections[0])
 	}
 	// Repeating the same selection returns the same runs, not duplicates.
 	second := do(t, env.ts, http.MethodPost, url, map[string]any{"api_version": "codexploit/v1", "path_ids": selected}, nil)
@@ -89,5 +94,38 @@ func TestPathSelectionRejectsInvalidBatches(t *testing.T) {
 		if response.status != http.StatusBadRequest {
 			t.Fatalf("%s = %d %s", name, response.status, response.body)
 		}
+	}
+}
+
+func TestProjectPathSelectionsAreNotHiddenByOtherProjectsRunHistory(t *testing.T) {
+	env := newTestEnv(t, false)
+	foreign := createProject(t, env.ts, asgFixtureSource(t))
+	captured := do(t, env.ts, http.MethodPost, "/api/projects/"+foreign.Project.ID+"/snapshots", map[string]any{"build_graph": true, "build_asg": true}, nil)
+	var snap snapshotResponse
+	captured.decode(t, &snap)
+	foreignAudit := createAudit(t, env.ts, map[string]any{"snapshot_id": snap.Snapshot.SnapshotID})
+	foreignPath := auditPaths(t, env.ts, foreignAudit.Audit.ID, "").Paths[0]
+	for i := 0; i < 105; i++ {
+		if err := env.rt.Agent.Store.CreateRun(agent.Run{ID: fmt.Sprintf("foreign-run-%03d", i), AuditID: foreignAudit.Audit.ID, PathID: foreignPath.ID, SnapshotID: snap.Snapshot.SnapshotID, Status: agent.RunSucceeded, CreatedAt: "2000-01-01T00:00:00Z"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	project := createProject(t, env.ts, asgFixtureSource(t))
+	captured = do(t, env.ts, http.MethodPost, "/api/projects/"+project.Project.ID+"/snapshots", map[string]any{"build_graph": true, "build_asg": true}, nil)
+	captured.decode(t, &snap)
+	audit := createAudit(t, env.ts, map[string]any{"snapshot_id": snap.Snapshot.SnapshotID})
+	target := auditPaths(t, env.ts, audit.Audit.ID, "").Paths[0]
+	endpoint := "/api/v1/projects/" + project.Project.ID + "/path-selections"
+	selected := do(t, env.ts, http.MethodPost, endpoint, map[string]any{"api_version": "codexploit/v1", "path_ids": []string{target.ID}}, nil)
+	if selected.status != 200 {
+		t.Fatalf("select: %d %s", selected.status, selected.body)
+	}
+	listed := do(t, env.ts, http.MethodGet, endpoint, nil, nil)
+	var result struct {
+		Selections []selectedPath `json:"selections"`
+	}
+	listed.decode(t, &result)
+	if listed.status != 200 || len(result.Selections) != 1 || result.Selections[0].PathID != target.ID {
+		t.Fatalf("project run missing after foreign history: %d %s", listed.status, listed.body)
 	}
 }

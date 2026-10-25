@@ -290,6 +290,28 @@ func TestNeighborhoodAndSliceStayInsideThePinnedSnapshot(t *testing.T) {
 		t.Fatalf("a one-line budget did not report truncation: %+v", tiny.Slice.Sections)
 	}
 
+	window, err := env.reader.CodeSlice(ctx, scope, view.ID, knowledge.SliceQuery{
+		File: step.File, StartLine: 1, EndLine: 2, MaxLines: 2,
+	})
+	if err != nil {
+		t.Fatalf("file window: %v", err)
+	}
+	if len(window.Slice.Sections) != 1 {
+		t.Fatalf("file window sections: %+v", window.Slice.Sections)
+	}
+	section := window.Slice.Sections[0]
+	if section.File != step.File || section.StartLine != 1 || len(section.Lines) == 0 {
+		t.Fatalf("file window did not read the pinned file: %+v", section)
+	}
+	if section.TotalLines < int64(len(section.Lines)) {
+		t.Fatalf("file window lost the total line count: %+v", section)
+	}
+	if _, err := env.reader.CodeSlice(ctx, scope, view.ID, knowledge.SliceQuery{
+		File: step.File, SymbolID: step.ID,
+	}); !errors.Is(err, knowledge.ErrInvalid) {
+		t.Fatalf("two selectors were accepted: %v", err)
+	}
+
 	if _, err := env.reader.Neighborhood(ctx, scope, view.ID, knowledge.NeighborhoodQuery{SymbolID: "sym-missing"}); !errors.Is(err, knowledge.ErrNotFound) {
 		t.Fatalf("unknown symbol neighbourhood: %v", err)
 	}
@@ -461,5 +483,33 @@ func TestARebuiltGraphSupersedesAnOpenView(t *testing.T) {
 	}
 	if _, err := env.reader.Symbols(ctx, scope, fresh.ID, knowledge.SymbolQuery{}); err != nil {
 		t.Fatalf("fresh view: %v", err)
+	}
+}
+
+func TestPathsPaginationSkipsStaleVersionsBeforeTakingAPage(t *testing.T) {
+	env := newFixture(t)
+	ctx := context.Background()
+	scope := knowledge.Scope{ProjectID: projectAlpha, SnapshotID: snapshotOne}
+	version := env.graphs[snapshotOne].GraphVersion
+	stale := []path.Path{}
+	for _, id := range []string{"old-a", "old-b", "old-c"} {
+		stale = append(stale, path.Path{ID: id, Signature: id, AuditID: "old-audit", SnapshotID: snapshotOne, SCGVersion: "old-graph", Score: path.Score{Priority: 1}, Status: path.StatusQueued})
+	}
+	seedAudit(t, env.store, path.Audit{ID: "old-audit", SnapshotID: snapshotOne, SCGVersion: "old-graph", PathCount: 3}, stale)
+	seedAudit(t, env.store, path.Audit{ID: "current-audit", SnapshotID: snapshotOne, SCGVersion: version, PathCount: 2}, []path.Path{
+		{ID: "current-a", Signature: "current-a", AuditID: "current-audit", SnapshotID: snapshotOne, SCGVersion: version, Status: path.StatusQueued},
+		{ID: "current-b", Signature: "current-b", AuditID: "current-audit", SnapshotID: snapshotOne, SCGVersion: version, Status: path.StatusQueued},
+	})
+	view, err := env.reader.OpenView(ctx, scope, []string{knowledge.LayerPaths})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := env.reader.Paths(ctx, scope, view.ID, knowledge.PathQuery{Limit: 1})
+	if err != nil || len(first.Paths) != 1 || first.Meta.Total != 2 || first.NextCursor == "" {
+		t.Fatalf("current paths hidden by stale page: %+v %v", first, err)
+	}
+	second, err := env.reader.Paths(ctx, scope, view.ID, knowledge.PathQuery{Limit: 1, Cursor: first.NextCursor})
+	if err != nil || len(second.Paths) != 1 || second.Paths[0].ID == first.Paths[0].ID || second.NextCursor != "" {
+		t.Fatalf("second current page: %+v %v", second, err)
 	}
 }

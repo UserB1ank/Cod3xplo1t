@@ -1,5 +1,7 @@
 import {
   Fragment,
+  useId,
+  useRef,
   useCallback,
   useEffect,
   useState,
@@ -19,6 +21,11 @@ import {
 import { ApiClient, ApiError } from "./api";
 import { CodeBlock, EmptyState, Hint, Modal, Panel } from "./components";
 import type { PathSubtask, Snapshot } from "./types";
+import {
+  layoutEntryGraph,
+  callGraphNeighborhood,
+  type CallNeighborhood,
+} from "./entry-graph";
 import { latestSnapshot } from "./workbench";
 import { readRevisionDirectory } from "./knowledgeData";
 
@@ -190,11 +197,35 @@ interface Slice {
       end_line: number;
       lines: string[];
       truncated: boolean;
+      total_lines?: number;
       note?: string;
     }[];
     limitations: string[];
   };
   meta: Meta;
+}
+
+function shortEntryName(label: string) {
+  const parts = label.replace(/\/+$/, "").split(/[./]/).filter(Boolean);
+  return parts[parts.length - 1] || label;
+}
+
+function entryTitle(node: AttackNode) {
+  const label = (node.label || "").split(" · ")[0];
+  const location = label.match(/^(.*\.go):(\d+)$/);
+  if (location) return `${location[1].split("/").pop()}:${location[2]}`;
+  return shortEntryName(label || node.subject || node.node_id);
+}
+
+function sourceNote(note?: string) {
+  if (!note) return "";
+  if (note.includes("function end was not recorded"))
+    return "图谱未记录函数结束行；这里按行窗口读取，不伪造函数边界。";
+  if (note.includes("declaration as recorded"))
+    return "图谱记录的声明位置。";
+  if (note.includes("requested file window"))
+    return "按行窗口读取的固定源码片段。";
+  return note;
 }
 
 const layerLabels: Record<Layer, string> = {
@@ -214,7 +245,7 @@ const layerHints: Record<Layer, string> = {
 function failureText(error: unknown) {
   if (error instanceof ApiError) {
     if (error.code === "view_superseded")
-      return "图谱在该视图固定之后已重建，请重新固定版本。";
+      return "图谱在该视图固定之后已重建，请刷新图谱。";
     if (error.code === "knowledge_unavailable")
       return "该快照尚未构建代码图谱。";
     if (error.code === "layer_unavailable") return error.message;
@@ -238,7 +269,9 @@ function useQuery<T>(
     const controller = new AbortController();
     setState({ loading: true });
     load(controller.signal)
-      .then((data) => setState({ data, loading: false }))
+      .then((data) => {
+        if (!controller.signal.aborted) setState({ data, loading: false });
+      })
       .catch((error) => {
         if (controller.signal.aborted) return;
         setState({ error: failureText(error), loading: false });
@@ -278,6 +311,8 @@ export function Knowledge({
   revision,
   canWrite,
   agentAvailable,
+  mode = "graph",
+  onWorkbench,
 }: {
   api: ApiClient;
   projectID: string;
@@ -285,16 +320,21 @@ export function Knowledge({
   revision: number;
   canWrite: boolean;
   agentAvailable: boolean;
+  mode?: "graph" | "paths";
+  onWorkbench?: (selectionID?: string) => void;
 }) {
   const [selectedSnapshot, setSelectedSnapshot] = useState("");
   const snapshot =
     snapshots.find((item) => item.snapshot_id === selectedSnapshot) ||
     latestSnapshot(snapshots);
   const snapshotID = snapshot?.snapshot_id || "";
-  const [layer, setLayer] = useState<Layer>("entries");
+  const [layer, setLayer] = useState<Layer>(
+    mode === "paths" ? "paths" : "entries",
+  );
   const [view, setView] = useState<View>();
   const [viewError, setViewError] = useState("");
   const [viewLoading, setViewLoading] = useState(false);
+  const openController = useRef<AbortController>();
   const [openCount, setOpenCount] = useState(0);
   const [selectedSymbol, setSelectedSymbol] = useState<Symbol>();
   const [selectedNode, setSelectedNode] = useState<AttackNode>();
@@ -303,19 +343,31 @@ export function Knowledge({
 
   const openView = useCallback(() => {
     if (!snapshotID) return;
+    openController.current?.abort();
+    const controller = new AbortController();
+    openController.current = controller;
     setViewLoading(true);
     setViewError("");
     api
-      .post<{ view: View }>(`/v1/projects/${projectID}/knowledge/views`, {
-        api_version: "codexploit/v1",
-        snapshot_id: snapshotID,
+      .post<{ view: View }>(
+        `/v1/projects/${projectID}/knowledge/views`,
+        {
+          api_version: "codexploit/v1",
+          snapshot_id: snapshotID,
+        },
+        controller.signal,
+      )
+      .then((page) => {
+        if (!controller.signal.aborted) setView(page.view);
       })
-      .then((page) => setView(page.view))
       .catch((error) => {
+        if (controller.signal.aborted) return;
         setView(undefined);
         setViewError(failureText(error));
       })
-      .finally(() => setViewLoading(false));
+      .finally(() => {
+        if (!controller.signal.aborted) setViewLoading(false);
+      });
   }, [api, projectID, snapshotID]);
 
   useEffect(() => {
@@ -325,12 +377,13 @@ export function Knowledge({
     setSelectedEntry(undefined);
     setSelectedPath(undefined);
     openView();
+    return () => openController.current?.abort();
   }, [openView, revision, openCount]);
 
   if (!snapshotID) {
     return (
-      <EmptyState title="项目尚未生成快照">
-        先在代码源页面生成一个快照，任务与图谱都会引用它。
+      <EmptyState title="等待源码输入就绪">
+        创建项目时会自动保存源码。请在项目总览查看输入状态，再开始图谱化分析。
       </EmptyState>
     );
   }
@@ -358,7 +411,10 @@ export function Knowledge({
           </select>
         </div>
         <div className="knowledge-layers" role="tablist" aria-label="图谱图层">
-          {(Object.keys(layerLabels) as Layer[]).map((name) => {
+          {(mode === "paths"
+            ? (["paths"] as Layer[])
+            : (["entries", "scg", "asg"] as Layer[])
+          ).map((name) => {
             const state = view?.layers[name];
             return (
               <button
@@ -392,13 +448,12 @@ export function Knowledge({
           onClick={() => setOpenCount((n) => n + 1)}
           disabled={viewLoading}
         >
-          <RefreshCw size={15} className={viewLoading ? "spin" : ""} />{" "}
-          重新固定版本
+          <RefreshCw size={15} className={viewLoading ? "spin" : ""} /> 刷新图谱
         </button>
       </div>
 
       {viewLoading ? (
-        <Panel title="正在固定图谱版本">
+        <Panel title="正在读取图谱">
           <div className="knowledge-loading">
             <Loader2 className="spin" size={18} /> 读取该快照的图层版本…
           </div>
@@ -413,11 +468,16 @@ export function Knowledge({
       ) : view ? (
         <>
           <CoverageStrip view={view} />
-          <PublicationPanel
-            api={api}
-            projectID={projectID}
-            snapshotID={snapshotID}
-          />
+          <details className="knowledge-version-details">
+            <summary>
+              知识版本与工具来源 <span className="mono">{view.revision}</span>
+            </summary>
+            <PublicationPanel
+              api={api}
+              projectID={projectID}
+              snapshotID={snapshotID}
+            />
+          </details>
           {layerState && layerState.status !== "available" ? (
             <Panel title={layerLabels[layer]}>
               <EmptyState
@@ -431,13 +491,33 @@ export function Knowledge({
               </EmptyState>
             </Panel>
           ) : layer === "entries" ? (
-            <EntryPanel
-              api={api}
-              projectID={projectID}
-              view={view}
-              onSelect={setSelectedEntry}
-              selected={selectedEntry}
-            />
+            <div className="entry-explorer panel">
+              <EntryPanel
+                api={api}
+                projectID={projectID}
+                view={view}
+                onSelect={setSelectedEntry}
+                selected={selectedEntry}
+              />
+              <section
+                className="entry-explorer-main"
+                aria-label="入口局部图谱"
+              >
+                {selectedEntry ? (
+                  <EntryInspector
+                    key={selectedEntry.node_id}
+                    api={api}
+                    projectID={projectID}
+                    view={view}
+                    entry={selectedEntry}
+                  />
+                ) : (
+                  <EmptyState title="选择程序入口">
+                    从左侧入口开始，查看局部调用关系与源码。
+                  </EmptyState>
+                )}
+              </section>
+            </div>
           ) : layer === "scg" ? (
             <SymbolPanel
               api={api}
@@ -463,6 +543,7 @@ export function Knowledge({
               selected={selectedPath}
               canWrite={canWrite}
               agentAvailable={agentAvailable}
+              onWorkbench={onWorkbench}
             />
           )}
           {view.limitations.length ? (
@@ -491,22 +572,6 @@ export function Knowledge({
             projectID={projectID}
             view={view}
             symbol={selectedSymbol}
-          />
-        ) : null}
-      </Modal>
-      <Modal
-        open={!!selectedEntry}
-        onClose={() => setSelectedEntry(undefined)}
-        title="入口局部图谱"
-        wide
-        variant="drawer"
-      >
-        {selectedEntry && view ? (
-          <EntryInspector
-            api={api}
-            projectID={projectID}
-            view={view}
-            entry={selectedEntry}
           />
         ) : null}
       </Modal>
@@ -550,7 +615,7 @@ function CoverageStrip({ view }: { view: View }) {
   const parsed = view.coverage.files_parsed ?? 0;
   const total = view.coverage.files_in_snapshot ?? 0;
   return (
-    <div className="task-stat-strip">
+    <div className="task-stat-strip knowledge-coverage">
       <div>
         <span>源码文件</span>
         <strong>
@@ -558,7 +623,7 @@ function CoverageStrip({ view }: { view: View }) {
         </strong>
       </div>
       <div>
-        <span>未解析</span>
+        <span>部分或未解析</span>
         <strong>
           {(view.coverage.files_unparsed ?? 0) +
             (view.coverage.files_partial ?? 0)}
@@ -807,6 +872,154 @@ function usePager() {
   return { cursor, page: cursors.length - 1, next, back, reset };
 }
 
+function pathReviewState(item?: PathSubtask) {
+  if (!item) return "待选择";
+  switch (item.state) {
+    case "SUCCEEDED":
+    case "CONCLUDED":
+      return "审查已完成 · 已创建任务";
+    case "FAILED":
+    case "INVALID_OUTPUT":
+      return "审查失败 · 已创建任务";
+    case "PAUSED":
+      return "审查已暂停 · 已创建任务";
+    case "CANCELLED":
+      return "审查已停止 · 已创建任务";
+    case "RUNNING":
+    case "ANALYZING":
+    case "QUEUED":
+      return "审查进行中 · 已创建任务";
+    default:
+      return `已创建任务 · ${item.state}`;
+  }
+}
+
+function SourceReader({
+  api,
+  base,
+  snapshotID,
+  initial,
+  focusLine,
+  artifactHint,
+}: {
+  api: ApiClient;
+  base: string;
+  snapshotID: string;
+  initial: Slice;
+  focusLine: number;
+  artifactHint?: string;
+}) {
+  const first = initial.slice.sections[0];
+  const [window, setWindow] = useState<{
+    file: string;
+    start: number;
+    end: number;
+  }>();
+  const [focus, setFocus] = useState(focusLine);
+  useEffect(() => {
+    setWindow(undefined);
+    setFocus(focusLine);
+  }, [focusLine, initial]);
+  const loaded = useQuery<Slice | undefined>(
+    (signal) =>
+      window
+        ? api.get<Slice>(
+            `${base}/code-slice?file=${encodeURIComponent(window.file)}&start_line=${window.start}&end_line=${window.end}&max_lines=400&max_sections=1`,
+            signal,
+          )
+        : Promise.resolve(undefined),
+    [api, base, window?.file, window?.start, window?.end],
+  );
+  const active = window ? loaded.data : initial;
+  const section = active?.slice.sections[0];
+  if (!section) return <Hint>固定快照中没有可读取的源码窗口。</Hint>;
+  const total = section.total_lines || 0;
+  const atStart = section.start_line <= 1;
+  const atEnd = total > 0 && section.end_line >= total;
+  const open = (start: number, end: number) =>
+    setWindow({
+      file: section.file,
+      start: Math.max(1, start),
+      end: Math.max(start, end),
+    });
+  const focusInSection =
+    focus >= section.start_line && focus <= section.end_line;
+  return (
+    <div className="source-reader">
+      <div className="source-reader-bar">
+        <span className="mono">
+          {section.file}:{section.start_line}–{section.end_line}
+          {total ? ` / ${total} 行` : ""}
+        </span>
+        <span className="source-reader-actions">
+          <button
+            className="button secondary"
+            type="button"
+            disabled={atStart}
+            onClick={() => open(section.start_line - 80, section.start_line - 1)}
+          >
+            <ArrowUp size={13} /> 前 80 行
+          </button>
+          <button
+            className="button secondary"
+            type="button"
+            disabled={atEnd}
+            onClick={() => open(section.end_line + 1, section.end_line + 80)}
+          >
+            <ArrowDown size={13} /> 后 80 行
+          </button>
+          <button
+            className="button secondary"
+            type="button"
+            disabled={atStart && atEnd}
+            onClick={() => open(1, 400)}
+          >
+            文件开头
+          </button>
+        </span>
+      </div>
+      {section.note && (
+        <p className="source-reader-note">{sourceNote(section.note)}</p>
+      )}
+      {section.truncated && (
+        <p className="source-reader-note">
+          本窗口按行数预算截断，继续阅读不会伪造函数边界。
+        </p>
+      )}
+      {artifactHint && <p className="source-reader-note">{artifactHint}</p>}
+      {loaded.error && <Hint>{loaded.error}</Hint>}
+      {loaded.loading && (
+        <div className="knowledge-loading">
+          <Loader2 className="spin" size={14} /> 读取相邻源码…
+        </div>
+      )}
+      <CodeBlock
+        file={section.file}
+        lines={section.lines.map((content, offset) => ({
+          line: section.start_line + offset,
+          content,
+          highlight: focusInSection && section.start_line + offset === focus,
+        }))}
+      />
+      {!atEnd && (
+        <div className="source-reader-more">
+          <span>还有后续源码；按行窗口继续读取。</span>
+          <button
+            className="text-button"
+            type="button"
+            onClick={() => open(section.end_line + 1, section.end_line + 80)}
+          >
+            继续向后 <ChevronRight size={13} />
+          </button>
+        </div>
+      )}
+      <span className="source-reader-pin">
+        固定快照 <code className="mono">{snapshotID}</code>
+      </span>
+    </div>
+  );
+}
+
 function EntryPanel({
   api,
   projectID,
@@ -838,6 +1051,18 @@ function EntryPanel({
       ),
     [api, projectID, view.view_id, search, cursor],
   );
+  useEffect(() => {
+    if (
+      data.data?.nodes.length &&
+      !data.data.nodes.some((node) => node.node_id === selected?.node_id)
+    )
+      onSelect(data.data.nodes[0]);
+  }, [data.data, selected?.node_id, onSelect]);
+  const duplicateCounts = new Map<string, number>();
+  for (const node of data.data?.nodes || []) {
+    const key = `${node.subject}|${node.file || ""}|${node.line || 0}|${node.generator || ""}`;
+    duplicateCounts.set(key, (duplicateCounts.get(key) || 0) + 1);
+  }
   return (
     <Panel
       title="程序入口"
@@ -865,42 +1090,54 @@ function EntryPanel({
         </EmptyState>
       ) : (
         <>
-          <div className="table-scroll">
-            <table className="standard-table knowledge-table">
-              <thead>
-                <tr>
-                  <th>入口</th>
-                  <th>标识</th>
-                  <th>源码位置</th>
-                  <th>置信</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.data.nodes.map((node) => (
-                  <tr
-                    key={node.node_id}
-                    data-guide-row
-                    tabIndex={0}
-                    aria-selected={selected?.node_id === node.node_id}
-                    className={
-                      selected?.node_id === node.node_id ? "selected" : ""
-                    }
-                    onClick={() => onSelect(node)}
-                    onKeyDown={guideKeys}
-                  >
-                    <td>
-                      <strong>{node.label}</strong>
-                      <span className="mono muted">{node.subject}</span>
-                    </td>
-                    <td className="mono muted">{node.module_id || "入口"}</td>
-                    <td className="mono">
-                      {node.file ? `${node.file}:${node.line || 0}` : "未解析"}
-                    </td>
-                    <td>{node.confidence || "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="program-entry-list">
+            {data.data.nodes.map((node) => (
+              <button
+                key={node.node_id}
+                aria-pressed={selected?.node_id === node.node_id}
+                className={selected?.node_id === node.node_id ? "selected" : ""}
+                title={[
+                  node.label,
+                  node.file ? `${node.file}:${node.line || 0}` : "",
+                  node.generator ? `来源 ${node.generator}` : "",
+                  node.module_id ? `规则 ${node.module_id}` : "",
+                  node.evidence_status ? `证据 ${node.evidence_status}` : "",
+                  `ID ${node.node_id}`,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+                onClick={() => onSelect(node)}
+              >
+                <span className="entry-kind">
+                  {node.subject.startsWith("http_route:")
+                    ? "HTTP 入口"
+                    : "程序入口"}
+                </span>
+                <span className="entry-title-line">
+                  <strong>{entryTitle(node)}</strong>
+                  {(duplicateCounts.get(
+                    `${node.subject}|${node.file || ""}|${node.line || 0}|${node.generator || ""}`,
+                  ) || 0) > 1 && (
+                    <span
+                      className="entry-duplicate"
+                      title="相同源码位置与来源的独立观察；ID 未合并"
+                    >
+                      同名 ×
+                      {duplicateCounts.get(
+                        `${node.subject}|${node.file || ""}|${node.line || 0}|${node.generator || ""}`,
+                      )}
+                    </span>
+                  )}
+                </span>
+                <code className="entry-qualified">{node.label}</code>
+                <small>
+                  {node.file ? `${node.file}:${node.line || 0}` : "源码未解析"}
+                  {node.generator ? ` · ${node.generator}` : ""}
+                  {node.module_id ? ` · ${node.module_id}` : ""}
+                  {node.confidence ? ` · ${node.confidence}` : ""}
+                </small>
+              </button>
+            ))}
           </div>
           <div className="knowledge-pager">
             <button className="button" disabled={page === 0} onClick={back}>
@@ -935,21 +1172,59 @@ function EntryInspector({
 }) {
   const base = `/v1/projects/${projectID}/knowledge/views/${view.view_id}`;
   const [focus, setFocus] = useState(entry);
-  const [edge, setEdge] = useState<ASGEdge>();
-  const neighborhood = useQuery(
-    (signal) =>
-      api.get<{ neighborhood: Neighborhood; meta: Meta }>(
-        `${base}/asg-neighborhood?node_id=${encodeURIComponent(focus.node_id)}&depth=2&max_nodes=30`,
-        signal,
-      ),
-    [api, base, focus.node_id],
+  const [center, setCenter] = useState(entry);
+  const [depth, setDepth] = useState(2);
+  const [graphKind, setGraphKind] = useState<"calls" | "semantic">(
+    entry.scg_refs?.some((id) => id.startsWith("sym-")) ? "calls" : "semantic",
   );
+  const rootSymbol = center.scg_refs?.find((id) => id.startsWith("sym-"));
+  const [edge, setEdge] = useState<ASGEdge>();
+  const [copyStatus, setCopyStatus] = useState("");
+  const neighborhood = useQuery(
+    async (signal) => {
+      if (graphKind === "calls" && rootSymbol) {
+        const result = await api.get<{
+          neighborhood: CallNeighborhood;
+          meta: Meta;
+        }>(
+          `${base}/neighborhood?symbol_id=${encodeURIComponent(rootSymbol)}&direction=callees&depth=${depth}&max_nodes=30`,
+          signal,
+        );
+        const graph = callGraphNeighborhood(result.neighborhood);
+        return {
+          neighborhood: {
+            ...graph,
+            meta: {
+              ...result.meta,
+              truncated: result.meta.truncated || graph.meta.truncated,
+            },
+          } as Neighborhood,
+          meta: result.meta,
+        };
+      }
+      return api.get<{ neighborhood: Neighborhood; meta: Meta }>(
+        `${base}/asg-neighborhood?node_id=${encodeURIComponent(center.node_id)}&depth=${depth}&max_nodes=30`,
+        signal,
+      );
+    },
+    [api, base, center.node_id, depth, rootSymbol, graphKind],
+  );
+  useEffect(() => {
+    const graph = neighborhood.data?.neighborhood;
+    if (
+      graph &&
+      graph.root.node_id ===
+        (graphKind === "calls" ? rootSymbol : center.node_id) &&
+      !graph.nodes.some((node) => node.node_id === focus.node_id)
+    )
+      setFocus(graph.root);
+  }, [neighborhood.data, focus.node_id, graphKind, rootSymbol, center.node_id]);
   const symbolRef = focus.scg_refs?.find((id) => id.startsWith("sym-"));
   const slice = useQuery<Slice | undefined>(
     (signal) =>
       symbolRef
         ? api.get<Slice>(
-            `${base}/code-slice?symbol_id=${encodeURIComponent(symbolRef)}&max_lines=80&max_sections=2`,
+            `${base}/code-slice?symbol_id=${encodeURIComponent(symbolRef)}&max_lines=80&max_sections=1&context_lines=6`,
             signal,
           )
         : focus.file
@@ -989,7 +1264,16 @@ function EntryInspector({
                 } as Meta,
               }))
           : Promise.resolve(undefined),
-    [api, base, symbolRef, focus.file, focus.line, view.scope.snapshot_id, view.view_id, view.revision],
+    [
+      api,
+      base,
+      symbolRef,
+      focus.file,
+      focus.line,
+      view.scope.snapshot_id,
+      view.view_id,
+      view.revision,
+    ],
   );
   const nodes = neighborhood.data?.neighborhood.nodes || [];
   const edges = neighborhood.data?.neighborhood.edges || [];
@@ -997,15 +1281,57 @@ function EntryInspector({
   return (
     <>
       <div className="inspector-heading">
-        <strong>{focus.label}</strong>
-        <span className="muted mono">{focus.subject}</span>
+        <div>
+          <strong>{center.label}</strong>
+          <span className="muted mono">{center.subject}</span>
+        </div>
+        <label className="graph-depth">
+          展开深度{" "}
+          <select
+            aria-label="图谱展开深度"
+            value={depth}
+            onChange={(event) => setDepth(Number(event.target.value))}
+          >
+            <option value={1}>1 层</option>
+            <option value={2}>2 层</option>
+          </select>
+        </label>
+      </div>
+      <div
+        className="local-graph-tabs"
+        role="group"
+        aria-label="局部图谱关系类型"
+      >
+        <button
+          aria-pressed={graphKind === "calls"}
+          disabled={!entry.scg_refs?.some((id) => id.startsWith("sym-"))}
+          onClick={() => {
+            setGraphKind("calls");
+            setCenter(entry);
+            setFocus(entry);
+            setEdge(undefined);
+          }}
+        >
+          函数调用关系
+        </button>
+        <button
+          aria-pressed={graphKind === "semantic"}
+          onClick={() => {
+            setGraphKind("semantic");
+            setCenter(entry);
+            setFocus(entry);
+            setEdge(undefined);
+          }}
+        >
+          安全语义关系
+        </button>
       </div>
       <div className="entry-focus-bar">
         <span className="mono">
           {focus.file ? `${focus.file}:${focus.line || 0}` : "源码位置未解析"}
         </span>
         <span className="muted">
-          1–2 跳 · {edges.length} 条关系 · {nodes.length} 个节点
+          {depth} 跳 · {edges.length} 条关系 · {nodes.length} 个节点
         </span>
       </div>
       {neighborhood.error ? (
@@ -1023,87 +1349,179 @@ function EntryInspector({
           )}
           {!!neighborhood.data?.neighborhood.unresolved_edges && (
             <Hint>
-              有 {neighborhood.data.neighborhood.unresolved_edges} 条关系端点未能在预算内解析。
+              有 {neighborhood.data.neighborhood.unresolved_edges}{" "}
+              {graphKind === "calls"
+                ? "处调用未解析，外部或动态调用仍需审查。"
+                : "条关系端点未能在预算内解析。"}
             </Hint>
           )}
-          <Panel title="相邻节点" className="knowledge-inspector-panel">
-            {!nodes.filter((node) => node.node_id !== focus.node_id).length ? (
-              <Hint>该入口没有可展开的出边。</Hint>
-            ) : (
-              <div className="entry-node-list">
-                {nodes
-                  .filter((node) => node.node_id !== focus.node_id)
-                  .map((node) => (
-                    <button
-                      key={node.node_id}
-                      className="entry-node"
-                      onClick={() => {
-                        setEdge(undefined);
-                        setFocus(node);
-                      }}
-                    >
-                      <span>
-                        <strong>{node.label || node.subject}</strong>
-                        <small className="mono">{node.subject}</small>
-                      </span>
-                      <span className="muted mono">
-                        {node.file ? `${node.file}:${node.line || 0}` : "未解析"}
-                      </span>
-                      <ChevronRight size={14} />
-                    </button>
-                  ))}
-              </div>
-            )}
-          </Panel>
-          <Panel title="关系与证据" className="knowledge-inspector-panel">
-            {!edges.length ? (
-              <Hint>没有可展示的攻击面关系。</Hint>
-            ) : (
-              <>
-                <div className="entry-edge-list">
-                  {edges.map((item) => (
-                    <button
-                      key={item.edge_id}
-                      className={edge?.edge_id === item.edge_id ? "active" : ""}
-                      onClick={() => setEdge(item)}
-                    >
-                      <span className="mono">{item.kind}</span>
-                      <span>
-                        {nodeByID.get(item.from)?.label || item.from} →{" "}
-                        {nodeByID.get(item.to)?.label || item.to}
-                      </span>
-                      <span className="muted">
-                        {item.evidence_status || "—"} / {item.confidence || "—"}
-                      </span>
-                    </button>
-                  ))}
+          <LocalEntryGraph
+            calls={graphKind === "calls"}
+            nodes={nodes}
+            edges={edges}
+            root={
+              neighborhood.data?.neighborhood.root.node_id || center.node_id
+            }
+            selected={focus.node_id}
+            selectedEdge={edge?.edge_id}
+            onNode={(node) => {
+              setFocus(node);
+              setEdge(undefined);
+            }}
+            onEdge={setEdge}
+          />
+          {edge && (
+            <div className="selected-relation">
+              <strong>{edge.kind}</strong>
+              <span>
+                {nodeByID.get(edge.from)?.label || edge.from} →{" "}
+                {nodeByID.get(edge.to)?.label || edge.to}
+              </span>
+              <small>
+                证据：{edge.evidence_status || "未记录"} · 置信：
+                {edge.confidence || "未记录"}
+              </small>
+            </div>
+          )}
+          <div className="entry-selection-bar">
+            <span>
+              <strong>{focus.label}</strong>
+              <small>
+                {focus.kind === "Function" ? "源码符号" : focus.kind} ·{" "}
+                {focus.evidence_status ||
+                  (graphKind === "calls" ? "固定代码版本" : "证据状态未记录")}
+              </small>
+            </span>
+            <div>
+              <button
+                className="button secondary"
+                disabled={
+                  focus.node_id === center.node_id ||
+                  focus.node_id === rootSymbol
+                }
+                onClick={() => {
+                  setCenter(focus);
+                  setEdge(undefined);
+                }}
+              >
+                从此节点继续展开 <ChevronRight size={13} />
+              </button>
+              <button
+                className="text-button"
+                onClick={() => {
+                  void navigator.clipboard
+                    ?.writeText(focus.subject || focus.label || focus.node_id)
+                    .then(() => setCopyStatus("已复制完整名称"))
+                    .catch(() => setCopyStatus("复制失败，请手动选择文本"));
+                }}
+              >
+                复制完整名称
+              </button>
+              {center.node_id !== entry.node_id && (
+                <button
+                  className="text-button"
+                  onClick={() => {
+                    setCenter(entry);
+                    setFocus(entry);
+                  }}
+                >
+                  返回入口
+                </button>
+              )}
+            </div>
+          </div>
+          {copyStatus && (
+            <p className="source-reader-note" role="status">
+              {copyStatus}
+            </p>
+          )}
+          <details className="graph-accessible-list">
+            <summary>节点与关系清单 · {nodes.length} 个节点</summary>
+            <Panel title="相邻节点" className="knowledge-inspector-panel">
+              {!nodes.filter((node) => node.node_id !== focus.node_id)
+                .length ? (
+                <Hint>该入口没有可展开的出边。</Hint>
+              ) : (
+                <div className="entry-node-list">
+                  {nodes
+                    .filter((node) => node.node_id !== focus.node_id)
+                    .map((node) => (
+                      <button
+                        key={node.node_id}
+                        className="entry-node"
+                        onClick={() => {
+                          setEdge(undefined);
+                          setFocus(node);
+                        }}
+                      >
+                        <span>
+                          <strong>{node.label || node.subject}</strong>
+                          <small className="mono">{node.subject}</small>
+                        </span>
+                        <span className="muted mono">
+                          {node.file
+                            ? `${node.file}:${node.line || 0}`
+                            : "未解析"}
+                        </span>
+                        <ChevronRight size={14} />
+                      </button>
+                    ))}
                 </div>
-                {edge && (
-                  <dl className="knowledge-provenance">
-                    <div>
-                      <dt>关系</dt>
-                      <dd className="mono">{edge.kind}</dd>
-                    </div>
-                    <div>
-                      <dt>证据</dt>
-                      <dd>{edge.evidence_status || "未记录"}</dd>
-                    </div>
-                    <div>
-                      <dt>置信</dt>
-                      <dd>{edge.confidence || "未记录"}</dd>
-                    </div>
-                    <div>
-                      <dt>SCG 引用</dt>
-                      <dd className="mono">
-                        {edge.scg_refs?.join(" · ") || "无"}
-                      </dd>
-                    </div>
-                  </dl>
-                )}
-              </>
-            )}
-          </Panel>
-          <Panel title="源码与静态证据" className="knowledge-inspector-panel">
+              )}
+            </Panel>
+            <Panel title="关系与证据" className="knowledge-inspector-panel">
+              {!edges.length ? (
+                <Hint>没有可展示的攻击面关系。</Hint>
+              ) : (
+                <>
+                  <div className="entry-edge-list">
+                    {edges.map((item) => (
+                      <button
+                        key={item.edge_id}
+                        className={
+                          edge?.edge_id === item.edge_id ? "active" : ""
+                        }
+                        onClick={() => setEdge(item)}
+                      >
+                        <span className="mono">{item.kind}</span>
+                        <span>
+                          {nodeByID.get(item.from)?.label || item.from} →{" "}
+                          {nodeByID.get(item.to)?.label || item.to}
+                        </span>
+                        <span className="muted">
+                          {item.evidence_status || "—"} /{" "}
+                          {item.confidence || "—"}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                  {edge && (
+                    <dl className="knowledge-provenance">
+                      <div>
+                        <dt>关系</dt>
+                        <dd className="mono">{edge.kind}</dd>
+                      </div>
+                      <div>
+                        <dt>证据</dt>
+                        <dd>{edge.evidence_status || "未记录"}</dd>
+                      </div>
+                      <div>
+                        <dt>置信</dt>
+                        <dd>{edge.confidence || "未记录"}</dd>
+                      </div>
+                      <div>
+                        <dt>SCG 引用</dt>
+                        <dd className="mono">
+                          {edge.scg_refs?.join(" · ") || "无"}
+                        </dd>
+                      </div>
+                    </dl>
+                  )}
+                </>
+              )}
+            </Panel>
+          </details>
+          <Panel title="源码与静态证据" className="knowledge-inspector-panel source-panel">
             {slice.error ? (
               <Hint>{slice.error}</Hint>
             ) : slice.loading ? (
@@ -1111,21 +1529,23 @@ function EntryInspector({
                 <Loader2 className="spin" size={16} /> 读取源码…
               </div>
             ) : slice.data?.slice.sections.length ? (
-              slice.data.slice.sections.map((section, index) => (
-                <CodeBlock
-                  key={index}
-                  file={section.file}
-                  lines={section.lines.map((content, offset) => ({
-                    line: section.start_line + offset,
-                    content,
-                    highlight:
-                      !!focus.line &&
-                      section.start_line + offset === focus.line,
-                  }))}
-                />
-              ))
+              <SourceReader
+                api={api}
+                base={base}
+                snapshotID={view.scope.snapshot_id}
+                initial={slice.data}
+                focusLine={focus.line || 0}
+                artifactHint={
+                  focus.kind === "SensitiveOperation"
+                    ? "该位置是敏感操作，读取前后文核对控制与调用点。"
+                    : undefined
+                }
+              />
             ) : (
-              <Hint>该节点没有可读取的源码位置；证据状态为 {focus.evidence_status || "未记录"}。</Hint>
+              <Hint>
+                该节点没有可读取的源码位置；证据状态为{" "}
+                {focus.evidence_status || "未记录"}。
+              </Hint>
             )}
           </Panel>
           <details className="limitations">
@@ -1141,6 +1561,158 @@ function EntryInspector({
         </>
       )}
     </>
+  );
+}
+
+function LocalEntryGraph({
+  calls,
+  nodes,
+  edges,
+  root,
+  selected,
+  selectedEdge,
+  onNode,
+  onEdge,
+}: {
+  calls?: boolean;
+  nodes: AttackNode[];
+  edges: ASGEdge[];
+  root: string;
+  selected: string;
+  selectedEdge?: string;
+  onNode: (node: AttackNode) => void;
+  onEdge: (edge: ASGEdge) => void;
+}) {
+  const marker = useId().replace(/:/g, "");
+  const graph = layoutEntryGraph(root, nodes, edges);
+  const positions = new Map(graph.nodes.map((node) => [node.id, node]));
+  const byID = new Map(nodes.map((node) => [node.node_id, node]));
+  return (
+    <div className="entry-graph-wrap">
+      <div
+        className="entry-graph-canvas"
+        tabIndex={0}
+        role="region"
+        aria-label="局部调用关系图，可横向滚动"
+      >
+        <svg
+          width={graph.width}
+          height={graph.height}
+          viewBox={`0 0 ${graph.width} ${graph.height}`}
+          aria-label="入口节点及有向关系"
+        >
+          <defs>
+            <marker
+              id={marker}
+              viewBox="0 0 10 10"
+              refX="9"
+              refY="5"
+              markerWidth="6"
+              markerHeight="6"
+              orient="auto-start-reverse"
+            >
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor" />
+            </marker>
+          </defs>
+          {edges
+            .filter(
+              (edge) => positions.has(edge.from) && positions.has(edge.to),
+            )
+            .map((edge) => {
+              const a = positions.get(edge.from)!;
+              const b = positions.get(edge.to)!;
+              const forward = b.x > a.x;
+              const x1 = a.x + 206;
+              const x2 = b.x;
+              const y1 = a.y + 31;
+              const y2 = b.y + 31;
+              const d = forward
+                ? `M${x1},${y1} C${x1 + 40},${y1} ${x2 - 40},${y2} ${x2 - 4},${y2}`
+                : `M${a.x + 100},${a.y} C${a.x + 100},${a.y - 34} ${b.x + 100},${b.y - 34} ${b.x + 100},${b.y - 4}`;
+              return (
+                <g
+                  key={edge.edge_id}
+                  className={`graph-edge ${selectedEdge === edge.edge_id ? "selected" : ""}`}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`${byID.get(edge.from)?.label} 到 ${byID.get(edge.to)?.label}：${edge.kind}`}
+                  onClick={() => onEdge(edge)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      onEdge(edge);
+                    }
+                  }}
+                >
+                  <title>
+                    {edge.kind} · {edge.evidence_status || "证据未记录"}
+                  </title>
+                  <path className="edge-hit" d={d} />
+                  <path
+                    className="edge-line"
+                    d={d}
+                    markerEnd={`url(#${marker})`}
+                  />
+                </g>
+              );
+            })}
+          {graph.nodes.map((position) => {
+            const node = byID.get(position.id)!;
+            return (
+              <g
+                key={position.id}
+                transform={`translate(${position.x},${position.y})`}
+                className={`graph-node ${selected === node.node_id ? "selected" : ""} ${node.kind}`}
+                role="button"
+                tabIndex={0}
+                aria-label={`${node.label}，${node.kind}，查看源码`}
+                onClick={() => onNode(node)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onNode(node);
+                  }
+                }}
+              >
+                <title>
+                  {node.label} · {node.subject}
+                </title>
+                <rect width="206" height="62" rx="6" />
+                <circle cx="14" cy="18" r="3" />
+                <text x="25" y="22">
+                  {(node.label || node.subject).length > 22
+                    ? (node.label || node.subject).slice(0, 21) + "…"
+                    : node.label || node.subject}
+                </text>
+                <text className="graph-node-detail" x="14" y="44">
+                  {node.kind === "EntryPoint"
+                    ? "程序入口"
+                    : node.kind === "SensitiveOperation"
+                      ? "敏感操作"
+                      : node.kind === "SecurityControl"
+                        ? "安全控制"
+                        : node.kind === "Function"
+                          ? "函数 / 方法"
+                          : node.kind}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+      <div className="entry-graph-legend">
+        {calls ? (
+          <span>● 函数 / 方法 · 连线为已解析调用</span>
+        ) : (
+          <>
+            <span>● 程序入口</span>
+            <span>● 安全控制</span>
+            <span>● 敏感操作</span>
+          </>
+        )}
+        <small>点击节点查看源码 · 点击连线查看证据</small>
+      </div>
+    </div>
   );
 }
 
@@ -1370,6 +1942,7 @@ function PathPanel({
   selected,
   canWrite,
   agentAvailable,
+  onWorkbench,
 }: {
   api: ApiClient;
   projectID: string;
@@ -1378,7 +1951,10 @@ function PathPanel({
   selected?: AuditPath;
   canWrite: boolean;
   agentAvailable: boolean;
+  onWorkbench?: (selectionID?: string) => void;
 }) {
+  const [focusID, setFocusID] = useState("");
+  const [query, setQuery] = useState("");
   const [audit, setAudit] = useState("");
   const [checked, setChecked] = useState<string[]>([]);
   const [subtasks, setSubtasks] = useState<PathSubtask[]>([]);
@@ -1411,178 +1987,260 @@ function PathPanel({
       ),
     [api, projectID, view.view_id, audit, cursor],
   );
+  const filtered = (data.data?.paths || []).filter((row) =>
+    `${row.entry_subject} ${row.target_subject} ${row.path_id}`
+      .toLowerCase()
+      .includes(query.toLowerCase()),
+  );
+  const focus = filtered.find((row) => row.path_id === focusID) || filtered[0];
   return (
-    <Panel
-      title="候选分析路径"
-      action={
-        <div className="path-selection-actions">
-          <select
-            aria-label="路径来源"
-            value={audit}
-            onChange={(event) => setAudit(event.target.value)}
-          >
-            <option value="">全部任务与直接分析</option>
-            {(data.data?.audits || []).map((item) => (
-              <option value={item.audit_id} key={item.audit_id}>
-                {item.name || item.audit_id}（{item.paths} 条）
-              </option>
-            ))}
-            {(data.data?.analyses || [])
-              .filter((item) => item.has_paths)
-              .map((item) => (
-                <option
-                  value={`analysis:${item.analysis_id}`}
-                  key={item.analysis_id}
-                >
-                  {item.producer.plugin_id} · {item.analysis_id}（
-                  {item.path_count} 条）
+    <div className="review-paths-grid">
+      <Panel
+        title="候选审查路径"
+        action={
+          <div className="path-selection-actions">
+            <select
+              aria-label="路径来源"
+              value={audit}
+              onChange={(event) => setAudit(event.target.value)}
+            >
+              <option value="">全部任务与直接分析</option>
+              {(data.data?.audits || []).map((item) => (
+                <option value={item.audit_id} key={item.audit_id}>
+                  {item.name || item.audit_id}（{item.paths} 条）
                 </option>
               ))}
-          </select>
-          <button
-            className="button primary"
-            disabled={!canWrite || !agentAvailable || !checked.length || selecting}
-            title={
-              agentAvailable
-                ? "为所选路径生成可独立控制的 Agent 运行"
-                : "当前部署未配置可用 Agent"
-            }
-            onClick={() => {
-              if (!checked.length) return;
-              setSelecting(true);
-              setSelectionError("");
-              api
-                .selectPaths(projectID, checked)
-                .then((result) => {
-                  setSubtasks(result.selections);
-                  setChecked([]);
-                })
-                .catch((error) => setSelectionError(failureText(error)))
-                .finally(() => setSelecting(false));
-            }}
-          >
-            {selecting ? (
-              <Loader2 size={14} className="spin" />
-            ) : (
-              <ListChecks size={14} />
-            )}
-            生成审查子任务
-          </button>
-        </div>
-      }
-    >
-      {data.error ? (
-        <Hint>{data.error}</Hint>
-      ) : data.loading ? (
-        <div className="knowledge-loading">
-          <Loader2 className="spin" size={16} /> 读取审计路径…
-        </div>
-      ) : !data.data?.paths.length ? (
-        <EmptyState title="没有匹配的路径">
-          该快照尚未发布候选路径，或当前筛选没有命中。
-        </EmptyState>
-      ) : (
-        <>
-          <div className="table-scroll">
-            <table className="standard-table knowledge-table">
-              <thead>
-                <tr>
-                  <th aria-label="选择路径" />
-                  <th>入口 / 目标</th>
-                  <th>证据等级</th>
-                  <th>优先级</th>
-                  <th>筛选与来源</th>
-                  <th>状态</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.data.paths.map((row) => (
-                  <tr
-                    key={row.path_id}
-                    data-guide-row
-                    tabIndex={0}
-                    aria-selected={selected?.path_id === row.path_id}
-                    className={
-                      selected?.path_id === row.path_id ? "selected" : ""
-                    }
-                    onClick={() => onSelect(row)}
-                    onKeyDown={guideKeys}
+              {(data.data?.analyses || [])
+                .filter((item) => item.has_paths)
+                .map((item) => (
+                  <option
+                    value={`analysis:${item.analysis_id}`}
+                    key={item.analysis_id}
                   >
-                    <td>
-                      <input
-                        type="checkbox"
-                        aria-label={"选择路径 " + row.path_id}
-                        checked={checked.includes(row.path_id)}
-                        onClick={(event) => event.stopPropagation()}
-                        onChange={(event) =>
-                          setChecked((current) =>
-                            event.target.checked
-                              ? [...current, row.path_id]
-                              : current.filter((id) => id !== row.path_id),
-                          )
-                        }
-                      />
-                    </td>
-                    <td>
-                      <strong className="mono">{row.entry_subject}</strong>
-                      <span className="mono muted">{row.target_subject}</span>
-                    </td>
-                    <td>
-                      {row.path_status || row.path_kind}
-                      <small className="muted">
-                        {row.target_kind} · {row.steps?.length || 0} 步
-                      </small>
-                    </td>
-                    <td>{row.score ? row.score.priority.toFixed(1) : "—"}</td>
-                    <td>
-                      <span className="muted">
-                        {row.selection?.reason || "旧路径未记录筛选原因"}
-                      </span>
-                      <small className="muted mono">
-                        {row.selection?.producer_plugin || "工具 / 人工路径"} ·{" "}
-                        {existingByPath.get(row.path_id)?.state || row.audit_id}
-                      </small>
-                    </td>
-                    <td>{row.status}</td>
-                  </tr>
+                    {item.producer.plugin_id} · {item.analysis_id}（
+                    {item.path_count} 条）
+                  </option>
                 ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="knowledge-pager">
-            <button className="button" disabled={page === 0} onClick={back}>
-              上一页
-            </button>
-            <span>第 {page + 1} 页</span>
+            </select>
             <button
-              className="button"
-              disabled={!data.data.next_cursor}
-              onClick={() => next(data.data?.next_cursor || "")}
+              className="button primary"
+              disabled={
+                !canWrite || !agentAvailable || !checked.length || selecting
+              }
+              title={
+                agentAvailable
+                  ? "为所选路径生成可独立控制的 Agent 运行"
+                  : "当前部署未配置可用 Agent"
+              }
+              onClick={() => {
+                if (!checked.length) return;
+                setSelecting(true);
+                setSelectionError("");
+                api
+                  .selectPaths(projectID, checked)
+                  .then((result) => {
+                    setSubtasks(result.selections);
+                    setChecked([]);
+                  })
+                  .catch((error) => setSelectionError(failureText(error)))
+                  .finally(() => setSelecting(false));
+              }}
             >
-              下一页
+              {selecting ? (
+                <Loader2 size={14} className="spin" />
+              ) : (
+                <ListChecks size={14} />
+              )}
+              开始审查 {checked.length > 0 ? `(${checked.length})` : ""}
             </button>
           </div>
-          <MetaBar meta={data.data.meta} />
-          {selectionError && <Hint>{selectionError}</Hint>}
-          {!agentAvailable && (
-            <Hint>当前部署未配置可用 Agent，仍可浏览路径和源码，但不能生成审查子任务。</Hint>
-          )}
-          {subtasks.length > 0 && (
-            <div className="path-subtasks">
-              <span className="subtle-label">已生成的审查子任务</span>
-              {subtasks.map((item) => (
-                <div key={item.selection_id}>
-                  <span className="mono">{item.selection_id}</span>
-                  <span>{item.path_id}</span>
-                  <span>{item.state}</span>
-                  <span className="mono">{item.run_id}</span>
-                </div>
-              ))}
+        }
+      >
+        <div className="path-list-toolbar">
+          <div className="search-input">
+            <Search size={14} />
+            <input
+              aria-label="搜索候选路径"
+              placeholder="搜索当前页的入口、目标或路径…"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </div>
+          <span className="muted">已选择 {checked.length} / 5 条路径</span>
+        </div>
+        {data.error ? (
+          <Hint>{data.error}</Hint>
+        ) : data.loading ? (
+          <div className="knowledge-loading">
+            <Loader2 className="spin" size={16} /> 读取审计路径…
+          </div>
+        ) : !data.data?.paths.length ? (
+          <EmptyState title="没有匹配的路径">
+            该快照尚未发布候选路径，或当前筛选没有命中。
+          </EmptyState>
+        ) : (
+          <>
+            <div className="review-path-list">
+              {filtered.length ? (
+                filtered.map((row) => (
+                  <article
+                    key={row.path_id}
+                    className={`review-path-row ${focus?.path_id === row.path_id ? "focused" : ""} ${checked.includes(row.path_id) ? "checked" : ""}`}
+                  >
+                    <input
+                      type="checkbox"
+                      aria-label={`选择路径 ${row.path_id}`}
+                      checked={checked.includes(row.path_id)}
+                      disabled={
+                        existingByPath.has(row.path_id) ||
+                        !canWrite ||
+                        !agentAvailable ||
+                        (!checked.includes(row.path_id) && checked.length >= 5)
+                      }
+                      onChange={(event) =>
+                        setChecked((current) =>
+                          event.target.checked
+                            ? [...current, row.path_id]
+                            : current.filter((id) => id !== row.path_id),
+                        )
+                      }
+                    />
+                    <button
+                      aria-pressed={focus?.path_id === row.path_id}
+                      onClick={() => setFocusID(row.path_id)}
+                    >
+                      <span>
+                        <strong>
+                          {row.target_subject.includes("sql_execution")
+                            ? "数据库查询路径"
+                            : row.target_subject.includes("process_execution")
+                              ? "命令执行路径"
+                              : row.target_subject.replace(/^sink:/, "") ||
+                                "敏感操作路径"}
+                        </strong>
+                        <span className="path-priority">
+                          优先级{" "}
+                          {row.score ? row.score.priority.toFixed(2) : "未评分"}
+                        </span>
+                      </span>
+                      <code>
+                        {row.entry_subject} → {row.target_subject}
+                      </code>
+                      <p>{row.selection?.reason || "该路径尚未记录筛选依据"}</p>
+                      <small>
+                        {row.steps?.length || 0} 步 ·{" "}
+                        {row.path_status || row.path_kind} ·{" "}
+                        {existingByPath.has(row.path_id)
+                          ? pathReviewState(existingByPath.get(row.path_id))
+                          : "待选择"}
+                      </small>
+                    </button>
+                  </article>
+                ))
+              ) : (
+                <EmptyState title="当前页没有匹配的路径">
+                  调整搜索词，或切换路径来源。
+                </EmptyState>
+              )}
             </div>
-          )}
-        </>
-      )}
-    </Panel>
+            <div className="knowledge-pager">
+              <button className="button" disabled={page === 0} onClick={back}>
+                上一页
+              </button>
+              <span>第 {page + 1} 页</span>
+              <button
+                className="button"
+                disabled={!data.data.next_cursor}
+                onClick={() => next(data.data?.next_cursor || "")}
+              >
+                下一页
+              </button>
+            </div>
+            <MetaBar meta={data.data.meta} />
+            {selectionError && <Hint>{selectionError}</Hint>}
+            {!agentAvailable && (
+              <Hint>
+                当前部署未配置可用
+                Agent，仍可浏览路径和源码，但不能生成审查子任务。
+              </Hint>
+            )}
+            {subtasks.length > 0 && (
+              <div className="path-subtasks">
+                <span className="subtle-label">
+                  已生成 {subtasks.length} 个审查子任务
+                </span>
+                <button
+                  className="button primary"
+                  onClick={() => onWorkbench?.(subtasks[0]?.selection_id)}
+                >
+                  进入 Agent 工作台 <ChevronRight size={14} />
+                </button>
+                {subtasks.map((item) => (
+                  <div key={item.selection_id}>
+                    <span className="mono">{item.selection_id}</span>
+                    <span>{item.path_id}</span>
+                    <span>{item.state}</span>
+                    <span className="mono">{item.run_id}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </Panel>
+      <aside className="panel review-path-detail">
+        <span className="eyebrow">PATH CONTEXT</span>
+        <h2>路径与筛选依据</h2>
+        {focus ? (
+          <>
+            <p className="mono">{focus.path_id}</p>
+            <h3>从入口到敏感操作</h3>
+            <ol>
+              {(focus.steps || []).slice(0, 12).map((step, index) => (
+                <li key={index}>
+                  <strong>{step.subject || step.kind}</strong>
+                  <small>
+                    {step.file
+                      ? `${step.file}:${step.line || 0}`
+                      : step.evidence || "位置未解析"}
+                  </small>
+                </li>
+              ))}
+            </ol>
+            {(focus.steps?.length || 0) > 12 && <p>其余节点见完整证据。</p>}
+            <h3>为什么审查这条路径</h3>
+            <p>{focus.selection?.reason || "旧路径未提供筛选原因。"}</p>
+            <h3>工具来源</h3>
+            <p>{focus.selection?.producer_plugin || "未记录"}</p>
+            <h3>证据边界</h3>
+            <p>{focus.path_status} · {focus.path_kind === "data_flow" ? "Joern 静态数据流候选；来源可控性、控制有效性和可利用性待审查。" : "调用可达性不代表已证明数据传播。"}</p>
+            {focus.limitations?.map((item) => (
+              <p key={item}>{item}</p>
+            ))}
+            <button
+              className="button secondary"
+              onClick={() => onSelect(focus)}
+            >
+              查看完整证据 <ChevronRight size={13} />
+            </button>
+            {existingByPath.has(focus.path_id) && (
+              <button
+                className="text-button"
+                onClick={() =>
+                  onWorkbench?.(
+                    existingByPath.get(focus.path_id)?.selection_id,
+                  )
+                }
+              >
+                进入工作台 <ChevronRight size={13} />
+              </button>
+            )}
+          </>
+        ) : (
+          <p>路径生成后，可在这里查看来源、筛选理由和源码证据。</p>
+        )}
+      </aside>
+    </div>
   );
 }
 
@@ -1864,13 +2522,17 @@ function PathInspector({
         <dl className="knowledge-provenance">
           <div>
             <dt>路径类型</dt>
-            <dd>{row.path_kind || "—"} · {row.path_status || "—"}</dd>
+            <dd>
+              {row.path_kind || "—"} · {row.path_status || "—"}
+            </dd>
           </div>
           <div>
             <dt>优先级</dt>
             <dd>
               {row.score ? row.score.priority.toFixed(4) : "旧路径未记录评分"}
-              {row.score?.score_version ? ` · 评分版本 ${row.score.score_version}` : ""}
+              {row.score?.score_version
+                ? ` · 评分版本 ${row.score.score_version}`
+                : ""}
             </dd>
           </div>
           <div>
@@ -1888,9 +2550,7 @@ function PathInspector({
             <dd className="mono">{row.audit_id}</dd>
           </div>
         </dl>
-        <Hint>
-          优先级只用于调度；调用可达不是污点流；筛选不是安全证明。
-        </Hint>
+        <Hint>优先级只用于调度；调用可达不是污点流；筛选不是安全证明。</Hint>
         {row.limitations?.length ? (
           <details className="limitations">
             <summary>局限与未决</summary>

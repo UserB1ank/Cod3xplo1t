@@ -1,5 +1,9 @@
 # Agent 循环整改 Issues 索引
 
+> 当前#37–#46/#49已关闭，#47/#48/#50/#51仍开放并已按主Agent/覆盖账本修订。下文Sprint/依赖是首次发布历史，不要求重做；参见 [当前实施索引](interaction-issues.md)。
+
+> 2026-10-19 Pi 集成协调：首次协调时 #41–#51 的行为、依赖、指标口径与迁移约束以更新后的 GitHub 正文及 [Pi 执行索引](pi-runtime-issues.md) 为准。下文保留首次规划记录；#37–#40 交付历史不变。脚本基线不作为真实模型 token / 召回基线。
+
 状态：已按草案拆分并发布（2026-10-19）。共 15 项，全部 AFK，标签 `needs-triage`；每项含用户故事、端到端行为、验收条件、真实依赖编号与共同交付约束。
 
 来源：[agent-loop-remediation-draft.md](agent-loop-remediation-draft.md)。该草案的 28 个工作项合并为 15 个可独立交付的 Issue；未合并的能力项单独列出原因。

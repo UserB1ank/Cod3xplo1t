@@ -112,7 +112,10 @@ func TestKnowledgeAPIExploresAFixedSnapshot(t *testing.T) {
 	var slicePage struct {
 		Slice struct {
 			Sections []struct {
-				Lines []string `json:"lines"`
+				File       string   `json:"file"`
+				StartLine  int      `json:"start_line"`
+				TotalLines int64    `json:"total_lines"`
+				Lines      []string `json:"lines"`
 			} `json:"sections"`
 		} `json:"slice"`
 		Meta knowledgeMeta `json:"meta"`
@@ -120,6 +123,28 @@ func TestKnowledgeAPIExploresAFixedSnapshot(t *testing.T) {
 	slice.decode(t, &slicePage)
 	if len(slicePage.Slice.Sections) == 0 || len(slicePage.Slice.Sections[0].Lines) == 0 {
 		t.Fatalf("slice has no source: %s", slice.body)
+	}
+	section := slicePage.Slice.Sections[0]
+	window := do(t, env.ts, http.MethodGet, viewBase+"/code-slice?file="+url.QueryEscape(section.File)+"&start_line=1&end_line=2&max_lines=2", nil, nil)
+	if window.status != http.StatusOK {
+		t.Fatalf("file window: %d %s", window.status, window.body)
+	}
+	var windowPage struct {
+		Slice struct {
+			Sections []struct {
+				StartLine  int      `json:"start_line"`
+				EndLine    int      `json:"end_line"`
+				TotalLines int64    `json:"total_lines"`
+				Lines      []string `json:"lines"`
+			} `json:"sections"`
+		} `json:"slice"`
+	}
+	window.decode(t, &windowPage)
+	if len(windowPage.Slice.Sections) != 1 || windowPage.Slice.Sections[0].StartLine != 1 {
+		t.Fatalf("file window did not start at line 1: %s", window.body)
+	}
+	if windowPage.Slice.Sections[0].TotalLines < 1 {
+		t.Fatalf("file window lost total line count: %s", window.body)
 	}
 
 	neighborhood := do(t, env.ts, http.MethodGet, viewBase+"/neighborhood?symbol_id="+url.QueryEscape(symbolID)+"&direction=callers", nil, nil)

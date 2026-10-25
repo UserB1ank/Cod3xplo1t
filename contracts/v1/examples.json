@@ -122,5 +122,9 @@
   {
     "file": "examples/supervisor-session.json",
     "schema": "supervisor-session.schema.json"
+  },
+  {
+    "file": "examples/project-path-stop.json",
+    "schema": "project-path-stop.schema.json"
   }
 ]

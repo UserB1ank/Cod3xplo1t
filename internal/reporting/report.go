@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/open-mcp-ai/Codexploit/internal/agent"
 	"github.com/open-mcp-ai/Codexploit/internal/artifact"
 	"github.com/open-mcp-ai/Codexploit/internal/findings"
 	"github.com/open-mcp-ai/Codexploit/internal/knowledge"
@@ -21,7 +22,7 @@ import (
 )
 
 const PluginID = "builtin.reporter"
-const Version = "1.0.0"
+const Version = "1.1.0"
 const InputSchema = "codexploit/report-input/v1"
 
 //go:embed report.go capture.go
@@ -58,10 +59,30 @@ type Capture struct {
 	Revision    *publication.Revision        `json:"knowledge_revision,omitempty"`
 	Tasks       []path.Audit                 `json:"tasks"`
 	Paths       []path.Path                  `json:"paths"`
+	Reviews     []Review                     `json:"reviews"`
 	Groups      []Group                      `json:"groups"`
 	Evidence    map[string][]verify.Evidence `json:"evidence"`
 	Artifacts   []artifact.Ref               `json:"artifact_evidence"`
 	Limitations []string                     `json:"limitations"`
+}
+
+// Review freezes a run's assessment without copying its private runtime input
+// or treating a model answer as a verified finding.
+type Review struct {
+	RunID          string            `json:"run_id"`
+	TaskID         string            `json:"task_id"`
+	PathID         string            `json:"path_id"`
+	Version        int64             `json:"version"`
+	Status         agent.RunStatus   `json:"status"`
+	StopReason     string            `json:"stop_reason"`
+	Runtime        string            `json:"runtime"`
+	RuntimeVersion string            `json:"runtime_version"`
+	Pin            *agent.RuntimePin `json:"pin,omitempty"`
+	Answer         *agent.Answer     `json:"answer,omitempty"`
+	ToolCalls      int               `json:"tool_calls"`
+	InputTokens    int               `json:"input_tokens"`
+	OutputTokens   int               `json:"output_tokens"`
+	FinishedAt     string            `json:"finished_at,omitempty"`
 }
 
 type Renderer struct {
@@ -83,7 +104,7 @@ func packageDigest() string {
 }
 
 func Executor() plugin.Executor {
-	manifest := json.RawMessage(`{"api_version":"codexploit/v1","id":"builtin.reporter","version":"1.0.0","name":"Fixed report exporter","description":"Render saved findings and evidence without changing verdicts.","kind":"reporter","languages":["any"],"runtime":{"kind":"builtin"},"consumes":["discovery.findings"],"produces":["report.document"],"permissions":{"network":"none","source_write":false},"config_schema":{"type":"object","properties":{"format":{"enum":["md","json","sarif"]},"task_id":{"type":"string"},"view_id":{"type":"string"},"knowledge_revision":{"type":"string"},"include_candidates":{"type":"boolean"},"captured_at":{"type":"string"},"counts":{"type":"object","additionalProperties":{"type":"integer","minimum":0}}},"required":["format","view_id","knowledge_revision","include_candidates","captured_at","counts"],"additionalProperties":false}}`)
+	manifest := json.RawMessage(`{"api_version":"codexploit/v1","id":"builtin.reporter","version":"1.1.0","name":"Fixed report exporter","description":"Render saved findings and evidence without changing verdicts.","kind":"reporter","languages":["any"],"runtime":{"kind":"builtin"},"consumes":["discovery.findings"],"produces":["report.document"],"permissions":{"network":"none","source_write":false},"config_schema":{"type":"object","properties":{"format":{"enum":["md","json","sarif"]},"task_id":{"type":"string"},"view_id":{"type":"string"},"knowledge_revision":{"type":"string"},"include_candidates":{"type":"boolean"},"captured_at":{"type":"string"},"counts":{"type":"object","additionalProperties":{"type":"integer","minimum":0}}},"required":["format","view_id","knowledge_revision","include_candidates","captured_at","counts"],"additionalProperties":false}}`)
 	return plugin.Executor{Manifest: manifest, PackageDigest: packageDigest(), InputSchemas: []string{InputSchema}, Run: render, NativeSchema: "codexploit/report-document/v1", DocumentMediaType: func(inv plugin.Invocation) string {
 		var config Settings
 		_ = json.Unmarshal(inv.Request.Config, &config)
@@ -130,6 +151,27 @@ func render(ctx context.Context, inv plugin.Invocation, inputs [][]byte) ([]byte
 	}
 	if config.Format == "md" {
 		var summary strings.Builder
+		summary.WriteString("\n## Path review results\n\nAgent assessments below are recorded review results, not verified vulnerability verdicts. Reviews without a finding remain part of this report.\n")
+		for _, review := range capture.Reviews {
+			fmt.Fprintf(&summary, "\n### Run `%s` · %s\n\n- task: `%s`\n- path: `%s`\n- runtime: %s@%s\n- stop reason: %s\n- tool calls: %d; input/output tokens: %d/%d\n", review.RunID, review.Status, review.TaskID, review.PathID, review.Runtime, review.RuntimeVersion, review.StopReason, review.ToolCalls, review.InputTokens, review.OutputTokens)
+			if review.Answer == nil {
+				summary.WriteString("- No accepted structured assessment was captured for this run.\n")
+				continue
+			}
+			answer := review.Answer
+			fmt.Fprintf(&summary, "- assessment: %s; finding candidate: %t\n- conclusion: %s\n", answer.Hypothesis.Status, answer.FindingCandidate, strings.Join(strings.Fields(answer.Hypothesis.Statement), " "))
+			for _, obligation := range answer.Obligations {
+				fmt.Fprintf(&summary, "- obligation %s: %s; %s %s\n", obligation.Kind, obligation.Verdict, obligation.Blocker, strings.Join(strings.Fields(obligation.Reason), " "))
+			}
+			for _, side := range []struct {
+				label string
+				refs  []agent.AnswerEvidence
+			}{{"supporting model citation", answer.SupportingEvidence}, {"contradicting model citation", answer.ContradictingEvidence}} {
+				for _, ref := range side.refs {
+					fmt.Fprintf(&summary, "- %s: %s · %s:%d · %s\n", side.label, ref.Ref, ref.File, ref.Line, strings.Join(strings.Fields(ref.Summary), " "))
+				}
+			}
+		}
 		fmt.Fprintf(&summary, "\n## Fixed scope\n\n- project: %s\n- source: %s\n- snapshot: %s\n- commit: %s\n- shared knowledge: %s\n- captured finding ledger: %s\n- candidates included: %t\n- reporter: %s@%s\n- package digest: %s\n- input digest: %s\n", capture.Scope.ProjectID, capture.Scope.SourceID, capture.Scope.SnapshotID, capture.Commit, config.KnowledgeRevision, config.CapturedAt, config.IncludeCandidates, PluginID, Version, inv.Request.PackageDigest, inv.Request.Inputs[0].SHA256)
 		summary.WriteString("\n## Coverage and unresolved questions\n\n")
 		for _, task := range capture.Tasks {

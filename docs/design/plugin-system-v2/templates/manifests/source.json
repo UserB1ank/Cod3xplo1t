@@ -1,0 +1,50 @@
+{
+  "api_version": "codexploit/plugin/v2",
+  "id": "example.source",
+  "version": "0.1.0",
+  "name": "源码接入开发模板",
+  "description": "仅为接口声明模板；未提供可执行实现，不可登记为已实测。",
+  "languages": [
+    "Go"
+  ],
+  "runtime": {
+    "kind": "native_service",
+    "protocol": "codexploit/source-provider/v1"
+  },
+  "permissions": {
+    "network": "none",
+    "source_write": false,
+    "target_execution": false
+  },
+  "operations": [
+    {
+      "id": "execute",
+      "stage": "source",
+      "capability": "source",
+      "profile": "standard",
+      "inputs": [
+        {
+          "name": "request",
+          "kind": "source.request",
+          "schema_id": "codexploit/source-request/v1",
+          "cardinality": "one",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "source",
+          "kind": "source.snapshot",
+          "schema_id": "codexploit/source-tar/v1",
+          "cardinality": "one",
+          "required": true
+        }
+      ],
+      "config_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      }
+    }
+  ]
+}

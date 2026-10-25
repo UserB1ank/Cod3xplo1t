@@ -36,23 +36,25 @@ type Memory struct {
 	artifacts        map[string]artifact.Ref
 	// knowledge holds the immutable publication revisions of each project
 	// snapshot: the revision documents, their batch index and the outbox.
-	knowledge          map[string]*knowledgeScopeState
-	workflowRuns       map[string][]byte
-	workflowPlans      map[string][]byte
-	workflows          map[string][]byte
-	workflowHeads      map[string]workflowHead
-	analysisRuns       map[string]AnalysisRun
-	supervisorSessions map[string]SupervisorSession
-	plugins            map[string][]byte
-	plans              map[string]verify.PlanRecord
-	environmentLeases  *verify.MemoryEnvironmentLeases
-	leaseInit          sync.Once
-	pluginInvocations  map[string][]byte
-	snapshots          map[string]memorySnapshot
-	manifests          map[string][]byte
-	analyses           map[string]string // analysis_id -> analysis document
-	knowledgeAnalyses  map[string]indexedMemoryAnalysis
-	graphs             map[string]*memoryGraph
+	knowledge           map[string]*knowledgeScopeState
+	workflowRuns        map[string][]byte
+	workflowPlans       map[string][]byte
+	workflows           map[string][]byte
+	workflowHeads       map[string]workflowHead
+	analysisRuns        map[string]AnalysisRun
+	supervisorSessions  map[string]SupervisorSession
+	plugins             map[string][]byte
+	pluginReleases      map[string]plugin.Release
+	pluginInstallations map[string][]byte
+	plans               map[string]verify.PlanRecord
+	environmentLeases   *verify.MemoryEnvironmentLeases
+	leaseInit           sync.Once
+	pluginInvocations   map[string][]byte
+	snapshots           map[string]memorySnapshot
+	manifests           map[string][]byte
+	analyses            map[string]string // analysis_id -> analysis document
+	knowledgeAnalyses   map[string]indexedMemoryAnalysis
+	graphs              map[string]*memoryGraph
 	// asgDocuments holds the derived attack surface of a snapshot, keyed by
 	// snapshot id and kept separate from graphs: the ASG is derived data and can
 	// be dropped and rebuilt without touching an SCG fact.

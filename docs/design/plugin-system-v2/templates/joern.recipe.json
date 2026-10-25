@@ -1,0 +1,28 @@
+{
+  "api_version": "codexploit/adapter-recipe/v2",
+  "plugin_id": "codexploit.joern",
+  "version": "2.0.1",
+  "stage_operations": {
+    "parse": "parse",
+    "semantic": "taint",
+    "path.generate": "paths"
+  },
+  "implementation": "cmd/joern-adapter",
+  "manifest": "plugins/joern/manifest.json",
+  "frontend_catalog": "plugins/joern/frontends.json",
+  "dependency_lock": "plugins/joern/sources.lock.json",
+  "queries": [
+    "plugins/joern/export.sc",
+    "plugins/joern/taint.sc"
+  ],
+  "rules": "plugins/joern/rules.json",
+  "workflow": "plugins/joern/workflow.json",
+  "package_command": "make package-joern",
+  "linux_package_command": "make package-joern-linux",
+  "transport": "codexploit/file-job/v2",
+  "documentation": "docs/joern.md",
+  "references": [
+    "https://docs.joern.io/frontends/",
+    "https://docs.joern.io/cpgql/data-flow-steps/"
+  ]
+}

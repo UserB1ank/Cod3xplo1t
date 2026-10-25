@@ -1,0 +1,50 @@
+{
+  "api_version": "codexploit/plugin/v2",
+  "id": "example.agent",
+  "version": "0.1.0",
+  "name": "Agent 审查开发模板",
+  "description": "仅为接口声明模板；未提供可执行实现，不可登记为已实测。",
+  "languages": [
+    "Go"
+  ],
+  "runtime": {
+    "kind": "agent_runtime",
+    "protocol": "codexploit/agent-runtime/v1"
+  },
+  "permissions": {
+    "network": "none",
+    "source_write": false,
+    "target_execution": false
+  },
+  "operations": [
+    {
+      "id": "execute",
+      "stage": "agent",
+      "capability": "agent",
+      "profile": "standard",
+      "inputs": [
+        {
+          "name": "task",
+          "kind": "agent.task",
+          "schema_id": "codexploit/agent-task/v1",
+          "cardinality": "one",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "answer",
+          "kind": "agent.answer",
+          "schema_id": "codexploit/agent-answer/v1",
+          "cardinality": "one",
+          "required": true
+        }
+      ],
+      "config_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      }
+    }
+  ]
+}

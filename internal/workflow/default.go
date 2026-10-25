@@ -2,8 +2,6 @@ package workflow
 
 import (
 	"encoding/json"
-
-	"github.com/open-mcp-ai/Codexploit/internal/plugin"
 )
 
 // The default analysis is a fixed, project-scoped workflow. Its identity and
@@ -11,7 +9,10 @@ import (
 // an existing run's meaning.
 const (
 	DefaultAnalysisWorkflowID      = "codexploit.default-analysis"
-	DefaultAnalysisWorkflowVersion = "1.0.0"
+	DefaultAnalysisWorkflowVersion = "2.0.1"
+	DefaultEngineID                = "joern"
+	DefaultEnginePluginID          = "codexploit.joern"
+	DefaultEnginePluginVersion     = "2.1.1"
 )
 
 // DefaultAnalysisSpec returns the four deterministic stages that do not require
@@ -24,14 +25,14 @@ func DefaultAnalysisSpec() Spec {
 		APIVersion:  "codexploit/v1",
 		ID:          DefaultAnalysisWorkflowID,
 		Version:     DefaultAnalysisWorkflowVersion,
-		Name:        "Default four-stage analysis",
-		Description: "Code graph, security semantics, candidate paths, deterministic path enhancement.",
+		Name:        "Joern graph and taint analysis",
+		Description: "One pinned Joern engine: CPG, taint queries, candidate paths and deterministic ranking.",
 		Inputs:      []string{"source.snapshot"},
 		Nodes: []Node{
-			{ID: "parse", PluginID: plugin.BuiltinID, PluginVersion: plugin.BuiltinVersion, Needs: []string{}, Config: empty, TimeoutSeconds: 60},
-			{ID: "semantic", PluginID: plugin.SemanticID, PluginVersion: "1.2.0", Needs: []string{"parse"}, Config: empty, TimeoutSeconds: 60},
-			{ID: "paths", PluginID: "builtin.discovery-paths", PluginVersion: "1.2.0", Needs: []string{"semantic"}, Config: empty, TimeoutSeconds: 60},
-			{ID: "enhance", PluginID: "builtin.path-enhancer", PluginVersion: "1.0.0", Needs: []string{"paths"}, Config: empty, TimeoutSeconds: 60},
+			{ID: "parse", PluginID: DefaultEnginePluginID, PluginVersion: DefaultEnginePluginVersion, OperationID: "parse", Needs: []string{}, Config: json.RawMessage(`{"frontend":"AUTO","heap_mib":1024}`), TimeoutSeconds: 900},
+			{ID: "semantic", PluginID: DefaultEnginePluginID, PluginVersion: DefaultEnginePluginVersion, OperationID: "taint", Needs: []string{"parse"}, Config: json.RawMessage(`{"max_flows":100,"max_call_depth":4,"heap_mib":1024}`), TimeoutSeconds: 900},
+			{ID: "paths", PluginID: DefaultEnginePluginID, PluginVersion: DefaultEnginePluginVersion, OperationID: "paths", Needs: []string{"parse", "semantic"}, Config: empty, TimeoutSeconds: 60},
+			{ID: "enhance", PluginID: DefaultEnginePluginID, PluginVersion: DefaultEnginePluginVersion, OperationID: "enhance", Needs: []string{"paths"}, Config: empty, TimeoutSeconds: 60},
 		},
 	}
 }

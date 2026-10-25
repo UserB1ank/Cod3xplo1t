@@ -19,6 +19,7 @@ type AnalysisKnowledge struct {
 // produced, and the real failure or skip reason. It never carries a fabricated
 // completion percentage.
 type AnalysisRunStage struct {
+	OperationID   string              `json:"operation_id,omitempty"`
 	Key           string              `json:"key"`
 	Label         string              `json:"label"`
 	Status        string              `json:"status"`
@@ -40,6 +41,7 @@ type AnalysisRunStage struct {
 // analysis. The workflow runner remains the only executor; this row keeps the
 // project-level identity, history and stage projection stable across restarts.
 type AnalysisRun struct {
+	Engine          *AnalysisEnginePin  `json:"engine,omitempty"`
 	ID              string              `json:"analysis_run_id"`
 	ProjectID       string              `json:"project_id"`
 	SnapshotID      string              `json:"snapshot_id"`
@@ -62,6 +64,17 @@ type AnalysisRun struct {
 	CreatedAt       string              `json:"created_at"`
 	UpdatedAt       string              `json:"updated_at"`
 	Version         int64               `json:"version"`
+}
+
+// AnalysisEnginePin identifies the whole provider. Stage configurations and
+// rules are additionally fixed by the immutable plan and its digest.
+type AnalysisEnginePin struct {
+	ID             string `json:"id"`
+	ProfileVersion string `json:"profile_version"`
+	PluginID       string `json:"plugin_id"`
+	PluginVersion  string `json:"plugin_version"`
+	PackageDigest  string `json:"package_digest"`
+	ManifestDigest string `json:"manifest_digest"`
 }
 
 // AnalysisRunStore is implemented by Memory and SQL. It is deliberately small

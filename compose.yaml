@@ -87,7 +87,7 @@ services:
     init: true
     read_only: true
     tmpfs:
-      - /tmp:mode=1777,size=256m
+      - /tmp:rw,exec,mode=1777,size=8g
     security_opt:
       - no-new-privileges:true
     cap_drop:

@@ -1,0 +1,395 @@
+{
+  "api_version": "codexploit/stage-registry/v2",
+  "stages": [
+    {
+      "stage": "source",
+      "capability": "source",
+      "label": "源码接入",
+      "transport": "native_service",
+      "profile": "standard",
+      "inputs": [
+        {
+          "name": "request",
+          "kind": "source.request",
+          "schema_id": "codexploit/source-request/v1",
+          "cardinality": "one",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "source",
+          "kind": "source.snapshot",
+          "schema_id": "codexploit/source-tar/v1",
+          "cardinality": "one",
+          "required": true
+        }
+      ],
+      "input_data": [
+        "source_definition_ref",
+        "exclusion_policy"
+      ],
+      "output_data": [
+        "files",
+        "content_digest",
+        "exclusions"
+      ]
+    },
+    {
+      "stage": "parse",
+      "capability": "parse",
+      "label": "代码解析",
+      "transport": "plugin_execute",
+      "profile": "standard",
+      "inputs": [
+        {
+          "name": "source",
+          "kind": "source.snapshot",
+          "schema_id": "codexploit/source-tar/v1",
+          "cardinality": "one",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "code",
+          "kind": "code.facts",
+          "schema_id": "codexploit/code-facts/v2",
+          "cardinality": "one",
+          "required": true
+        }
+      ],
+      "input_data": [
+        "frozen_files"
+      ],
+      "output_data": [
+        "files",
+        "symbols",
+        "calls",
+        "native_id_mappings"
+      ]
+    },
+    {
+      "stage": "semantic",
+      "capability": "semantic",
+      "label": "安全语义",
+      "transport": "plugin_execute",
+      "profile": "standard",
+      "inputs": [
+        {
+          "name": "source",
+          "kind": "source.snapshot",
+          "schema_id": "codexploit/source-tar/v1",
+          "cardinality": "one",
+          "required": true
+        },
+        {
+          "name": "code",
+          "kind": "code.facts",
+          "schema_id": "codexploit/code-facts/v2",
+          "cardinality": "one",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "security",
+          "kind": "security.facts",
+          "schema_id": "codexploit/security-facts/v2",
+          "cardinality": "one",
+          "required": true
+        }
+      ],
+      "input_data": [
+        "frozen_files",
+        "symbols",
+        "calls"
+      ],
+      "output_data": [
+        "entries",
+        "sinks",
+        "controls",
+        "relations",
+        "evidence"
+      ]
+    },
+    {
+      "stage": "scan",
+      "capability": "scan",
+      "label": "规则扫描",
+      "transport": "plugin_execute",
+      "profile": "standard",
+      "inputs": [
+        {
+          "name": "source",
+          "kind": "source.snapshot",
+          "schema_id": "codexploit/source-tar/v1",
+          "cardinality": "one",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "alerts",
+          "kind": "scanner.alerts",
+          "schema_id": "codexploit/scanner-alerts/v1",
+          "cardinality": "one",
+          "required": true
+        }
+      ],
+      "input_data": [
+        "frozen_files",
+        "rule_config"
+      ],
+      "output_data": [
+        "alerts",
+        "ruleset_digest"
+      ]
+    },
+    {
+      "stage": "path.generate",
+      "capability": "path",
+      "label": "候选路径生成",
+      "transport": "plugin_execute",
+      "profile": "standard",
+      "inputs": [
+        {
+          "name": "code",
+          "kind": "code.facts",
+          "schema_id": "codexploit/code-facts/v2",
+          "cardinality": "one",
+          "required": true
+        },
+        {
+          "name": "security",
+          "kind": "security.facts",
+          "schema_id": "codexploit/security-facts/v2",
+          "cardinality": "one",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "paths",
+          "kind": "discovery.paths",
+          "schema_id": "codexploit/discovery-paths/v2",
+          "cardinality": "one",
+          "required": true
+        }
+      ],
+      "input_data": [
+        "code_pin",
+        "security_pin"
+      ],
+      "output_data": [
+        "paths",
+        "omitted",
+        "graph_pins"
+      ]
+    },
+    {
+      "stage": "path.enhance",
+      "capability": "path",
+      "label": "路径增强",
+      "transport": "plugin_execute",
+      "profile": "standard",
+      "inputs": [
+        {
+          "name": "paths",
+          "kind": "discovery.paths",
+          "schema_id": "codexploit/discovery-paths/v2",
+          "cardinality": "one",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "paths",
+          "kind": "discovery.paths",
+          "schema_id": "codexploit/discovery-paths/v2",
+          "cardinality": "one",
+          "required": true
+        },
+        {
+          "name": "enhancement",
+          "kind": "path.enhancement",
+          "schema_id": "codexploit/path-enhancement/v2",
+          "cardinality": "one",
+          "required": true
+        }
+      ],
+      "input_data": [
+        "paths"
+      ],
+      "output_data": [
+        "retained_paths",
+        "selected",
+        "filtered",
+        "scoring_version",
+        "weights_digest"
+      ]
+    },
+    {
+      "stage": "agent",
+      "capability": "agent",
+      "label": "Agent 审查",
+      "transport": "agent_runtime",
+      "profile": "standard",
+      "inputs": [
+        {
+          "name": "task",
+          "kind": "agent.task",
+          "schema_id": "codexploit/agent-task/v1",
+          "cardinality": "one",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "answer",
+          "kind": "agent.answer",
+          "schema_id": "codexploit/agent-answer/v1",
+          "cardinality": "one",
+          "required": true
+        }
+      ],
+      "input_data": [
+        "obligations",
+        "path_refs",
+        "knowledge_pin"
+      ],
+      "output_data": [
+        "obligation_verdicts",
+        "blockers",
+        "evidence_refs",
+        "recommendation"
+      ]
+    },
+    {
+      "stage": "environment",
+      "capability": "environment",
+      "label": "环境供应",
+      "transport": "environment_backend",
+      "profile": "standard",
+      "inputs": [
+        {
+          "name": "request",
+          "kind": "environment.request",
+          "schema_id": "codexploit/environment-request/v1",
+          "cardinality": "one",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "receipt",
+          "kind": "environment.receipt",
+          "schema_id": "codexploit/environment-receipt/v1",
+          "cardinality": "one",
+          "required": true
+        }
+      ],
+      "input_data": [
+        "environment_spec",
+        "authorization_ref"
+      ],
+      "output_data": [
+        "environment_id",
+        "lease",
+        "applied_spec",
+        "cleanup_handle"
+      ]
+    },
+    {
+      "stage": "verification",
+      "capability": "verification",
+      "label": "验证执行",
+      "transport": "verification_executor",
+      "profile": "standard",
+      "inputs": [
+        {
+          "name": "plan",
+          "kind": "verification.plan",
+          "schema_id": "codexploit/verification-plan/v1",
+          "cardinality": "one",
+          "required": true
+        },
+        {
+          "name": "environment",
+          "kind": "environment.receipt",
+          "schema_id": "codexploit/environment-receipt/v1",
+          "cardinality": "one",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "evidence",
+          "kind": "verification.evidence",
+          "schema_id": "codexploit/verification-evidence/v1",
+          "cardinality": "one",
+          "required": true
+        }
+      ],
+      "input_data": [
+        "approved_plan",
+        "environment_receipt"
+      ],
+      "output_data": [
+        "assertions",
+        "observations",
+        "execution_status",
+        "log_refs",
+        "cleanup"
+      ]
+    },
+    {
+      "stage": "report",
+      "capability": "report",
+      "label": "报告",
+      "transport": "plugin_execute",
+      "profile": "standard",
+      "inputs": [
+        {
+          "name": "input",
+          "kind": "report.input",
+          "schema_id": "codexploit/report-input/v1",
+          "cardinality": "one",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "document",
+          "kind": "report.document",
+          "schema_id": "codexploit/report/v1",
+          "cardinality": "one",
+          "required": true
+        }
+      ],
+      "input_data": [
+        "frozen_findings",
+        "evidence",
+        "knowledge_revisions",
+        "severity_audit"
+      ],
+      "output_data": [
+        "format",
+        "document",
+        "coverage",
+        "open_questions"
+      ]
+    }
+  ],
+  "new_contracts": [
+    "source.request",
+    "report.input",
+    "tool.native"
+  ],
+  "new_schemas": [
+    "codexploit/source-request/v1",
+    "codexploit/code-facts/v2",
+    "codexploit/security-facts/v2",
+    "codexploit/discovery-paths/v2"
+  ]
+}

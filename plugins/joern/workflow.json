@@ -1,0 +1,61 @@
+{
+  "api_version": "codexploit/v1",
+  "id": "joern-taint",
+  "version": "2.1.1",
+  "name": "Joern 多语言污点分析",
+  "description": "同一固定 Joern 版本：CPG → 污点查询 → 候选路径 → 筛选与排序。",
+  "inputs": [
+    "source.snapshot"
+  ],
+  "nodes": [
+    {
+      "id": "parse",
+      "plugin_id": "codexploit.joern",
+      "plugin_version": "2.1.1",
+      "operation_id": "parse",
+      "needs": [],
+      "config": {
+        "frontend": "AUTO",
+        "heap_mib": 1024
+      },
+      "timeout_seconds": 900
+    },
+    {
+      "id": "taint",
+      "plugin_id": "codexploit.joern",
+      "plugin_version": "2.1.1",
+      "operation_id": "taint",
+      "needs": [
+        "parse"
+      ],
+      "config": {
+        "max_flows": 100,
+        "max_call_depth": 4
+      },
+      "timeout_seconds": 900
+    },
+    {
+      "id": "paths",
+      "plugin_id": "codexploit.joern",
+      "plugin_version": "2.1.1",
+      "operation_id": "paths",
+      "needs": [
+        "parse",
+        "taint"
+      ],
+      "config": {},
+      "timeout_seconds": 60
+    },
+    {
+      "id": "enhance",
+      "plugin_id": "codexploit.joern",
+      "plugin_version": "2.1.1",
+      "operation_id": "enhance",
+      "needs": [
+        "paths"
+      ],
+      "config": {},
+      "timeout_seconds": 60
+    }
+  ]
+}

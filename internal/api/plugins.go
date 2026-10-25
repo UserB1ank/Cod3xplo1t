@@ -48,6 +48,11 @@ func (s *Server) handleRegisterPlugin(w http.ResponseWriter, r *http.Request) {
 		writePluginError(w, plugin.ErrInvalid)
 		return
 	}
+	var manifest plugin.Manifest
+	if json.Unmarshal(request.Manifest, &manifest) != nil || manifest.APIVersion != "codexploit/v1" {
+		writePluginError(w, plugin.ErrInvalid)
+		return
+	}
 	if strings.HasPrefix(strings.TrimSpace(request.Source), "compiled ") {
 		writePluginError(w, plugin.ErrInvalid)
 		return
@@ -86,7 +91,13 @@ func (s *Server) handleListPlugins(w http.ResponseWriter, r *http.Request) {
 		last := rows[len(rows)-1].Manifest
 		next = last.ID + "@" + last.Version
 	}
-	writePluginJSON(w, 200, map[string]any{"api_version": "codexploit/v1", "plugins": rows, "next_cursor": next})
+	legacy := []plugin.Record{}
+	for _, row := range rows {
+		if row.Manifest.APIVersion != plugin.DefinitionVersion {
+			legacy = append(legacy, row)
+		}
+	}
+	writePluginJSON(w, 200, map[string]any{"api_version": "codexploit/v1", "plugins": legacy, "next_cursor": next})
 }
 
 type pluginCapabilityView struct {
@@ -154,7 +165,7 @@ func (s *Server) handlePluginCapabilities(w http.ResponseWriter, r *http.Request
 				Runtime: record.Manifest.Runtime.Kind, Source: record.Source, Installed: record.Installed,
 				Executable: record.Executable, AdapterKind: adapterPluginRuntime,
 				ProtocolVersion: record.ProtocolVersion, PackageVersion: record.Manifest.Version,
-				Declared: true, Measured: record.Executable, Reason: record.Reason,
+				Declared: true, Measured: record.Executable && (record.Installation == nil || record.Installation.Probe == "passed"), Reason: record.Reason,
 			})
 			view.Adapters = append(view.Adapters, pluginAdapter(record))
 		}

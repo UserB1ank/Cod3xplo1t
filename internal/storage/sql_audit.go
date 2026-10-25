@@ -742,6 +742,14 @@ func (s *SQL) ListDuePaths(auditID, now string, limit int) ([]path.Path, error) 
 func pathQueryFilter(q path.PathQuery) (string, []any) {
 	clauses := []string{}
 	args := []any{}
+	if q.SCGVersion != "" {
+		clauses = append(clauses, "scg_version = ?")
+		args = append(args, q.SCGVersion)
+	}
+	if q.ASGVersion != "" {
+		clauses = append(clauses, "asg_version = ?")
+		args = append(args, q.ASGVersion)
+	}
 	if q.AuditID != "" {
 		clauses = append(clauses, "audit_id = ?")
 		args = append(args, q.AuditID)

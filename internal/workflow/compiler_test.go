@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
@@ -233,13 +234,21 @@ func TestCompilerPinsOnePathEnhancementSource(t *testing.T) {
 }
 
 func TestDefaultAnalysisSpecCompilesToFourStagesAndAPinnedEnhancer(t *testing.T) {
-	c := compiler(t)
+	manifestRaw, err := os.ReadFile("../../plugins/joern/manifest.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest plugin.Manifest
+	if json.Unmarshal(manifestRaw, &manifest) != nil {
+		t.Fatal("manifest")
+	}
+	c := &workflow.Compiler{Plugins: staticCatalog{record: plugin.Record{Manifest: manifest, Installed: true, Executable: true, PackageDigest: strings.Repeat("b", 64), ManifestDigest: strings.Repeat("c", 64)}}}
 	raw, _ := json.Marshal(workflow.DefaultAnalysisSpec())
 	result, err := c.Validate(context.Background(), raw)
 	if err != nil || !result.Valid || len(result.Nodes) != 4 || result.PathSourceNodeID != "enhance" {
 		t.Fatalf("default analysis: %+v %v", result, err)
 	}
-	if result.Nodes[3].Plugin.Manifest.ID != "builtin.path-enhancer" || result.Nodes[3].Plugin.Manifest.Version != "1.0.0" {
+	if result.Nodes[3].Plugin.Manifest.ID != "codexploit.joern" || result.Nodes[3].Plugin.Manifest.Version != workflow.DefaultEnginePluginVersion || result.Nodes[3].OperationID != "enhance" {
 		t.Fatalf("default analysis did not pin the enhancer: %+v", result.Nodes[3])
 	}
 }

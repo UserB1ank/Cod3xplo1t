@@ -1,10 +1,24 @@
 import { useEffect, useRef, useState } from "react";
-import { Box, Play, Plus, RefreshCw } from "lucide-react";
+import {
+  Box,
+  Braces,
+  Clock3,
+  Package,
+  Play,
+  Plus,
+  RefreshCw,
+} from "lucide-react";
 import { ApiClient, ApiError } from "./api";
 import { preparePublication, type PublicationRequest } from "./knowledgeData";
 import { Badge, EmptyState, Hint, Modal, Panel } from "./components";
 import type { Snapshot } from "./types";
 import { latestSnapshot } from "./workbench";
+import {
+  PluginRegistry,
+  PluginStandards,
+  pluginTabKeys,
+} from "./PluginRegistry";
+import { invocationCoverageText, type StageOperation } from "./plugin-registry";
 import {
   adapterDetail,
   adapterStatus,
@@ -29,6 +43,7 @@ export interface PluginRecord {
     produces: string[];
     config_schema: object;
     permissions: { network: string; source_write: boolean };
+    operations?: StageOperation[];
   };
   package_digest: string;
   manifest_digest: string;
@@ -64,6 +79,15 @@ interface Invocation {
   };
   limitations: string[];
   created_at: string;
+  stage_coverage?: {
+    unit: string;
+    seen: number | null;
+    analyzed: number | null;
+    skipped: number | null;
+    failed: number | null;
+    truncated: boolean;
+    reasons: string[];
+  };
 }
 interface DiscoveryResult {
   kind: string;
@@ -120,8 +144,15 @@ const labels: Record<string, string> = {
   TIMED_OUT: "超时",
   UNSUPPORTED: "不支持此输入",
 };
-const errorText = (error: unknown) =>
-  error instanceof Error ? error.message : "插件操作失败";
+const errorText = (error: unknown) => {
+  if (error instanceof ApiError) {
+    if (error.code === "contract_violation")
+      return "能力目录响应不符合公开契约，当前无法确认哪些动作受影响。已登记版本仍保留；重新读取会再次校验，不会绕过契约。";
+    if (error.code === "plugins_unavailable")
+      return "插件目录或能力服务暂不可用；已保存的调用记录不会被清除。";
+  }
+  return error instanceof Error ? error.message : "插件操作失败";
+};
 
 export function Plugins({
   api,
@@ -132,6 +163,8 @@ export function Plugins({
   revision,
   onArtifacts,
   onKnowledge,
+  onWorkflow,
+  onReports,
 }: {
   api: ApiClient;
   projectID: string;
@@ -141,7 +174,12 @@ export function Plugins({
   revision: number;
   onArtifacts: (snapshot: string) => void;
   onKnowledge: () => void;
+  onWorkflow: () => void;
+  onReports: () => void;
 }) {
+  const [page, setPage] = useState("catalog");
+  const [legacyRunOpen, setLegacyRunOpen] = useState(false);
+  const [executionPlugin, setExecutionPlugin] = useState<PluginRecord>();
   const [catalog, setCatalog] = useState<PluginRecord[]>([]);
   const [capabilities, setCapabilities] = useState<CapabilityView[]>([]);
   const [protocols, setProtocols] = useState<DomainProtocol[]>([]);
@@ -172,12 +210,33 @@ export function Plugins({
   const [notice, setNotice] = useState("");
   const publications = useRef(new Map<string, PublicationRequest>());
   const [published, setPublished] = useState("");
+  const [publicationPort, setPublicationPort] = useState("");
+  useEffect(() => setPublicationPort(""), [selectedRun]);
+  const standardOutputs =
+    detail?.outputs.filter((ref) =>
+      [
+        "codexploit/code-facts/v2",
+        "codexploit/security-facts/v2",
+        "codexploit/discovery-paths/v2",
+      ].includes(ref.schema_id),
+    ) || [];
+  const outputPort =
+    standardOutputs.find((ref) => ref.producer.output_port === publicationPort)
+      ?.producer.output_port ||
+    (standardOutputs.length === 1
+      ? standardOutputs[0].producer.output_port
+      : "");
   useEffect(() => setPublished(""), [selectedRun, snapshot]);
   const [importing, setImporting] = useState(false);
   const [manifest, setManifest] = useState("");
   const [packageDigest, setPackageDigest] = useState("");
   const [source, setSource] = useState("manual import");
   const chosen =
+    (executionPlugin &&
+    `${executionPlugin.manifest.id}@${executionPlugin.manifest.version}` ===
+      selected
+      ? executionPlugin
+      : undefined) ||
     catalog.find(
       (p) => `${p.manifest.id}@${p.manifest.version}` === selected,
     ) ||
@@ -379,10 +438,51 @@ export function Plugins({
     }
   };
   return (
-    <>
+    <div className="plugin-center">
+      <nav
+        className="pc-page-tabs"
+        role="tablist"
+        aria-label="插件中心视图"
+        onKeyDown={pluginTabKeys}
+      >
+        <button
+          role="tab"
+          aria-selected={page === "catalog"}
+          tabIndex={page === "catalog" ? 0 : -1}
+          onClick={() => setPage("catalog")}
+        >
+          <Package size={16} />
+          插件目录
+        </button>
+        <button
+          role="tab"
+          aria-selected={page === "runs"}
+          tabIndex={page === "runs" ? 0 : -1}
+          onClick={() => setPage("runs")}
+        >
+          <Clock3 size={16} />
+          调用记录
+        </button>
+        <button
+          role="tab"
+          aria-selected={page === "standards"}
+          tabIndex={page === "standards" ? 0 : -1}
+          onClick={() => setPage("standards")}
+        >
+          <Braces size={16} />
+          接口标准
+        </button>
+      </nav>
       {error && (
-        <div className="error-message" role="alert">
-          {error}
+        <div className="error-message plugin-error" role="alert">
+          <span>{error}</span>
+          <button
+            className="button secondary"
+            type="button"
+            onClick={() => updateCatalog((n) => n + 1)}
+          >
+            <RefreshCw size={14} /> 重新读取
+          </button>
         </div>
       )}
       {notice && (
@@ -390,200 +490,183 @@ export function Plugins({
           {notice}
         </div>
       )}
-      <Panel
-        title="能力与执行适配器"
-        eyebrow="CAPABILITY CATALOG"
-        action={
-          <button
-            className="button secondary"
-            onClick={() => updateCatalog((n) => n + 1)}
-            disabled={!!busy}
-          >
-            <RefreshCw size={14} />
-            刷新能力
-          </button>
-        }
-      >
-        <Hint>
-          九个阶段分别列出可用适配器；声明、安装和实测可执行是三种状态。
-          插件 Runtime、Agent Runtime、环境供应后端与验证执行器不会被混成同一种 Execute。
-          契约中的 Schema 只说明数据结构，不授予权限。
-        </Hint>
-        {capabilities.length ? (
-          <div className="capability-grid">
-            {capabilities.map((capability) => {
-              const status = capabilityStatus(capability);
-              return (
-                <section className="capability-card" key={capability.key}>
-                  <header>
-                    <div>
-                      <strong>{capability.label}</strong>
-                      <small>{capability.key} · {executionModelLabel(capability.execution_model)}</small>
-                    </div>
-                    <span className={`input-state ${status.tone}`}>{status.label}</span>
-                  </header>
-                  {capability.reason && (
-                    <p className="capability-reason">{capability.reason}</p>
-                  )}
-                  {capability.contracts.length > 0 && (
-                    <div className="capability-contracts">
-                      {capability.contracts.map((contract) => (
-                        <span key={contract.kind} title={contract.schemas.join(", ")}>
-                          {contract.kind}
-                          <code>{contract.schemas.join(" · ")}</code>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  <div className="capability-adapters">
-                    {capability.adapters.map((adapter) => {
-                      const adapterState = adapterStatus(adapter);
-                      return (
-                        <div className="capability-adapter" key={`${adapter.kind}:${adapter.id}`}>
-                          <span className={`input-state ${adapterState.tone}`}>{adapterState.label}</span>
-                          <div>
-                            <strong>{adapter.name}</strong>
-                            <small>{adapterDetail(adapter)}</small>
-                            {adapter.reason && <p>{adapter.reason}</p>}
-                          </div>
-                        </div>
-                      );
-                    })}
-                    {!capability.adapters.length && (
-                      <p className="muted">此阶段没有已配置的适配器。</p>
-                    )}
-                  </div>
-                </section>
-              );
-            })}
-          </div>
-        ) : (
-          <EmptyState title="能力目录不可用">服务端未返回能力目录，刷新后重试。</EmptyState>
-        )}
-        {protocols.length > 0 && (
-          <details className="capability-protocols">
-            <summary>版本化领域协议（{protocols.length}）</summary>
-            <div className="table-scroll">
-              <table className="standard-table">
-                <thead>
-                  <tr><th>Schema</th><th>阶段</th><th>传输</th><th>方向</th><th>本地文件</th></tr>
-                </thead>
-                <tbody>
-                  {protocols.map((protocol) => (
-                    <tr key={protocol.schema}>
-                      <td><code>{protocol.schema}</code></td>
-                      <td>{protocol.capability}</td>
-                      <td>{executionModelLabel(protocol.transport)}</td>
-                      <td>{protocol.direction}</td>
-                      <td><code>{protocol.file}</code></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </details>
-        )}
-      </Panel>
-      <Panel
-        title="插件目录"
-        action={
-          <div className="heading-actions">
+      {page === "catalog" && (
+        <PluginRegistry
+          api={api}
+          canRegister={canRegister}
+          canWrite={canWrite}
+          projectID={projectID}
+          snapshots={snapshots}
+          onWorkflow={onWorkflow}
+          onReports={onReports}
+          onLegacyExecute={(record) => {
+            const legacy = record as unknown as PluginRecord;
+            setExecutionPlugin(legacy);
+            setSelected(`${legacy.manifest.id}@${legacy.manifest.version}`);
+            setConfig("{}");
+            setUpstream("");
+            setLegacyRunOpen(true);
+          }}
+          onInvoked={(inputSnapshot, id) => {
+            setSnapshot(inputSnapshot);
+            setSelectedRun(id);
+            updateRuns((n) => n + 1);
+            setPage("runs");
+            setNotice("调用已创建，输入与执行版本已固定。");
+          }}
+        />
+      )}
+      {page === "standards" && (
+        <>
+          <PluginStandards api={api} />
+          <details className="pc-advanced-capabilities">
+            <summary>领域运行适配器与兼容接口</summary>
             <button
               className="button secondary"
-              onClick={() => updateCatalog((n) => n + 1)}
-              disabled={!!busy}
-            >
-              <RefreshCw size={14} />
-              刷新
-            </button>
-            <button
-              className="button secondary"
-              disabled={!canRegister || !!busy}
-              onClick={() => {
-                setError("");
-                setImporting(true);
-              }}
+              disabled={!canRegister}
+              onClick={() => setImporting(true)}
             >
               <Plus size={14} />
-              导入清单
+              登记 v1 兼容清单
             </button>
-          </div>
-        }
+            <Panel
+              title="能力与执行适配器"
+              eyebrow="CAPABILITY CATALOG"
+              action={
+                <button
+                  className="button secondary"
+                  onClick={() => updateCatalog((n) => n + 1)}
+                  disabled={!!busy}
+                >
+                  <RefreshCw size={14} />
+                  刷新能力
+                </button>
+              }
+            >
+              <Hint>
+                此兼容视图展示领域服务和执行器就绪情况。插件功能实测请查看目录中的版本详情。
+                插件 Runtime、Agent
+                Runtime、环境供应后端与验证执行器不会被混成同一种 Execute。
+                契约中的 Schema 只说明数据结构，不授予权限。
+              </Hint>
+              {capabilities.length ? (
+                <div className="capability-grid">
+                  {capabilities.map((capability) => {
+                    const status = capabilityStatus(capability);
+                    return (
+                      <section className="capability-card" key={capability.key}>
+                        <header>
+                          <div>
+                            <strong>{capability.label}</strong>
+                            <small>
+                              {capability.key} ·{" "}
+                              {executionModelLabel(capability.execution_model)}
+                            </small>
+                          </div>
+                          <span className={`input-state ${status.tone}`}>
+                            {status.label}
+                          </span>
+                        </header>
+                        {capability.reason && (
+                          <p className="capability-reason">
+                            {capability.reason}
+                          </p>
+                        )}
+                        {capability.contracts.length > 0 && (
+                          <div className="capability-contracts">
+                            {capability.contracts.map((contract) => (
+                              <span
+                                key={contract.kind}
+                                title={contract.schemas.join(", ")}
+                              >
+                                {contract.kind}
+                                <code>{contract.schemas.join(" · ")}</code>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        <div className="capability-adapters">
+                          {capability.adapters.map((adapter) => {
+                            const adapterState = adapterStatus(adapter);
+                            return (
+                              <div
+                                className="capability-adapter"
+                                key={`${adapter.kind}:${adapter.id}`}
+                              >
+                                <span
+                                  className={`input-state ${adapterState.tone}`}
+                                >
+                                  {adapter.kind === "plugin_runtime" &&
+                                  adapter.measured
+                                    ? "执行器已就绪"
+                                    : adapterState.label}
+                                </span>
+                                <div>
+                                  <strong>{adapter.name}</strong>
+                                  <small>{adapterDetail(adapter)}</small>
+                                  {adapter.reason && <p>{adapter.reason}</p>}
+                                </div>
+                              </div>
+                            );
+                          })}
+                          {!capability.adapters.length && (
+                            <p className="muted">此阶段没有已配置的适配器。</p>
+                          )}
+                        </div>
+                      </section>
+                    );
+                  })}
+                </div>
+              ) : (
+                <EmptyState title="能力目录不可用">
+                  服务端未返回能力目录，刷新后重试。
+                </EmptyState>
+              )}
+              {protocols.length > 0 && (
+                <details className="capability-protocols">
+                  <summary>版本化领域协议（{protocols.length}）</summary>
+                  <div className="table-scroll">
+                    <table className="standard-table">
+                      <thead>
+                        <tr>
+                          <th>Schema</th>
+                          <th>阶段</th>
+                          <th>传输</th>
+                          <th>方向</th>
+                          <th>本地文件</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {protocols.map((protocol) => (
+                          <tr key={protocol.schema}>
+                            <td>
+                              <code>{protocol.schema}</code>
+                            </td>
+                            <td>{protocol.capability}</td>
+                            <td>{executionModelLabel(protocol.transport)}</td>
+                            <td>{protocol.direction}</td>
+                            <td>
+                              <code>{protocol.file}</code>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+              )}
+            </Panel>
+          </details>
+        </>
+      )}
+      <Modal
+        open={legacyRunOpen}
+        onClose={() => {
+          if (!busy) setLegacyRunOpen(false);
+        }}
+        title="执行固定版本分析"
+        wide
       >
-        <Hint>
-          插件目录在工作区共享。执行限定当前项目和固定快照，外部清单只有安装并配置执行器后才可运行。
-        </Hint>
-        {catalog.length ? (
-          <div className="table-scroll">
-            <table className="standard-table">
-              <thead>
-                <tr>
-                  <th>插件 / 版本</th>
-                  <th>能力</th>
-                  <th>运行方式 / 可用性</th>
-                  <th>包摘要</th>
-                </tr>
-              </thead>
-              <tbody>
-                {catalog.map((p) => (
-                  <tr key={`${p.manifest.id}@${p.manifest.version}`}>
-                    <td>
-                      <button
-                        className="table-title"
-                        aria-pressed={chosen === p}
-                        onClick={() => {
-                          setSelected(`${p.manifest.id}@${p.manifest.version}`);
-                          setConfig("{}");
-                        }}
-                      >
-                        {p.manifest.name}
-                      </button>
-                      <p className="mono">
-                        {p.manifest.id} @{p.manifest.version}
-                      </p>
-                    </td>
-                    <td>
-                      {p.manifest.languages.join(" / ")} · {p.manifest.kind}
-                      <p>{p.manifest.produces.join(", ")}</p>
-                    </td>
-                    <td>
-                      {p.manifest.runtime.kind}
-                      <p>
-                        已登记 · {p.installed ? "已安装" : "未安装"} ·{" "}
-                        {p.executable ? "可执行" : "不可执行"}
-                      </p>
-                      {p.reason && <small>{p.reason}</small>}
-                    </td>
-                    <td>
-                      <code className="plugin-digest">{p.package_digest}</code>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <EmptyState title="插件目录暂无数据">
-            刷新后重试，查询失败不会显示示例插件。
-          </EmptyState>
-        )}
-        <div className="pager">
-          <span>第 {catalogCursor.length} 页</span>
-          <button
-            disabled={catalogCursor.length < 2}
-            onClick={() => setCatalogCursor((v) => v.slice(0, -1))}
-          >
-            上一页
-          </button>
-          <button
-            disabled={!nextCatalog}
-            onClick={() => setCatalogCursor((v) => [...v, nextCatalog])}
-          >
-            下一页
-          </button>
-        </div>
-      </Panel>
-      <Panel title="执行固定版本分析">
         <Hint>
           1. Go 解析生成代码事实 → 2. 语义分析识别安全语义 → 3.
           路径分析生成候选。每一步显式选择固定的上游调用，调用可达与假设分别展示。
@@ -617,15 +700,22 @@ export function Plugins({
                 setUpstream("");
               }}
             >
-              {catalog.map((p) => (
-                <option
-                  key={`${p.manifest.id}@${p.manifest.version}`}
-                  value={`${p.manifest.id}@${p.manifest.version}`}
-                >
-                  {p.manifest.id} @{p.manifest.version}
-                  {p.executable ? "" : " · 不可执行"}
-                </option>
-              ))}
+              {catalog
+                .filter(
+                  (p) =>
+                    !["builtin.path-enhancer", "builtin.reporter"].includes(
+                      p.manifest.id,
+                    ),
+                )
+                .map((p) => (
+                  <option
+                    key={`${p.manifest.id}@${p.manifest.version}`}
+                    value={`${p.manifest.id}@${p.manifest.version}`}
+                  >
+                    {p.manifest.id} @{p.manifest.version}
+                    {p.executable ? "" : " · 不可执行"}
+                  </option>
+                ))}
             </select>
           </label>
           {upstreamPlugin && (
@@ -743,6 +833,8 @@ export function Plugins({
                 setDetail(result.invocation);
                 updateRuns((n) => n + 1);
                 setNotice("分析调用已创建，输入与插件版本已固定。");
+                setLegacyRunOpen(false);
+                setPage("runs");
               })
             }
           >
@@ -758,315 +850,381 @@ export function Plugins({
           ))}
           工具只生成候选和分级建议。调用可达不等于污点流；规则命中不代表控制有效或漏洞可利用，已有裁定不会被工具覆盖。
         </Hint>
-      </Panel>
-      <Panel
-        title="执行记录"
-        action={
-          <button
-            className="button secondary"
-            onClick={() => updateRuns((n) => n + 1)}
-          >
-            <RefreshCw size={14} />
-            刷新记录
-          </button>
-        }
-      >
-        {runs.length ? (
-          <div className="table-scroll">
-            <table className="standard-table">
-              <thead>
-                <tr>
-                  <th>调用 / 版本</th>
-                  <th>状态</th>
-                  <th>Go 完整 / 部分 / 未解析</th>
-                  <th>其他输入</th>
-                  <th>产物</th>
-                </tr>
-              </thead>
-              <tbody>
-                {runs.map((run) => (
-                  <tr key={run.invocation_id}>
-                    <td>
-                      <button
-                        className="table-title mono"
-                        onClick={() => setSelectedRun(run.invocation_id)}
-                      >
-                        {run.invocation_id}
-                      </button>
-                      <p>
-                        {run.request.plugin_id} @{run.request.plugin_version}
-                      </p>
-                    </td>
-                    <td>
-                      <Badge status={run.status} label={labels[run.status]} />
-                    </td>
-                    <td>
-                      {run.coverage.parsed_files} / {run.coverage.partial_files}{" "}
-                      / {run.coverage.unparsed_files}
-                    </td>
-                    <td>{run.coverage.unhandled_files}</td>
-                    <td>{run.outputs.length}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <EmptyState title="还没有分析调用">
-            先运行 Go 解析，再选择上游调用执行语义和路径分析。
-          </EmptyState>
-        )}
-        <div className="pager">
-          <span>第 {runCursors.length} 页</span>
-          <button
-            disabled={runCursors.length < 2}
-            onClick={() => setRunCursors((v) => v.slice(0, -1))}
-          >
-            上一页
-          </button>
-          <button
-            disabled={!nextRun}
-            onClick={() => setRunCursors((v) => [...v, nextRun])}
-          >
-            下一页
-          </button>
-        </div>
-      </Panel>
-      {detail && (
+      </Modal>
+      <div className="pc-runs-view" hidden={page !== "runs"}>
         <Panel
-          title={`调用详情 · ${detail.invocation_id}`}
+          title="固定快照的调用记录"
           action={
-            <button
-              className="button secondary"
-              disabled={!canWrite || !!busy || terminal(detail.status) || !etag}
-              onClick={() =>
-                work("取消调用", async () => {
-                  const result = await api.post<{ invocation: Invocation }>(
-                    `${prefix}/plugin-invocations/${encodeURIComponent(detail.invocation_id)}/cancel`,
-                    {},
-                    undefined,
-                    { "If-Match": etag },
-                  );
-                  setDetail(result.invocation);
-                  updateRuns((n) => n + 1);
-                })
-              }
-            >
-              取消调用
-            </button>
+            <div className="pc-actions">
+              <select
+                aria-label="调用记录快照"
+                value={snapshot}
+                onChange={(e) => {
+                  setSnapshot(e.target.value);
+                  setSelectedRun("");
+                  setDetail(undefined);
+                }}
+              >
+                {snapshots.map((item) => (
+                  <option key={item.snapshot_id} value={item.snapshot_id}>
+                    {item.snapshot_id}
+                  </option>
+                ))}
+              </select>
+              <button
+                className="button primary"
+                disabled={!canWrite || !snapshots.length}
+                onClick={() => setLegacyRunOpen(true)}
+              >
+                <Play size={14} />
+                运行兼容插件
+              </button>
+              <button
+                className="button secondary"
+                onClick={() => updateRuns((n) => n + 1)}
+              >
+                <RefreshCw size={14} />
+                刷新记录
+              </button>
+            </div>
           }
         >
-          <div className="source-description">
-            <Badge status={detail.status} label={labels[detail.status]} />
-            <p>
-              包摘要：
-              <code className="plugin-digest">
-                {detail.request.package_digest}
-              </code>
-            </p>
-            <p>
-              参数摘要：
-              <code className="plugin-digest">{detail.config_digest}</code>
-            </p>
-            <p>输入：{detail.request.inputs.map((ref) => ref.id).join(", ")}</p>
-            {detail.error_code && (
-              <p role="alert">执行结果：{detail.error_code}</p>
+          {runs.length ? (
+            <div className="table-scroll">
+              <table className="standard-table">
+                <thead>
+                  <tr>
+                    <th>调用 / 版本</th>
+                    <th>状态</th>
+                    <th>分析覆盖</th>
+                    <th>未处理 / 失败</th>
+                    <th>产物</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {runs.map((run) => (
+                    <tr key={run.invocation_id}>
+                      <td>
+                        <button
+                          className="table-title mono"
+                          onClick={() => setSelectedRun(run.invocation_id)}
+                        >
+                          {run.invocation_id}
+                        </button>
+                        <p>
+                          {run.request.plugin_id} @{run.request.plugin_version}
+                        </p>
+                      </td>
+                      <td>
+                        <Badge status={run.status} label={labels[run.status]} />
+                      </td>
+                      <td>
+                        {
+                          invocationCoverageText(
+                            run.status,
+                            run.stage_coverage,
+                            run.coverage,
+                          ).analyzed
+                        }
+                      </td>
+                      <td>
+                        {
+                          invocationCoverageText(
+                            run.status,
+                            run.stage_coverage,
+                            run.coverage,
+                          ).omitted
+                        }
+                      </td>
+                      <td>{run.outputs.length}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <EmptyState title="还没有分析调用">
+              选择插件和固定输入后创建调用，执行状态与产物会保存在这里。
+            </EmptyState>
+          )}
+          <div className="pager">
+            <span>第 {runCursors.length} 页</span>
+            <button
+              disabled={runCursors.length < 2}
+              onClick={() => setRunCursors((v) => v.slice(0, -1))}
+            >
+              上一页
+            </button>
+            <button
+              disabled={!nextRun}
+              onClick={() => setRunCursors((v) => [...v, nextRun])}
+            >
+              下一页
+            </button>
+          </div>
+        </Panel>
+        {detail && (
+          <Panel
+            title={`调用详情 · ${detail.invocation_id}`}
+            action={
+              <button
+                className="button secondary"
+                disabled={
+                  !canWrite || !!busy || terminal(detail.status) || !etag
+                }
+                onClick={() =>
+                  work("取消调用", async () => {
+                    const result = await api.post<{ invocation: Invocation }>(
+                      `${prefix}/plugin-invocations/${encodeURIComponent(detail.invocation_id)}/cancel`,
+                      {},
+                      undefined,
+                      { "If-Match": etag },
+                    );
+                    setDetail(result.invocation);
+                    updateRuns((n) => n + 1);
+                  })
+                }
+              >
+                取消调用
+              </button>
+            }
+          >
+            <div className="source-description">
+              <Badge status={detail.status} label={labels[detail.status]} />
+              <p>
+                包摘要：
+                <code className="plugin-digest">
+                  {detail.request.package_digest}
+                </code>
+              </p>
+              <p>
+                参数摘要：
+                <code className="plugin-digest">{detail.config_digest}</code>
+              </p>
+              <p>
+                输入：{detail.request.inputs.map((ref) => ref.id).join(", ")}
+              </p>
+              {detail.error_code && (
+                <p role="alert">执行结果：{detail.error_code}</p>
+              )}
+              <details>
+                <summary>
+                  覆盖范围、预算与局限（{detail.limitations.length} 项）
+                </summary>
+                <ul>
+                  {detail.limitations.map((note, index) => (
+                    <li key={index}>{note}</li>
+                  ))}
+                </ul>
+                <pre className="artifact-preview">
+                  {JSON.stringify(
+                    {
+                      config: detail.request.config,
+                      budget: detail.request.budget,
+                      coverage: detail.stage_coverage || detail.coverage,
+                    },
+                    null,
+                    2,
+                  )}
+                </pre>
+              </details>
+              {detail.outputs.map((ref) => (
+                <p className="mono" key={ref.id}>
+                  {ref.kind} · {ref.id} · {ref.bytes} bytes
+                </p>
+              ))}
+              <button
+                className="button secondary"
+                onClick={() => onArtifacts(detail.request.scope.snapshot_id)}
+              >
+                查看 / 下载产物
+              </button>
+              {standardOutputs.length > 1 && (
+                <label className="pc-publication-select">
+                  发布输出
+                  <select
+                    value={publicationPort}
+                    onChange={(e) => {
+                      setPublicationPort(e.target.value);
+                      setPublished("");
+                    }}
+                  >
+                    <option value="">选择标准输出</option>
+                    {standardOutputs.map((ref) => (
+                      <option key={ref.id} value={ref.producer.output_port}>
+                        {ref.kind} · {ref.producer.output_port}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <button
+                className="button primary"
+                disabled={
+                  !canWrite ||
+                  !!busy ||
+                  (!discovery && !outputPort) ||
+                  !["SUCCEEDED", "PARTIAL"].includes(detail.status)
+                }
+                onClick={() =>
+                  work("发布共享图谱", async () => {
+                    const id = detail.invocation_id;
+                    const publicationKey = `${id}:${outputPort}`;
+                    try {
+                      let request = publications.current.get(publicationKey);
+                      if (!request) {
+                        request = await preparePublication(
+                          api,
+                          projectID,
+                          detail.request.scope.snapshot_id,
+                          id,
+                          `batch-${crypto.randomUUID()}`,
+                        );
+                        publications.current.set(publicationKey, request);
+                      }
+                      const result = await api.post<{
+                        publication: { revision: string };
+                      }>(
+                        `/v1/projects/${encodeURIComponent(projectID)}/knowledge/publications`,
+                        outputPort
+                          ? { ...request, output_port: outputPort }
+                          : request,
+                      );
+                      setPublished(result.publication.revision);
+                    } catch (error) {
+                      if (
+                        error instanceof ApiError &&
+                        error.code === "version_conflict"
+                      )
+                        publications.current.delete(publicationKey);
+                      throw error;
+                    }
+                  })
+                }
+              >
+                {detail.status === "PARTIAL"
+                  ? "发布部分覆盖结果"
+                  : "发布到共享图谱"}
+              </button>
+              {published && (
+                <button className="text-button" onClick={onKnowledge}>
+                  查看已发布图谱 · {published}
+                </button>
+              )}
+              {discovery && (
+                <Hint>
+                  发布保留原始产物、调用来源、候选与覆盖局限。并发版本冲突会明确失败，可刷新后重试。
+                </Hint>
+              )}
+            </div>
+          </Panel>
+        )}
+        {resultError && (
+          <div className="error-message" role="alert">
+            标准结果暂不可读取：{resultError}。可到产物页面核对或下载。
+          </div>
+        )}
+        {discovery && (
+          <Panel
+            title={
+              discovery.native_artifact.schema_id ===
+              "codexploit/scanner-alerts/v1"
+                ? "进程扫描告警"
+                : discovery.kind === "security.facts"
+                  ? "安全语义事实"
+                  : "候选观察与分析路径"
+            }
+          >
+            <Hint>
+              {discovery.native_artifact.schema_id ===
+              "codexploit/scanner-alerts/v1"
+                ? "进程扫描器报告告警位置；本切片不声明污点流或可利用性。"
+                : `${discovery.nodes.length} 个安全语义节点 · ${discovery.edges.length} 条关系`}{" "}
+              {discovery.paths.length} 条路径 · {discovery.candidates.length}{" "}
+              个候选。严重性建议与确认状态独立，工具没有裁定权限。
+            </Hint>
+            {discovery.candidates.length ? (
+              discovery.candidates.map((candidate) => {
+                const paths = discovery.paths.filter((path) =>
+                  candidate.path_refs.includes(path.id),
+                );
+                const grades = { high: "高", medium: "中", low: "低" };
+                return (
+                  <details className="source-description" key={candidate.id}>
+                    <summary>
+                      {candidate.title} · 候选 ·{" "}
+                      {candidate.severity_hint
+                        ? `${grades[candidate.severity_hint]}危建议`
+                        : "待评估"}
+                    </summary>
+                    <p className="mono">
+                      观察：{candidate.id} · {candidate.file}:{candidate.line}
+                    </p>
+                    <p>
+                      证据：{candidate.evidence_refs.join(", ")} · 原始报告
+                      SHA-256：{discovery.native_artifact.sha256}
+                    </p>
+                    {paths.map((path) => (
+                      <div key={path.id}>
+                        <p>
+                          {path.path_kind === "call_reachability"
+                            ? "调用可达"
+                            : "假设"}{" "}
+                          ·{" "}
+                          {path.completeness === "complete"
+                            ? "调用步骤完整"
+                            : "部分 / 未解析"}{" "}
+                          · {path.evidence_class}
+                        </p>
+                        <ol>
+                          {path.steps.map((step, index) => (
+                            <li key={index}>
+                              <code>
+                                {step.layer} · {step.kind} · {step.from} →{" "}
+                                {step.to}
+                              </code>
+                              {step.file && (
+                                <span>
+                                  {" "}
+                                  · {step.file}:{step.line}
+                                </span>
+                              )}
+                            </li>
+                          ))}
+                        </ol>
+                        <p className="mono">
+                          canonical SCG：{path.scg_refs.join(", ")}
+                          <br />
+                          canonical ASG：{path.asg_refs.join(", ")}
+                        </p>
+                      </div>
+                    ))}
+                    <ul>
+                      {candidate.limitations.map((note, index) => (
+                        <li key={index}>{note}</li>
+                      ))}
+                    </ul>
+                  </details>
+                );
+              })
+            ) : (
+              <p className="source-description">
+                {discovery.kind === "security.facts"
+                  ? "语义产物已生成，选择此上游调用继续路径分析。"
+                  : "本次范围未生成候选；这不代表不存在漏洞。"}
+              </p>
             )}
-            <details>
-              <summary>
-                覆盖范围、预算与局限（{detail.limitations.length} 项）
-              </summary>
+            <details className="source-description">
+              <summary>分析覆盖与局限</summary>
               <ul>
-                {detail.limitations.map((note, index) => (
+                {discovery.limitations.map((note, index) => (
                   <li key={index}>{note}</li>
                 ))}
               </ul>
-              <pre className="artifact-preview">
-                {JSON.stringify(
-                  {
-                    config: detail.request.config,
-                    budget: detail.request.budget,
-                    coverage: detail.coverage,
-                  },
-                  null,
-                  2,
-                )}
-              </pre>
             </details>
-            {detail.outputs.map((ref) => (
-              <p className="mono" key={ref.id}>
-                {ref.kind} · {ref.id} · {ref.bytes} bytes
-              </p>
-            ))}
-            <button
-              className="button secondary"
-              onClick={() => onArtifacts(detail.request.scope.snapshot_id)}
-            >
-              查看 / 下载产物
-            </button>
-            <button
-              className="button primary"
-              disabled={
-                !canWrite ||
-                !!busy ||
-                !discovery ||
-                !["SUCCEEDED", "PARTIAL"].includes(detail.status)
-              }
-              onClick={() =>
-                work("发布共享图谱", async () => {
-                  const id = detail.invocation_id;
-                  try {
-                    let request = publications.current.get(id);
-                    if (!request) {
-                      request = await preparePublication(
-                        api,
-                        projectID,
-                        detail.request.scope.snapshot_id,
-                        id,
-                        `batch-${crypto.randomUUID()}`,
-                      );
-                      publications.current.set(id, request);
-                    }
-                    const result = await api.post<{
-                      publication: { revision: string };
-                    }>(
-                      `/v1/projects/${encodeURIComponent(projectID)}/knowledge/publications`,
-                      request,
-                    );
-                    setPublished(result.publication.revision);
-                  } catch (error) {
-                    if (
-                      error instanceof ApiError &&
-                      error.code === "version_conflict"
-                    )
-                      publications.current.delete(id);
-                    throw error;
-                  }
-                })
-              }
-            >
-              {detail.status === "PARTIAL"
-                ? "发布部分覆盖结果"
-                : "发布到共享图谱"}
-            </button>
-            {published && (
-              <button className="text-button" onClick={onKnowledge}>
-                查看已发布图谱 · {published}
-              </button>
-            )}
-            {discovery && (
-              <Hint>
-                发布保留原始产物、调用来源、候选与覆盖局限。并发版本冲突会明确失败，可刷新后重试。
-              </Hint>
-            )}
-          </div>
-        </Panel>
-      )}
-      {resultError && (
-        <div className="error-message" role="alert">
-          标准结果暂不可读取：{resultError}。可到产物页面核对或下载。
-        </div>
-      )}
-      {discovery && (
-        <Panel
-          title={
-            discovery.native_artifact.schema_id ===
-            "codexploit/scanner-alerts/v1"
-              ? "进程扫描告警"
-              : discovery.kind === "security.facts"
-                ? "安全语义事实"
-                : "候选观察与分析路径"
-          }
-        >
-          <Hint>
-            {discovery.native_artifact.schema_id ===
-            "codexploit/scanner-alerts/v1"
-              ? "进程扫描器报告告警位置；本切片不声明污点流或可利用性。"
-              : `${discovery.nodes.length} 个安全语义节点 · ${discovery.edges.length} 条关系`}{" "}
-            {discovery.paths.length} 条路径 · {discovery.candidates.length}{" "}
-            个候选。严重性建议与确认状态独立，工具没有裁定权限。
-          </Hint>
-          {discovery.candidates.length ? (
-            discovery.candidates.map((candidate) => {
-              const paths = discovery.paths.filter((path) =>
-                candidate.path_refs.includes(path.id),
-              );
-              const grades = { high: "高", medium: "中", low: "低" };
-              return (
-                <details className="source-description" key={candidate.id}>
-                  <summary>
-                    {candidate.title} · 候选 ·{" "}
-                    {candidate.severity_hint
-                      ? `${grades[candidate.severity_hint]}危建议`
-                      : "待评估"}
-                  </summary>
-                  <p className="mono">
-                    观察：{candidate.id} · {candidate.file}:{candidate.line}
-                  </p>
-                  <p>
-                    证据：{candidate.evidence_refs.join(", ")} · 原始报告
-                    SHA-256：{discovery.native_artifact.sha256}
-                  </p>
-                  {paths.map((path) => (
-                    <div key={path.id}>
-                      <p>
-                        {path.path_kind === "call_reachability"
-                          ? "调用可达"
-                          : "假设"}{" "}
-                        ·{" "}
-                        {path.completeness === "complete"
-                          ? "调用步骤完整"
-                          : "部分 / 未解析"}{" "}
-                        · {path.evidence_class}
-                      </p>
-                      <ol>
-                        {path.steps.map((step, index) => (
-                          <li key={index}>
-                            <code>
-                              {step.layer} · {step.kind} · {step.from} →{" "}
-                              {step.to}
-                            </code>
-                            {step.file && (
-                              <span>
-                                {" "}
-                                · {step.file}:{step.line}
-                              </span>
-                            )}
-                          </li>
-                        ))}
-                      </ol>
-                      <p className="mono">
-                        canonical SCG：{path.scg_refs.join(", ")}
-                        <br />
-                        canonical ASG：{path.asg_refs.join(", ")}
-                      </p>
-                    </div>
-                  ))}
-                  <ul>
-                    {candidate.limitations.map((note, index) => (
-                      <li key={index}>{note}</li>
-                    ))}
-                  </ul>
-                </details>
-              );
-            })
-          ) : (
-            <p className="source-description">
-              {discovery.kind === "security.facts"
-                ? "语义产物已生成，选择此上游调用继续路径分析。"
-                : "本次范围未生成候选；这不代表不存在漏洞。"}
-            </p>
-          )}
-          <details className="source-description">
-            <summary>分析覆盖与局限</summary>
-            <ul>
-              {discovery.limitations.map((note, index) => (
-                <li key={index}>{note}</li>
-              ))}
-            </ul>
-          </details>
-        </Panel>
-      )}
+          </Panel>
+        )}
+      </div>
       <Modal
         open={importing}
         onClose={() => {
@@ -1135,6 +1293,6 @@ export function Plugins({
           </div>
         </form>
       </Modal>
-    </>
+    </div>
   );
 }

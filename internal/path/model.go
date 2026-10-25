@@ -315,8 +315,9 @@ type Path struct {
 	Cluster Cluster `json:"cluster"`
 
 	// Evidence links. SCGRefs and ASGRefs are what make the path auditable.
-	SCGRefs []string `json:"scg_refs"`
-	ASGRefs []string `json:"asg_refs"`
+	SCGRefs      []string `json:"scg_refs"`
+	EvidenceRefs []string `json:"evidence_refs,omitempty"`
+	ASGRefs      []string `json:"asg_refs"`
 	// Objectives are the security goals this path is a candidate for, derived from
 	// the sink kind and the controls observed on it.
 	Objectives    []string `json:"objectives"`

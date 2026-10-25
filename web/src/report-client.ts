@@ -79,3 +79,33 @@ export async function readVerifiedReport(
   if (digest !== ref.sha256) throw new Error("报告摘要不匹配，已拒绝保存。");
   return bytes;
 }
+
+// A report is a successfully produced document, not a failed invocation.
+export async function readProjectReportCount(
+  api: ApiClient,
+  project: string,
+  snapshots: string[],
+  signal?: AbortSignal,
+) {
+  const reports = new Set<string>();
+  for (const snapshot of new Set(snapshots)) {
+    let cursor = "";
+    const cursors = new Set<string>();
+    do {
+      if (cursors.has(cursor) || cursors.size >= 100)
+        throw new Error("报告目录超出统计预算，请到审计报告页查看。");
+      cursors.add(cursor);
+      const page = await api.get<{
+        reports: { invocation_id: string; status: string }[];
+        next_cursor?: string;
+      }>(
+        `/v1/projects/${encodeURIComponent(project)}/reports?snapshot_id=${encodeURIComponent(snapshot)}&limit=100&cursor=${encodeURIComponent(cursor)}`,
+        signal,
+      );
+      for (const report of page.reports || [])
+        if (report.status === "SUCCEEDED") reports.add(report.invocation_id);
+      cursor = page.next_cursor || "";
+    } while (cursor);
+  }
+  return reports.size;
+}

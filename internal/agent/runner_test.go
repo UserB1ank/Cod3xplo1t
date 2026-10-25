@@ -1241,6 +1241,36 @@ func TestRunnerRepeatedOutputStopsRun(t *testing.T) {
 	}
 }
 
+func TestRunnerOperatorStopInterruptsBlockedAdapter(t *testing.T) {
+	store := newRunnerTestStore()
+	paths := newRunnerTestPaths(runnerTestPath("audit-1", "path-1"))
+	runtime := newRunnerTestBlockingRuntime("blocking")
+	r := runnerTestRunner(store, paths, &runnerTestTasks{}, runtime, NewRegistry(), runnerTestPolicy())
+	narrowed := r.WithPolicy(runnerTestPolicy())
+	finished := make(chan error, 1)
+	go func() {
+		run, err := narrowed.RunOnce(context.Background(), "audit-1")
+		if err == nil && (run.Status != RunCancelled || run.StopReason != StopCancelled) {
+			err = fmt.Errorf("run ended as %s/%s", run.Status, run.StopReason)
+		}
+		finished <- err
+	}()
+	select {
+	case <-runtime.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("adapter did not start")
+	}
+	r.CancelPath("path-1")
+	select {
+	case err := <-finished:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("operator stop did not interrupt the adapter")
+	}
+}
+
 func TestRunnerCancellationReleasesPath(t *testing.T) {
 	store := newRunnerTestStore()
 	paths := newRunnerTestPaths(runnerTestPath("audit-1", "path-1"))

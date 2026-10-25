@@ -71,9 +71,16 @@ type NeighborhoodPage struct {
 	Meta         Meta                `json:"meta"`
 }
 
-// SliceQuery reads source lines around a symbol.
+// SliceQuery reads source lines around a symbol or a bounded file window.
+// SymbolID and File are mutually exclusive selectors; a file window lets a
+// reviewer continue reading past a recorded declaration without inventing a
+// function boundary the graph never recorded.
 type SliceQuery struct {
 	SymbolID     string
+	File         string
+	StartLine    int
+	EndLine      int
+	Include      string
 	MaxLines     int
 	MaxSections  int
 	ContextLines int
@@ -266,11 +273,18 @@ func (r *Reader) CodeSlice(ctx context.Context, scope Scope, viewID string, q Sl
 	if err := requireLayer(view, LayerSCG); err != nil {
 		return nil, err
 	}
-	if q.SymbolID == "" {
+	if q.SymbolID == "" && q.File == "" {
+		return nil, ErrInvalid
+	}
+	if q.SymbolID != "" && q.File != "" {
 		return nil, ErrInvalid
 	}
 	slice, err := r.Graph.Slice(ctx, scope.SnapshotID, graph.SliceRequest{
 		SymbolID:     q.SymbolID,
+		File:         q.File,
+		StartLine:    q.StartLine,
+		EndLine:      q.EndLine,
+		Include:      q.Include,
 		MaxLines:     q.MaxLines,
 		MaxSections:  q.MaxSections,
 		ContextLines: q.ContextLines,
@@ -328,12 +342,21 @@ func (r *Reader) Paths(ctx context.Context, scope Scope, viewID string, q PathQu
 		}
 		query.SnapshotID = audit.SnapshotID
 	}
+	// Count the omitted history independently, then take a page of the pinned
+	// versions. Filtering after LIMIT can return an empty page despite live paths.
+	allQuery := query
+	allQuery.Limit, allQuery.Offset = 1, 0
+	_, allTotal, err := r.Queue.Paths(allQuery)
+	if err != nil {
+		return nil, err
+	}
+	query.SCGVersion, query.ASGVersion = d.SCG, d.ASG
 	rows, total, err := r.Queue.Paths(query)
 	if err != nil {
 		return nil, err
 	}
 	kept := make([]path.Path, 0, len(rows))
-	omitted := 0
+	omitted := max(0, allTotal-total)
 	for _, row := range rows {
 		if row.SnapshotID != scope.SnapshotID || row.SCGVersion != d.SCG || (d.ASG != "" && row.ASGVersion != d.ASG) {
 			omitted++

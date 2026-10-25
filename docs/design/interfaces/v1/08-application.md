@@ -1,66 +1,40 @@
 # L8 应用服务与用户功能
 
-参考用户提供的 ARTEX 任务界面：分组侧栏、浅色数据表、筛选、分类、并发设置、置顶和归档。保留代码漏洞挖掘的项目上下文，不引入与当前目标无关的流量代理和资产攻击功能。
+2026-10-21 修订。当前产品与主 Agent 基线见 [目标架构](../../project-agent-architecture.md)；[11-project-supervisor.md](11-project-supervisor.md)描述待实现接口。已有 `application.schema.json` 是既有契约，不代表主 Agent DTO 已存在，新增内容需版本化登记。
 
-Schema：[application.schema.json](../../../../contracts/v1/application.schema.json)。示例：[task.json](../../../../contracts/v1/examples/task.json)。
+## 用户模型
 
-## 用户功能分区
+新项目 = 一份源码的一次审计。创建时隐含导入与内部输入绑定；另一份代码另建项目。项目名称/说明可编辑，可删除；旧多来源/多快照项目保留上下文和历史引用。快照是内部证据机制，不是用户必经操作。
 
-| 导航 | 用户操作 | 所属数据 / 接口 |
+| 主导航 | 信息与操作 | 应用服务 |
 |---|---|---|
-| 仪表盘 | 汇总项目、运行任务、候选发现与插件能力 | Project / Task / Finding 只读聚合 |
-| 项目 | 新建、项目范围切换、查看共享图谱 | ProjectService |
-| 任务 | 新建、搜索、状态/分类过滤、分页、暂停/继续、置顶、归档/恢复、并发限制 | TaskService / WorkflowRunner |
-| 发现 | 按高中低和确认状态筛选、查看证据、分级、导出 | FindingService |
-| 代码源 | 选择本地文件夹或 Git、所属项目、固定版本、生成快照 | SourceProvider / SnapshotService |
-| 知识图谱 | 项目/快照切换，代码结构/安全语义/路径分层，节点来源与代码查看 | KnowledgeReader |
-| 产物与证据 | 输入输出引用、原生报告、内容摘要、来源与导出 | ArtifactStore / EvidenceStore |
-| 工作流 | 选择插件、依赖配置、节点参数、版本与类型校验、导入导出 | WorkflowCompiler |
-| 插件中心 | 能力分类、版本、清单校验、运行方式、可用性 | PluginCatalog |
-| 工具执行 | 任务/节点/插件输入输出、诊断、事件与取消状态 | PluginHost / WorkflowRunner |
-| LLM 配置 | 协议、服务地址、模型、Key、真实连接测试 | 管理员设置；现有正式工作区已有 |
-| 数据存储 | 独立数据库与产物后端、能力、引用凭据、方案导出 | StorageAdapter |
-| 接口规范 | 分层方法、Schema、扩展规则与样例导出 | ContractRegistry |
+| 所有项目 | 创建、选择、查看状态 | ProjectService / 现有导入服务 |
+| 项目总览 | 源码就绪、四阶段、任务与产出/发现/报告、编辑/删除、开始分析 | ProjectService / AnalysisRunService / 聚合查询 |
+| 代码图谱 | 入口搜索、小范围调用关系、展开、源码/来源/覆盖 | KnowledgeReader / GraphService |
+| 审查路径 | 筛选理由、优先级、证据等级、工具/Agent来源、选择审查 | PathService / 路径发现账本 |
+| Agent 工作台 | 主Agent开放对话、工具行动、探索/审查子任务、直接干预 | SupervisorSessionService / MCP / TaskService |
+| 发现与证据 | 候选/确认分开、分级、来源与验证 | FindingService / EvidenceStore |
+| 审计报告 | 固定目录、边界、预览与下载 | ReportingService |
 
-## 领域服务方法
+配置置于侧栏底部，模型/存储/运行时继续复用已有正式能力。插件和工作流作为高级入口保留，与旧代码源/任务/产物等深链接兼容，不要求用户先组装工作流。
 
-| 方法 | 请求字段 | 响应 | 权限 |
-|---|---|---|---|
-| `ProjectService.CreateProject` | name、description、幂等键 | Project | writer |
-| `TaskService.CreateTask` | application Schema；固定 source/snapshot/workflow | Task + 固定计划引用 | writer |
-| `TaskService.ListTasks` | project_id、status、category、archived、cursor、limit | 有界任务页 | reader |
-| `TaskService.Archive / Restore` | task_id、expected_version | 更新后记录 | writer |
-| `TaskService.SetPinned / SetCategory` | task_id、新值、expected_version | 更新后记录 | writer |
-| `TaskService.SetConcurrency` | 项目或全局范围、limit、expected_version | 并发策略 | 全局 admin / 项目 writer |
-| `GetCapabilities` | 当前认证身份 | 各能力的 ready / unavailable / unsupported 及原因 | reader |
+## 主流程与控制
 
-任务详情分为执行过程、探索与图谱、发现、报告。后台区分 `task_id`、workflow_run_id、invocation_id、Agent run_id；它们不是同一个运行对象。
+- 创建成功：显示输入就绪，可马上点击“开始图谱化分析”。
+- 默认自动执行代码图谱、安全语义/攻击面、候选路径、筛选评分四阶段，展示实际阶段和覆盖局限。可选模型增强不影响默认纯工具路径。
+- 主Agent接收自由对话，模型自主决定回答、工具调用或继续探索。用户无需选择“新增路径”等指令类型；服务端也不能以关键词或固定路由替代模型。
+- 项目对话、子任务消息、MCP请求和结果分别记录。普通已授权动作自动执行；额外范围/预算/动态验证等沿领域授权，不设逐轮通用计划审批。
+- 可直接对话子Agent，或附带任务上下文引用到主Agent会话。回执区分待接收、已接收、已应用、拒绝/未应用及原因，不能发送即宣称应用。
+- 暂停/停止始终可直接操作。显示请求中与执行器确认状态；继续全部不恢复人工单独暂停的子任务。停止保留证据并拒绝旧generation写入。
 
-## HTTP 目标映射
+## 现有 API 与兼容
 
-已实现的任务整理子集：正式任务表连接现有 `/api/projects/{id}/tasks` 的服务端搜索、状态/分类/归档过滤和分页；`PATCH /api/projects/{id}/tasks/{taskID}` 对置顶、分类、归档/恢复做 CAS；`GET/PUT /api/projects/{id}/task-categories` 管理项目分类目录。分类目录与任务分别版本化，使用中的分类不能删除。归档要求暂停且无活动路径和未结束运行，恢复后保持暂停，不删除任何证据或图谱引用。实时状态来自路径记录，归档写入会在存储锁/事务内再次检查。此子集已实现 Memory / SQLite，不等于后续完整 v1 workflow task DTO。详见[任务整理 API](../../../webui.md#task-organization)。
+当前任务整理 API、模型配置、插件/工作流/图谱/报告接口、认证会话继续使用其已发布契约。任务分类/置顶/归档、并发策略与版本 CAS 保留，旧 task/audit/path/run 不是同一身份。具体已实现路由以 `docs/api.md` 和 `internal/api/server.go` 为准，不把原型方法名当API。
 
-统一扩展 API 预留 `/api/v1`；现有 `/api` 不迁移、不改错误结构。以下是**待接线设计路由**，不是当前可用端点：
+新项目输入/阶段/主会话/指令模型经新契约接入。REST、MCP、运行时代理共享应用服务，不把领域逻辑放前端、协议handler或单独TypeScript执行器。
 
-| 路由 | 用途 |
-|---|---|
-| `GET/POST /api/v1/projects/{id}/sources` | 代码源 |
-| `POST /api/v1/sources/{id}/snapshots` | 请求快照操作 |
-| `GET/POST /api/v1/plugins` | 插件目录与注册 |
-| `GET/POST /api/v1/workflows` | 工作流版本 |
-| `POST /api/v1/projects/{id}/tasks` | 固定快照和工作流后创建任务 |
-| `GET /api/v1/tasks/{id}/events` | 有界事件页 |
-| `POST /api/v1/tasks/{id}/pause`、`resume`、`cancel` | 流程控制 |
-| `POST /api/v1/knowledge/query`、`publish` | 有界查询 / 宿主发布 |
-| `GET /api/v1/artifacts/{id}` | 授权的元数据或流式内容 |
-| `GET /api/v1/settings/storage` | 管理员存储配置的脱敏视图 |
+## 权限与可观测性
 
-读取与写入由同一应用服务供 WebUI、CLI 和后续 MCP 适配；页面不直接执行工具和数据库查询。
+身份、project/snapshot/view scope由宿主绑定；每个读取/写入均校验实际归属和reader/writer/admin能力。模型不能借消息中的project_id换项目。管理员配置仍只返回是否已设置凭据。
 
-## 账号与安全边界
-
-正式工作区已有账号密码登录、HttpOnly 会话、限流、退出和管理员模型设置。后续权限分 reader / writer / admin，项目归属在每次请求校验。系统配置只返回凭据是否已设置。
-
-公开原型页面仅使用内存示例，不读取登录会话数据或正式业务 API。表单保存、执行记录和数据库状态均标示为原型；账户凭据不在原型中录入。
-
-验收：项目切换不混入其他项目记录；任务固定版本；所有操作有空状态、错误状态与权限反馈；正式数据和演示数据互不写入。
+正式页面必须有加载/空/失败/部分覆盖/预算/权限/重启恢复状态。原型公开但只使用内存示例，不读取登录业务数据，不自动调用真实模型。用户可查看公开行动、工具结果和结论，不存储隐藏推理。

@@ -1,0 +1,75 @@
+[
+  {
+    "key": "UX01",
+    "title": "项目创建隐含保存单份源码并接通项目管理与删除",
+    "dependencies": [],
+    "file": "docs/design/interaction-issues/UX01.md",
+    "number": 63,
+    "url": "https://github.com/UserB1ank/Cod3xplo1t/issues/63"
+  },
+  {
+    "key": "UX02",
+    "title": "从项目一键执行并恢复四阶段图谱化分析",
+    "dependencies": [
+      "UX01",
+      28,
+      29
+    ],
+    "file": "docs/design/interaction-issues/UX02.md",
+    "number": 64,
+    "url": "https://github.com/UserB1ank/Cod3xplo1t/issues/64"
+  },
+  {
+    "key": "UX03",
+    "title": "正式页面按入口探索局部图谱并选择有来源的审查路径",
+    "dependencies": [
+      "UX02"
+    ],
+    "file": "docs/design/interaction-issues/UX03.md",
+    "number": 65,
+    "url": "https://github.com/UserB1ank/Cod3xplo1t/issues/65"
+  },
+  {
+    "key": "UX04",
+    "title": "主 Agent 通过开放对话与项目作用域只读 MCP 查询真实项目",
+    "dependencies": [
+      "UX01"
+    ],
+    "file": "docs/design/interaction-issues/UX04.md",
+    "number": 66,
+    "url": "https://github.com/UserB1ank/Cod3xplo1t/issues/66"
+  },
+  {
+    "key": "UX05",
+    "title": "主 Agent 自主探索并通过 MCP 提交可追溯的新审查路径",
+    "dependencies": [
+      "UX03",
+      "UX04"
+    ],
+    "file": "docs/design/interaction-issues/UX05.md",
+    "number": 67,
+    "url": "https://github.com/UserB1ank/Cod3xplo1t/issues/67"
+  },
+  {
+    "key": "UX06",
+    "title": "主 Agent 通过 MCP 调度子 Agent 并传递开放对话与纠正要求",
+    "dependencies": [
+      "UX03",
+      "UX04"
+    ],
+    "file": "docs/design/interaction-issues/UX06.md",
+    "number": 68,
+    "url": "https://github.com/UserB1ank/Cod3xplo1t/issues/68"
+  },
+  {
+    "key": "UX07",
+    "title": "项目级暂停停止与主子 Agent 重启恢复形成一致生命周期",
+    "dependencies": [
+      "UX02",
+      "UX06"
+    ],
+    "file": "docs/design/interaction-issues/UX07.md",
+    "number": 69,
+    "url": "https://github.com/UserB1ank/Cod3xplo1t/issues/69"
+  }
+]

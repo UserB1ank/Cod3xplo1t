@@ -4,11 +4,13 @@ TEST_FLAGS := -count=1 -shuffle=on -race -timeout 240s
 # Staticcheck is pinned: a new release may add checks and turn a green tree red.
 STATICCHECK_VERSION ?= v0.8.2
 
-.PHONY: help run down logs build build-web build-scanner build-backend test-web check-contracts docker-build docker-up postgres-up postgres-down postgres-status postgres-logs test test-stress bench-agent bench-corpus bench-eval bench-runtime lint fmt-check vet staticcheck fmt tidy clean run-server run-cli run-mcp
+.PHONY: package-joern package-joern-linux test-joern help run down logs build build-web build-scanner build-backend test-web check-contracts docker-build docker-up postgres-up postgres-down postgres-status postgres-logs test test-stress bench-agent bench-corpus bench-eval bench-runtime lint fmt-check vet staticcheck fmt tidy clean run-server run-cli run-mcp
 
 help:
 	@echo "make build        # build Web UI into bin/server, bin/cli, bin/mcp and the scanner package"
 	@echo "make build-scanner # build the pinned process scanner package under bin/plugin-packages"
+	@echo "make package-joern # build a pinned native Joern multilingual taint plugin bundle"
+	@echo "make package-joern-linux # export a Linux Joern bundle with Docker"
 	@echo "make build-web    # install locked frontend dependencies and build assets"
 	@echo "make test-web     # frontend domain and API tests"
 	@echo "make check-contracts # validate offline interface schemas and examples"
@@ -30,17 +32,17 @@ help:
 	@echo "make run-mcp      # serve the graph over MCP on stdio"
 	@echo "make run-cli ARGS=\"scan --source /path/to/repo\""
 
-build: build-web build-scanner
+build: build-web build-scanner build-plugin-tools
 	$(GO) build -trimpath -tags embedui -o bin/server ./cmd/server
 	$(GO) build -trimpath -o bin/cli ./cmd/cli
 	$(GO) build -trimpath -o bin/mcp ./cmd/mcp
 
 build-scanner:
-	@mkdir -p "bin/plugin-packages/codexploit.static-patterns@1.0.2"
-	$(GO) build -trimpath -buildvcs=false -o "bin/plugin-packages/codexploit.static-patterns@1.0.2/scanner" ./cmd/scanner
-	@cp internal/scanner/manifest.json "bin/plugin-packages/codexploit.static-patterns@1.0.2/manifest.json"
-	@chmod 0755 "bin/plugin-packages/codexploit.static-patterns@1.0.2/scanner"
-	@chmod 0644 "bin/plugin-packages/codexploit.static-patterns@1.0.2/manifest.json"
+	@mkdir -p "bin/plugin-packages/codexploit.static-patterns@1.0.13"
+	$(GO) build -trimpath -buildvcs=false -o "bin/plugin-packages/codexploit.static-patterns@1.0.13/scanner" ./cmd/scanner
+	@cp internal/scanner/manifest.json "bin/plugin-packages/codexploit.static-patterns@1.0.13/manifest.json"
+	@chmod 0755 "bin/plugin-packages/codexploit.static-patterns@1.0.13/scanner"
+	@chmod 0644 "bin/plugin-packages/codexploit.static-patterns@1.0.13/manifest.json"
 
 build-web:
 	npm --prefix web ci --no-audit --no-fund
@@ -54,8 +56,23 @@ build-backend:
 test-web:
 	npm --prefix web test
 
+package-joern-linux:
+	docker build --file plugins/joern/Dockerfile --output type=local,dest=bin/joern-linux .
+
+package-joern:
+	python3 scripts/package-joern.py
+
+# Requires a real offline bundle; no mock CPG is used.
+test-joern:
+	@test -n "$(JOERN_TEST_PACKAGE)" || (echo "Set JOERN_TEST_PACKAGE to the offline package"; exit 1)
+	JOERN_TEST_PACKAGE="$(JOERN_TEST_PACKAGE)" $(GO) test ./cmd/joern-adapter -race -count=1
+
+build-plugin-tools:
+	$(GO) build -trimpath -o bin/pluginpack ./cmd/pluginpack
+	$(GO) build -trimpath -o bin/plugin-adapter ./cmd/plugin-adapter
+
 check-contracts:
-	$(GO) test ./contracts/v1 -count=1
+	$(GO) test ./contracts/... -count=1
 
 # Default deployment: application + PostgreSQL. Secrets are generated into a
 # Docker volume on first start; nothing secret lives in the repository.

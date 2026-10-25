@@ -219,6 +219,12 @@ func containsPathStatus(list []path.PathStatus, want path.PathStatus) bool {
 // filters a backend cannot push into SQL need it, but both backends share the
 // predicate so the results cannot drift.
 func matchesPathQuery(p path.Path, q path.PathQuery) bool {
+	if q.SCGVersion != "" && p.SCGVersion != q.SCGVersion {
+		return false
+	}
+	if q.ASGVersion != "" && p.ASGVersion != q.ASGVersion {
+		return false
+	}
 	if q.AuditID != "" && p.AuditID != q.AuditID {
 		return false
 	}

@@ -62,6 +62,7 @@ func (s *Server) handlePublishKnowledge(w http.ResponseWriter, r *http.Request) 
 		TaskID       string `json:"task_id"`
 		BatchID      string `json:"batch_id"`
 		BaseRevision string `json:"base_revision"`
+		OutputPort   string `json:"output_port,omitempty"`
 	}
 	if !s.decode(w, r, &request) {
 		return
@@ -103,6 +104,36 @@ func (s *Server) handlePublishKnowledge(w http.ResponseWriter, r *http.Request) 
 			writeError(w, http.StatusNotFound, "task_not_found", errors.New("the task does not belong to this snapshot"))
 			return
 		}
+	}
+	standard, err := s.Plugins.StandardResults(r.Context(), scope, request.InvocationID, 64<<20)
+	if err != nil {
+		writePublicationError(w, err)
+		return
+	}
+	if len(standard) > 0 {
+		matches := []plugin.StageDocument{}
+		for _, doc := range standard {
+			if request.OutputPort == "" || doc.Producer.OutputPort == request.OutputPort {
+				matches = append(matches, doc)
+			}
+		}
+		if len(matches) != 1 {
+			writePluginError(w, plugin.ErrInvalid)
+			return
+		}
+		matches[0].Producer.TaskID = request.TaskID
+		batch, err := publication.BatchFromStage(request.BatchID, matches[0], request.BaseRevision)
+		if err != nil {
+			writePublicationError(w, err)
+			return
+		}
+		revision, err := s.Publications.Publish(r.Context(), batch)
+		if err != nil {
+			writePublicationError(w, err)
+			return
+		}
+		writePublicationReceipt(w, batch, revision)
+		return
 	}
 	document, err := s.Plugins.Result(r.Context(), scope, request.InvocationID, 8<<20)
 	if err != nil {
@@ -149,6 +180,10 @@ func (s *Server) handlePublishKnowledge(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 	}
+	writePublicationReceipt(w, batch, revision)
+}
+
+func writePublicationReceipt(w http.ResponseWriter, batch publication.Batch, revision *publication.Revision) {
 	view, err := publication.NewView(batch.Scope, revision.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", err)

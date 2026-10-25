@@ -90,6 +90,29 @@ func (s *SQL) CreateInvocation(ctx context.Context, inv plugin.Invocation) (plug
 		if !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
+		if s.postgres {
+			worker := inv.Request.WorkerID
+			if worker == "" {
+				worker = "local"
+			}
+			var installation string
+			if err := tx.QueryRowContext(ctx, `SELECT record_json FROM plugin_installations WHERE plugin_id=$1 AND version=$2 AND package_digest=$3 AND worker_id=$4 FOR SHARE`, inv.Request.PluginID, inv.Request.PluginVersion, inv.Request.PackageDigest, worker).Scan(&installation); err != nil {
+				if errors.Is(err, sql.ErrNoRows) && inv.Request.OperationID != "" {
+					return plugin.ErrUnsupported
+				}
+				if !errors.Is(err, sql.ErrNoRows) {
+					return err
+				}
+			}
+			if installation != "" {
+				var row plugin.Installation
+				if json.Unmarshal([]byte(installation), &row) != nil || !row.Installed || !row.Enabled || row.Integrity != "verified" {
+					return plugin.ErrUnsupported
+				}
+			}
+		} else if inv.Request.OperationID != "" {
+			return plugin.ErrUnsupported
+		}
 		raw, err := json.Marshal(inv)
 		if err != nil {
 			return err

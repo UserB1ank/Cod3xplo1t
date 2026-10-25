@@ -1,0 +1,26 @@
+[
+  {
+    "id": "joern.parameter-to-execution",
+    "source": {
+      "kind": "parameter",
+      "method": ".*",
+      "index": 0
+    },
+    "sink": {
+      "method": "(?i).*(exec|execSync|spawn|system|popen|eval|executeQuery|rawQuery|query|Runtime.exec|Process.Start)",
+      "argument_index": 1
+    }
+  },
+  {
+    "id": "joern.input-to-execution",
+    "source": {
+      "kind": "call_return",
+      "method": "(?i).*(readLine|readline|gets|input|getParameter|readText|recv|read)",
+      "code_pattern": ".*"
+    },
+    "sink": {
+      "method": "(?i).*(exec|execSync|spawn|system|popen|eval|executeQuery|rawQuery|query)",
+      "argument_index": 1
+    }
+  }
+]

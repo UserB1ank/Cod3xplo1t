@@ -18,6 +18,10 @@ type Diagnostic struct {
 	Message string `json:"message"`
 }
 type Binding struct {
+	Port           string `json:"port,omitempty"`
+	OutputPort     string `json:"output_port,omitempty"`
+	Cardinality    string `json:"cardinality,omitempty"`
+	Optional       bool   `json:"optional,omitempty"`
 	Source         string `json:"source"`
 	Kind           string `json:"kind"`
 	From           string `json:"from"`
@@ -25,6 +29,8 @@ type Binding struct {
 	ProducerPlugin string `json:"producer_plugin,omitempty"`
 }
 type CompiledNode struct {
+	BoundInputPorts []string          `json:"-"`
+	Operation       *plugin.Operation `json:"operation,omitempty"`
 	Node
 	Plugin       plugin.Record `json:"plugin"`
 	ConfigDigest string        `json:"config_digest"`
@@ -84,15 +90,13 @@ func (c *Compiler) Validate(ctx context.Context, raw json.RawMessage) (Validatio
 	}
 	positions := map[string]int{}
 	records := map[string]plugin.Record{}
+	operations := map[string]plugin.Operation{}
 	for i, node := range spec.Nodes {
 		if _, exists := positions[node.ID]; exists {
 			add(fmt.Sprintf("/nodes/%d/id", i), "duplicate_node", "Node ID must be unique")
 			continue
 		}
 		positions[node.ID] = i
-		if node.TimeoutSeconds > 120 {
-			add(fmt.Sprintf("/nodes/%d/timeout_seconds", i), "timeout_policy", "Installed host permits at most 120 seconds per node")
-		}
 		record, err := c.Plugins.Get(ctx, node.PluginID, node.PluginVersion)
 		if err != nil {
 			if !errors.Is(err, plugin.ErrNotFound) {
@@ -103,6 +107,38 @@ func (c *Compiler) Validate(ctx context.Context, raw json.RawMessage) (Validatio
 		}
 		if !record.Executable {
 			add(fmt.Sprintf("/nodes/%d/plugin_version", i), "plugin_unavailable", "Plugin package has no installed execution adapter")
+		}
+		if record.Manifest.APIVersion == plugin.DefinitionVersion {
+			if node.TimeoutSeconds > 3600 {
+				add(fmt.Sprintf("/nodes/%d/timeout_seconds", i), "timeout_policy", "Stage operations permit at most 3600 seconds")
+			}
+			op, opErr := record.Manifest.Operation(node.OperationID)
+			if opErr != nil {
+				add(fmt.Sprintf("/nodes/%d/operation_id", i), "operation", "Select an operation declared by this plugin")
+				continue
+			}
+			if err := plugin.ValidateDefinition(record.Manifest); err != nil {
+				add(fmt.Sprintf("/nodes/%d/plugin_version", i), "capability", "Invalid stage or port contract")
+				continue
+			}
+			if op.Profile != "native" && op.Profile != "standard" {
+				add(fmt.Sprintf("/nodes/%d/operation_id", i), "operation", "Unknown operation profile")
+				continue
+			}
+			_, resolved, configErr := offlineSchema(op.ConfigSchema)
+			var config any
+			if configErr != nil || json.Unmarshal(node.Config, &config) != nil || resolved.Validate(config) != nil {
+				add(fmt.Sprintf("/nodes/%d/config", i), "config_schema", "Configuration does not match the operation schema")
+			}
+			operations[node.ID] = op
+			records[node.ID] = record
+			continue
+		}
+		if node.TimeoutSeconds > 120 {
+			add(fmt.Sprintf("/nodes/%d/timeout_seconds", i), "timeout_policy", "Legacy adapters permit at most 120 seconds per node")
+		}
+		if node.OperationID != "" || len(node.InputBindings) > 0 {
+			add(fmt.Sprintf("/nodes/%d/operation_id", i), "operation", "Legacy nodes do not expose named operations")
 		}
 		_, kindKnown := plugin.CapabilityForManifestKind(record.Manifest.Kind)
 		primary, capabilityKnown := plugin.CapabilityForRecord(record)
@@ -182,6 +218,19 @@ func (c *Compiler) Validate(ctx context.Context, raw json.RawMessage) (Validatio
 			continue
 		}
 		compiled := CompiledNode{Node: node, Plugin: record, ConfigDigest: Digest(node.Config), Inputs: []Binding{}, Outputs: record.Manifest.Produces}
+		if op, ok := operations[id]; ok {
+			compiled.Operation = &op
+			compiled.OperationID = op.ID
+			compiled.Outputs = []string{}
+			for _, out := range op.Outputs {
+				compiled.Outputs = append(compiled.Outputs, out.Kind)
+			}
+			bindings, diagnostics := c.compileOperationInputs(spec, node, op, records, operations, i)
+			compiled.Inputs = bindings
+			result.Diagnostics = append(result.Diagnostics, diagnostics...)
+			result.Nodes = append(result.Nodes, compiled)
+			continue
+		}
 		for inputIndex, kind := range record.Manifest.Consumes {
 			sources := []Binding{}
 			for _, root := range spec.Inputs {
@@ -222,6 +271,12 @@ func (c *Compiler) Validate(ctx context.Context, raw json.RawMessage) (Validatio
 	}
 	pathSources := []string{}
 	for _, node := range result.Nodes {
+		if node.Operation != nil {
+			if node.Operation.Stage == "path.enhance" {
+				pathSources = append(pathSources, node.ID)
+			}
+			continue
+		}
 		consumesPaths, producesPaths := false, false
 		for _, kind := range node.Plugin.Manifest.Consumes {
 			if kind == "discovery.paths" {

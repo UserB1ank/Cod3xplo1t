@@ -2,6 +2,8 @@
 
 接口：`SourceProvider`。Schema：[source.schema.json](../../../../contracts/v1/source.schema.json)。示例：[本地文件夹](../../../../contracts/v1/examples/source-local.json)、[Git 仓库](../../../../contracts/v1/examples/source-git.json)。
 
+> 2026-10-21产品修订：新项目创建时内部完成一次输入绑定，不要求用户单独登记代码源/固定快照，不提供更新代码入口。以下Provider是后端与旧项目兼容接口，不能据此恢复旧主流程。见 [L10](11-project-supervisor.md)。
+
 ## 职责与类型
 
 项目拥有代码源定义；代码源提供读取与版本解析能力，源码只有物化为快照后才能分析。

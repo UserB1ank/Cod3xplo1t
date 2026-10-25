@@ -40,7 +40,7 @@ export function Modal({ open, onClose, title, eyebrow, children, wide = false, v
     if (open && dialog && !dialog.open) dialog.showModal();
     if (!open && dialog?.open) dialog.close();
   }, [open]);
-  return <dialog ref={ref} className={`modal ${wide ? 'wide' : ''} ${variant === 'drawer' ? 'detail-modal' : ''}`} aria-labelledby={id} onCancel={onClose} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+  return <dialog ref={ref} className={`modal ${wide ? 'wide' : ''} ${variant === 'drawer' ? 'detail-modal' : ''}`} aria-labelledby={id} onCancel={event => { event.preventDefault(); onClose(); }} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
     <div className="modal-inner"><div className="modal-heading"><div>{eyebrow && <span className="eyebrow">{eyebrow}</span>}<h2 id={id}>{title}</h2></div><button className="icon-button" onClick={onClose} aria-label="关闭对话框"><X size={18} /></button></div>{children}</div>
   </dialog>;
 }

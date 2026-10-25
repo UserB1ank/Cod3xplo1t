@@ -325,6 +325,10 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 		SchedulerConfig:    cfg.Scheduler,
 		Workspace:          mgr.Root,
 	}
+	pluginWorkerID, err := plugin.OpenWorkerID(filepath.Join(mgr.Root, "plugins"))
+	if err != nil {
+		return nil, fmt.Errorf("plugin worker identity unavailable")
+	}
 	executors := builtinanalysis.Executors()
 	executors = append(executors, reporting.Executor())
 	if strings.TrimSpace(cfg.PluginPackages) != "" {
@@ -356,7 +360,7 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 		rt.Store = store
 		rt.Findings = findings.NewService(store)
 		rt.Snapshots = lifecycle.Snapshots{Store: store, Manager: mgr}
-		rt.PluginCatalog, err = plugin.NewCatalog(ctx, store)
+		rt.PluginCatalog, err = plugin.NewCatalogForWorker(ctx, store, pluginWorkerID)
 		if err != nil {
 			rt.Close()
 			store.Close()
@@ -403,7 +407,7 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 		rt.Store = memory
 		rt.Findings = findings.NewService(memory)
 		rt.wireGraphServices(memory)
-		rt.PluginCatalog, err = plugin.NewCatalog(ctx, memory)
+		rt.PluginCatalog, err = plugin.NewCatalogForWorker(ctx, memory, pluginWorkerID)
 		if err != nil {
 			return nil, err
 		}
@@ -446,7 +450,7 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 	rt.Store = sqlStore
 	rt.Findings = findings.NewService(sqlStore)
 	rt.wireGraphServices(sqlStore)
-	rt.PluginCatalog, err = plugin.NewCatalog(ctx, sqlStore)
+	rt.PluginCatalog, err = plugin.NewCatalogForWorker(ctx, sqlStore, pluginWorkerID)
 	if err != nil {
 		sqlStore.Close()
 		return nil, err
@@ -583,6 +587,9 @@ func (r *Runtime) wireSupervisor() error {
 	r.Supervisor = supervisor.New(r.Store, r.LLMSettings, func(ctx context.Context) (*sdk.ClientSession, error) {
 		return mcpserver.NewInMemoryClient(ctx, r.Graph, r.Store)
 	})
+	r.Supervisor.ProjectMCPClient = func(ctx context.Context, projectID, snapshotID string) (*sdk.ClientSession, error) {
+		return mcpserver.NewProjectClient(ctx, r.Graph, r.Store, projectID, snapshotID, r.PluginCatalog)
+	}
 	return nil
 }
 

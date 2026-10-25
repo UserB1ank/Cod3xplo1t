@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/open-mcp-ai/Codexploit/internal/agent"
@@ -20,15 +21,18 @@ type pathSelectionRequest struct {
 }
 
 type selectedPath struct {
-	SelectionID string `json:"selection_id"`
-	ProjectID   string `json:"project_id"`
-	SnapshotID  string `json:"snapshot_id"`
-	AuditID     string `json:"audit_id"`
-	PathID      string `json:"path_id"`
-	RunID       string `json:"run_id,omitempty"`
-	State       string `json:"state"`
-	Source      string `json:"source"`
-	Reused      bool   `json:"reused"`
+	SelectionID   string `json:"selection_id"`
+	ProjectID     string `json:"project_id"`
+	SnapshotID    string `json:"snapshot_id"`
+	AuditID       string `json:"audit_id"`
+	PathID        string `json:"path_id"`
+	RunID         string `json:"run_id,omitempty"`
+	State         string `json:"state"`
+	Source        string `json:"source"`
+	Reused        bool   `json:"reused"`
+	EntrySubject  string `json:"entry_subject,omitempty"`
+	TargetSubject string `json:"target_subject,omitempty"`
+	TargetKind    string `json:"target_kind,omitempty"`
 }
 
 func selectionID(projectID, pathID string) string {
@@ -103,7 +107,7 @@ func (s *Server) handleSelectPaths(w http.ResponseWriter, r *http.Request) {
 	selections := make([]selectedPath, 0, len(selected))
 	anyReused := false
 	for _, p := range selected {
-		entry := selectedPath{SelectionID: selectionID(projectID, p.ID), ProjectID: projectID, SnapshotID: p.SnapshotID, AuditID: p.AuditID, PathID: p.ID, Source: "agent", State: string(p.Status)}
+		entry := selectedPath{SelectionID: selectionID(projectID, p.ID), ProjectID: projectID, SnapshotID: p.SnapshotID, AuditID: p.AuditID, PathID: p.ID, Source: "agent", State: string(p.Status), EntrySubject: p.EntrySubject, TargetSubject: p.TargetSubject, TargetKind: p.TargetKind}
 		// A path that already ran is the same subtask: return its existing run
 		// rather than starting a duplicate one. Failed runs can be retried through
 		// the run's own retry endpoint.
@@ -146,35 +150,70 @@ func (s *Server) handleListPathSelections(w http.ResponseWriter, r *http.Request
 		return
 	}
 	pathID := strings.TrimSpace(r.URL.Query().Get("path_id"))
-	runs, _, err := s.Agent.Store.ListRuns(agent.RunQuery{PathID: pathID, Limit: 100})
-	if err != nil {
-		writeAgentError(w, err, "")
-		return
-	}
 	snapshots, err := s.Store.ListSnapshots(r.Context(), projectID)
 	if err != nil {
 		writeStorageError(w, err)
 		return
 	}
-	owned := map[string]bool{}
+	// Scope before paging: unrelated projects must not consume this page.
+	const budget = 10000
+	runs := []agent.Run{}
+	truncated := false
 	for _, snapshot := range snapshots {
-		owned[snapshot.SnapshotID] = true
+		for offset := 0; ; {
+			limit := min(500, budget-len(runs))
+			if limit == 0 {
+				truncated = true
+				break
+			}
+			page, total, err := s.Agent.Store.ListRuns(agent.RunQuery{SnapshotID: snapshot.SnapshotID, PathID: pathID, Limit: limit, Offset: offset})
+			if err != nil {
+				writeAgentError(w, err, "")
+				return
+			}
+			runs = append(runs, page...)
+			offset += len(page)
+			if offset >= total || len(page) == 0 {
+				break
+			}
+		}
+		if truncated {
+			break
+		}
 	}
-	selections := []selectedPath{}
+	// Resume creates a new run; expose its state without rewriting the history.
+	byPath := map[string]selectedPath{}
 	for _, run := range runs {
 		if run.AuditID == "" || run.PathID == "" {
 			continue
 		}
-		// The project is carried by the run's snapshot; a path ID alone is not
-		// enough to claim ownership.
-		if !owned[run.SnapshotID] {
-			continue
-		}
-		selections = append(selections, selectedPath{
+		byPath[run.PathID] = selectedPath{
 			SelectionID: selectionID(projectID, run.PathID), ProjectID: projectID,
 			SnapshotID: run.SnapshotID, AuditID: run.AuditID, PathID: run.PathID,
 			RunID: run.ID, State: string(run.Status), Source: "agent", Reused: true,
-		})
+		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"api_version": "codexploit/v1", "selections": selections})
+	// The subtask list needs a human-recognisable object without turning the
+	// run ledger into a second path directory. Path metadata is read from the
+	// same audit service that owns it.
+	pathDetails := map[string]*path.Path{}
+	if s.Audit != nil {
+		for id := range byPath {
+			if p, _, err := s.Audit.Path(id); err == nil {
+				pathDetails[id] = p
+			}
+		}
+	}
+	for id, selection := range byPath {
+		if p := pathDetails[id]; p != nil {
+			selection.EntrySubject, selection.TargetSubject, selection.TargetKind = p.EntrySubject, p.TargetSubject, p.TargetKind
+			byPath[id] = selection
+		}
+	}
+	selections := make([]selectedPath, 0, len(byPath))
+	for _, selection := range byPath {
+		selections = append(selections, selection)
+	}
+	sort.Slice(selections, func(i, j int) bool { return selections[i].PathID < selections[j].PathID })
+	writeJSON(w, http.StatusOK, map[string]any{"api_version": "codexploit/v1", "selections": selections, "truncated": truncated})
 }

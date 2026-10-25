@@ -25,7 +25,10 @@
           "run_id": { "$ref": "common.schema.json#/$defs/ID" },
           "state": { "type": "string", "minLength": 1, "maxLength": 40 },
           "source": { "const": "agent" },
-          "reused": { "type": "boolean" }
+          "reused": { "type": "boolean" },
+          "entry_subject": { "type": "string", "maxLength": 2000 },
+          "target_subject": { "type": "string", "maxLength": 2000 },
+          "target_kind": { "type": "string", "maxLength": 200 }
         }
       }
     }

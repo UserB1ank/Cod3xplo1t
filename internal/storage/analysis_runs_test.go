@@ -86,3 +86,29 @@ func TestAnalysisRunLifecycleAndActiveConflict(t *testing.T) {
 func pathCoverage() path.Coverage {
 	return path.Coverage{EntryPointsExamined: 1, ChainsResolved: 1, PathsConsidered: 2, PathsEmitted: 2}
 }
+
+func TestAnalysisEnginePinIsDurableAndImmutable(t *testing.T) {
+	for _, tc := range fullStores(t) {
+		t.Run(tc.name, func(t *testing.T) {
+			store := tc.store
+			project := testProject("engine-pin-" + tc.name)
+			if _, err := store.CreateProject(t.Context(), project); err != nil {
+				t.Fatal(err)
+			}
+			run := analysisRunFixture(project.ID, "analysis-engine", time.Now())
+			run.Engine = &AnalysisEnginePin{ID: "joern", ProfileVersion: "2.0.0", PluginID: "codexploit.joern", PluginVersion: "2.1.0", PackageDigest: "package", ManifestDigest: "manifest"}
+			if _, err := store.CreateAnalysisRun(t.Context(), run, ""); err != nil {
+				t.Fatal(err)
+			}
+			run.Engine.PluginVersion = "mutated-caller"
+			got, err := store.GetAnalysisRun(t.Context(), project.ID, run.ID)
+			if err != nil || got.Engine == nil || got.Engine.PluginVersion != "2.1.0" {
+				t.Fatalf("lost or mutable engine pin: %+v %v", got.Engine, err)
+			}
+			got.Engine.PluginVersion = "other-release"
+			if _, err := store.UpdateAnalysisRun(t.Context(), got); !errors.Is(err, ErrConflict) {
+				t.Fatalf("hot-swapped engine: %v", err)
+			}
+		})
+	}
+}

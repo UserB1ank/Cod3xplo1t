@@ -2,6 +2,13 @@ package agent
 
 import "context"
 
+// PausedRunStopper closes a persisted checkpoint after its path has been
+// cancelled. PAUSED already acknowledges an executor boundary; running attempts
+// must still be finished by their owner, rather than overwritten by an operator.
+type PausedRunStopper interface {
+	CancelPausedRun(context.Context, string, string) error
+}
+
 // AtomicCreator commits a new run and its initial events together.
 type AtomicCreator interface {
 	CreateRunEventsContext(context.Context, Run, []Event) error

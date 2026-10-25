@@ -1,0 +1,50 @@
+{
+  "api_version": "codexploit/plugin/v2",
+  "id": "example.environment",
+  "version": "0.1.0",
+  "name": "环境供应开发模板",
+  "description": "仅为接口声明模板；未提供可执行实现，不可登记为已实测。",
+  "languages": [
+    "Go"
+  ],
+  "runtime": {
+    "kind": "environment_backend",
+    "protocol": "codexploit/environment-provider/v1"
+  },
+  "permissions": {
+    "network": "none",
+    "source_write": false,
+    "target_execution": true
+  },
+  "operations": [
+    {
+      "id": "execute",
+      "stage": "environment",
+      "capability": "environment",
+      "profile": "standard",
+      "inputs": [
+        {
+          "name": "request",
+          "kind": "environment.request",
+          "schema_id": "codexploit/environment-request/v1",
+          "cardinality": "one",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "receipt",
+          "kind": "environment.receipt",
+          "schema_id": "codexploit/environment-receipt/v1",
+          "cardinality": "one",
+          "required": true
+        }
+      ],
+      "config_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      }
+    }
+  ]
+}

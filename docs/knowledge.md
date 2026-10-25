@@ -30,7 +30,7 @@ Issue #5 在现有 `graph.Service`、`graph.ASGService` 与 `path.Service` 之�
 | `GET /asg-neighborhood` | `node_id`、`depth=1\|2`、`max_nodes` | 有界 ASG 局部图；只展开出边，`DERIVED_FROM` 作为来源而非调用边；返回 `unresolved_edges`、截断与局限 |
 | `GET /nodes` | `kind`、`subject`、`q`、`cursor`、`limit` | ASG 节点分页；`q` 对 subject / label 做大小写不敏感子串匹配，正式入口目录使用 `kind=EntryPoint` |
 | `GET /paths` | `audit_id`、`entry_node_id`、`target_node_id`、`cursor`、`limit` | 固定快照的 AuditPath 分页 |
-| `GET /code-slice` | `symbol_id`、`max_lines`、`max_sections`、`context_lines` | 有界源码切片 |
+| `GET /code-slice` | `symbol_id` 或 `file`、`start_line`、`end_line`、`include`、`max_lines`、`max_sections`、`context_lines` | 固定快照中的有界源码切片或文件行窗口 |
 | `GET /provenance` | `fact_id` | 事实来源 |
 
 每个响应都带 `meta`：`view_id`、`revision`、`layer`、`versions`、`total`、`truncated`、`truncation_reason`、`omitted`、`coverage`、`limitations`。
@@ -38,6 +38,7 @@ Issue #5 在现有 `graph.Service`、`graph.ASGService` 与 `path.Service` 之�
 - `cursor` 是不透明游标；`limit` 默认 50、上限 200，越界直接 400。
 - `truncated` 只表示预算截断，`truncation_reason` 说明来源；`omitted` 给出因版本不符而跳过的路径条数（原因为 `stale_layer_version`）。
 - 路径查询始终按视图的快照过滤，并丢弃 SCG / ASG 版本与 pin 不一致的路径，因此不同快照与旧构建不会混入一页。
+- `code-slice` 的 `symbol_id` 与 `file` 互斥；只给文件时按 `start_line` / `end_line` 读取，行号越界会截到文件末尾并保留 `total_lines`，不会用最新工作区补旧快照。图谱只记录声明行、没有结束行时，服务端从声明行向前取 `context_lines` 并读取一个有界行窗口，在 `note` 中明确说明“函数结束未记录”，不伪造函数边界。
 - `provenance` 返回 producer（插件、版本、调用 ID、配置摘要）、代码位置、共享该快照版本的任务，以及已发布的源码产物引用；`fact_id` 可以是符号或 ASG 节点，未知事实返回 404 而不是空结果。
 
 ## 入口与路径选择
@@ -52,7 +53,7 @@ Issue #5 在现有 `graph.Service`、`graph.ASGService` 与 `path.Service` 之�
 {"api_version":"codexploit/v1","path_ids":["path-…","path-…"]}
 ```
 
-返回稳定的 `selection_id`（由 project + 规范 path_id 派生）、`audit_id`、`path_id`、`run_id`、状态与来源。选择通过现有 Agent 应用服务为每条路径创建独立运行；重复选择返回已记录的 run，不按标题合并，也不创建第二个调度器。`GET .../path-selections?path_id=…` 是同一映射的只读投影。路径不存在、跨项目/跨快照和权限不足分别返回 404/403；优先级不是漏洞严重度，调用可达不是污点流，过滤不是安全证明。
+返回稳定的 `selection_id`（由 project + 规范 path_id 派生）、`audit_id`、`path_id`、`run_id`、状态与来源；只读投影还带 `entry_subject`、`target_subject`、`target_kind`，供子任务目录显示审查对象，不按标题合并任务。选择通过现有 Agent 应用服务为每条路径创建独立运行；重复选择返回已记录的 run，不按标题合并，也不创建第二个调度器。`GET .../path-selections?path_id=…` 是同一映射的只读投影。路径不存在、跨项目/跨快照和权限不足分别返回 404/403；优先级不是漏洞严重度，调用可达不是污点流，过滤不是安全证明。
 
 ## 错误
 
