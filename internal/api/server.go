@@ -133,7 +133,8 @@ type Server struct {
 	// IdempotencyTTL bounds how long a stored response may be replayed.
 	IdempotencyTTL time.Duration
 
-	handler http.Handler
+	handler           http.Handler
+	projectOperations []projectOperation
 }
 
 // Option customises a Server.
@@ -226,6 +227,7 @@ func NewServer(store storage.FullStore, mgr *repository.Manager, analyzer *analy
 	}
 	s.snapshots = lifecycle.Snapshots{Store: s.Store, Manager: s.Manager}
 	s.handler = s.routes()
+	s.wireSupervisorProjectTools()
 	return s
 }
 
@@ -238,7 +240,7 @@ func (s *Server) Handler() http.Handler {
 }
 
 func (s *Server) routes() http.Handler {
-	mux := http.NewServeMux()
+	mux := &projectMux{ServeMux: http.NewServeMux(), server: s}
 	mux.HandleFunc("GET /api/v1/storage/status", s.handleStorageStatus)
 	mux.HandleFunc("POST /api/v1/projects/{projectID}/analysis-runs", s.handleStartAnalysisRun)
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/analysis-engine", s.handleAnalysisEngine)

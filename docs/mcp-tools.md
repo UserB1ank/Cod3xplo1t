@@ -1,6 +1,6 @@
 # Codexploit MCP tools
 
-> Scope: this page describes the implemented nine-tool read-only stdio server. The 2026-10-21 [project supervisor MCP design](design/interfaces/v1/11-project-supervisor.md) adds a separate authenticated/project-scoped surface in #66–#68. It is not implemented by merely exposing these tools or renaming native functions. Keep existing read-only defaults; share domain handlers and ToolDescriptor validation. User conversation has no intent enum or keyword router.
+> Scope: this page describes the implemented nine-tool read-only stdio server. The separate authenticated [project supervisor surface](project-supervisor-tools.md) provides current-project content and operations through the same formal application API. The stdio surface keeps its read-only defaults. User conversation has no intent enum or keyword router.
 
 `codexploit-mcp` (or `cmd/mcp`) serves the Source Code Graph over the Model
 Context Protocol on stdio:

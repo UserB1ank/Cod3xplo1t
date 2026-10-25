@@ -21,12 +21,21 @@ import (
 
 // Project tools are private to an authenticated supervisor turn. The stdio
 // server retains its existing surface. Neither model arguments nor source
-// content can change the project/snapshot scope captured here.
+// content can change the project captured here. Snapshot selection stays inside
+// that project and is explicit in each result; historical bindings are untouched.
 func NewProjectClient(ctx context.Context, svc *graph.Service, store storage.FullStore, projectID, snapshotID string, catalogs ...*plugin.Catalog) (*sdk.ClientSession, error) {
-	p := projectReader{store: store, graph: svc, project: projectID, snapshot: snapshotID}
+	var catalog *plugin.Catalog
 	if len(catalogs) > 0 {
-		p.catalog = catalogs[0]
+		catalog = catalogs[0]
 	}
+	return NewProjectClientWithTools(ctx, svc, store, projectID, snapshotID, catalog, nil)
+}
+
+// NewProjectClientWithTools adds authenticated application operations to the
+// private project surface. The public stdio server remains read-only.
+func NewProjectClientWithTools(ctx context.Context, svc *graph.Service, store storage.FullStore, projectID, snapshotID string, catalog *plugin.Catalog, add func(*sdk.Server)) (*sdk.ClientSession, error) {
+	p := projectReader{store: store, graph: svc, project: projectID, snapshot: snapshotID}
+	p.catalog = catalog
 	if _, err := store.GetProject(ctx, projectID); err != nil {
 		return nil, err
 	}
@@ -35,6 +44,9 @@ func NewProjectClient(ctx context.Context, svc *graph.Service, store storage.Ful
 	register(reg, &sdk.Tool{Name: "inspect_project", Description: "Inspect real application state for this project. Start with source or analysis when graph queries fail; missing graph does not mean missing source."}, p.inspect)
 	register(reg, &sdk.Tool{Name: "read_source_file", Description: "Read a bounded line window from frozen project source, even before graph publication. No build or execution."}, p.readSource)
 	register(reg, &sdk.Tool{Name: "list_source_files", Description: "List frozen source paths independently of graph indexing, with bounded pagination and optional path substring."}, p.listFiles)
+	if add != nil {
+		add(server)
+	}
 	return connectClient(ctx, server)
 }
 
@@ -53,11 +65,11 @@ type projectReader struct {
 }
 
 func (p projectReader) check(ctx context.Context, snapshot string) error {
-	if snapshot != p.snapshot {
-		return coded(CodeNotFound, errors.New("object is outside the bound project input"))
-	}
 	if _, err := p.store.GetProject(ctx, p.project); err != nil {
-		return coded(CodeNotFound, errors.New("project is unavailable"))
+		if errors.Is(err, storage.ErrNotFound) {
+			return coded(CodeNotFound, errors.New("project is unavailable"))
+		}
+		return coded(CodeInternal, errors.New("project catalog unavailable"))
 	}
 	rows, err := p.store.ListSnapshots(ctx, p.project)
 	if err != nil {
@@ -68,7 +80,7 @@ func (p projectReader) check(ctx context.Context, snapshot string) error {
 			return nil
 		}
 	}
-	return coded("snapshot_missing", errors.New("bound snapshot metadata is absent from this project's catalog"))
+	return coded("snapshot_missing", errors.New("snapshot metadata is absent from this project's catalog"))
 }
 
 type inspectInput struct {
@@ -81,6 +93,7 @@ type inspectInput struct {
 }
 
 func (p projectReader) inspect(ctx context.Context, in inspectInput) (*map[string]any, error) {
+	p.snapshot = in.SnapshotID
 	out := map[string]any{"project_id": p.project, "snapshot_id": p.snapshot, "section": in.Section}
 	switch in.Section {
 	case "source":
@@ -176,6 +189,7 @@ func (p projectReader) sourceRoot() (*os.Root, error) {
 	return root, nil
 }
 func (p projectReader) readSource(ctx context.Context, in fileInput) (*map[string]any, error) {
+	p.snapshot = in.SnapshotID
 	if !allowedSource(in.File) || in.StartLine < 0 || in.MaxLines < 0 {
 		return nil, coded(CodeInvalidArgument, errors.New("invalid source window or path"))
 	}
@@ -243,6 +257,7 @@ type filesInput struct {
 }
 
 func (p projectReader) listFiles(ctx context.Context, in filesInput) (*map[string]any, error) {
+	p.snapshot = in.SnapshotID
 	if in.Offset < 0 || in.Offset > 1000000 || len(in.Contains) > 256 {
 		return nil, coded(CodeInvalidArgument, errors.New("invalid source page"))
 	}

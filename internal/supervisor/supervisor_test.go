@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,6 +16,80 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/llm"
 	"github.com/open-mcp-ai/Codexploit/internal/storage"
 )
+
+func TestSupervisorOldConversationKeepsToolResultPairsWhenHistoryIsBounded(t *testing.T) {
+	service, project, _ := supervisorFixture(t)
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Messages []llm.Message `json:"messages"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&request)
+		pending := map[string]bool{}
+		for _, m := range request.Messages {
+			if m.Role == "tool" {
+				if !pending[m.ToolCallID] {
+					http.Error(w, "orphan tool result", 400)
+					return
+				}
+				delete(pending, m.ToolCallID)
+			} else {
+				if len(pending) > 0 {
+					http.Error(w, "missing tool result", 400)
+					return
+				}
+				for _, call := range m.Calls {
+					pending[call.ID] = true
+				}
+			}
+		}
+		if len(pending) > 0 {
+			http.Error(w, "missing tool result", 400)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"已重新查询当前能力。"},"finish_reason":"stop"}]}`))
+	}))
+	t.Cleanup(provider.Close)
+	settings, err := llm.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = settings.Save(llm.Update{Enabled: true, Protocol: "chat-completions", BaseURL: provider.URL, Model: "strict-history", TimeoutSeconds: 10, MaxOutputTokens: 512}, "initial"); err != nil {
+		t.Fatal(err)
+	}
+	service.Settings = settings
+	session, err := service.EnsureSession(context.Background(), project.ID, "snap-fixed", "old")
+	if err != nil {
+		t.Fatal(err)
+	}
+	session.Messages = []storage.SupervisorMessage{
+		{ID: "m0", Role: "user", Content: "旧查询"},
+		{ID: "m1", Role: "assistant", Calls: []storage.SupervisorCall{{ID: "c1", Name: "graph_summary", Arguments: "{}"}, {ID: "c2", Name: "graph_summary", Arguments: "{}"}}},
+		{ID: "m2", Role: "tool", ToolCallID: "c1", Content: `{"error":"old graph unavailable"}`},
+		{ID: "m3", Role: "tool", ToolCallID: "c2", Content: `{"error":"old graph unavailable"}`},
+	}
+	for i := 4; i < 22; i++ {
+		role := "user"
+		if i%2 == 1 {
+			role = "assistant"
+		}
+		session.Messages = append(session.Messages, storage.SupervisorMessage{ID: fmt.Sprint("m", i), Role: role, Content: "旧消息"})
+	}
+	for i := range session.Messages {
+		session.Messages[i].Seq = int64(i + 1)
+	}
+	if _, err := service.Store.SaveSupervisorSession(context.Background(), session, session.Version); err != nil {
+		t.Fatal(err)
+	}
+	_, run, err := service.Send(context.Background(), project.ID, session.ID, "请重新查询", "current-turn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	finished := waitSupervisor(t, service, project.ID, session.ID, run.ID)
+	if finished.Status != RunSucceeded {
+		t.Fatalf("old conversation lost protocol pairing: %+v", finished)
+	}
+}
 
 type fakeToolInput struct {
 	SnapshotID string `json:"snapshot_id" jsonschema:"the snapshot id"`

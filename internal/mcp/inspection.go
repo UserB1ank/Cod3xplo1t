@@ -45,7 +45,7 @@ func (p projectReader) operations(ctx context.Context, in inspectInput, out map[
 	case "system":
 		out["storage"] = storage.ProbeStatus(ctx, p.store)
 		out["capabilities"] = []string{"source", "analysis", "workflow", "plugins", "invocations", "tasks", "paths", "agent_runs", "findings", "reports", "artifacts"}
-		out["execution_access"] = "read_only; configuration, deletion and shell are not exposed"
+		out["execution_access"] = "This inspection tool is read-only. Authenticated supervisors discover project read/write operations through list_project_operations and project_api when registered. Global settings and arbitrary shell are outside project scope."
 	case "workflow":
 		repo, ok := p.store.(workflow.RunRepository)
 		if !ok {

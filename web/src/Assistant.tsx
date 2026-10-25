@@ -32,6 +32,8 @@ import { composerAction, insertComposerNewline } from "./assistant-composer";
 import { Markdown } from "./Markdown";
 
 const toolLabels: Record<string, string> = {
+  list_project_operations: "查看项目可用操作",
+  project_api: "执行项目操作",
   inspect_project: "查看项目记录",
   list_source_files: "列出源码文件",
   read_source_file: "读取源码窗口",
@@ -62,6 +64,8 @@ function objectSummary(args?: string) {
       "symbol_id",
       "id",
       "section",
+      "operation",
+      "search",
       "query",
       "name_contains",
       "module_id",
@@ -396,7 +400,7 @@ export function Assistant({
             </span>
             <span>
               <strong>主 Agent</strong>
-              <small>项目对话与图谱查询</small>
+              <small>项目内容查询与操作</small>
             </span>
             <ChevronRight size={13} />
           </button>
@@ -806,7 +810,7 @@ export function Assistant({
           </Panel>
           <div className="supervisor-boundary">
             <ShieldCheck size={14} />
-            项目与会话由宿主绑定；工具只读，模型不能通过参数更换项目。聊天文字不会被当作路径审查结论。
+            主 Agent 可查询和操作当前项目，沿用发送者权限与正式接口校验；图谱可在项目内选择。聊天文字不会被当作路径审查结论。
           </div>
         </aside>
       </div>
