@@ -64,11 +64,13 @@ func (s *Server) reportService(w http.ResponseWriter) *reporting.Service {
 		writeError(w, 501, "reports_unavailable", errors.New("report services are unavailable"))
 		return nil
 	}
-	return &reporting.Service{Store: store, Knowledge: s.Knowledge, Artifacts: s.Artifacts, Host: s.Plugins}
+	return &reporting.Service{Store: store, Knowledge: s.Knowledge, Artifacts: s.Artifacts, Host: s.Plugins, Models: s.LLMSettings}
 }
 
 func writeReportError(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, reporting.ErrChineseUnavailable):
+		writeError(w, 503, "report_chinese_unavailable", err)
 	case errors.Is(err, reporting.ErrMissingEvidence):
 		writeError(w, 409, "report_evidence_missing", err)
 	case errors.Is(err, reporting.ErrChanged):

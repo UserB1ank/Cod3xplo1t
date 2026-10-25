@@ -1,0 +1,12 @@
+{
+  "api_version": "codexploit/v1",
+  "project_id": "proj-example",
+  "state": "STOPPING",
+  "cancelled_paths": 4,
+  "paused_tasks": 1,
+  "remaining_paths": 0,
+  "pending_agent_runs": 1,
+  "pending_verification_runs": 0,
+  "pending_workflows": 0,
+  "errors": []
+}

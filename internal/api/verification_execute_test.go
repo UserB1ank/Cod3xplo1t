@@ -137,8 +137,8 @@ func TestApprovedPlanExecutesInContainerAndDerivesVerdict(t *testing.T) {
 		t.Fatalf("execute: %d %s", executed.status, executed.body)
 	}
 	var body struct {
-		Run         verify.Run              `json:"run"`
-		Attempt     int                     `json:"attempt"`
+		Run         verify.Run               `json:"run"`
+		Attempt     int                      `json:"attempt"`
 		Environment *verify.EnvironmentLease `json:"environment"`
 	}
 	executed.decode(t, &body)

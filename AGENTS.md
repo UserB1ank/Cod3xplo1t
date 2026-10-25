@@ -114,6 +114,8 @@
 - 2026-10-21 — #65 入口局部图谱与路径子任务：程序入口服务端搜索/分页、1–2 跳有界 ASG 邻居（未解析端点、截断、局限，排除 DERIVED_FROM 调用语义），节点抽屉读取固定视图源码/SCG/边证据；候选路径展示证据、优先级、筛选原因、来源与局限，勾选 1–5 条经现有 RunPath 生成稳定 selection ID 的独立子任务，重复选择幂等、跨项目/reader 写明确拒绝。已通过竞态/PG/契约/前端/Chromium；无 Agent 时只禁用生成。`internal/app` WIP 与既有 gofmt 阻塞未改。提交并关闭；未 push。
 
 - 2026-10-21 — #66 项目主 Agent 开放对话与只读 MCP：新增独立 Supervisor session/run（不构造 AuditPath），自由文本无 intent/action_type，消息、run、有序事件与 runtime/model/config/prompt/tool pin 存入 PG/SQLite `supervisor_sessions` 文档（PG `0020`），幂等 client_message_id、cursor、取消和模型不可用原因真实可读。主 Agent 用真实 MCP SDK 连接现有 stdio 九工具同一 server，宿主去掉 advertised snapshot 参数并强制注入绑定 snapshot，工具错误配对回灌；模型直接使用应用内 llm 设置，不回落 ScriptedRuntime，Pi 主会话适配留后续。正式“项目助手”页默认会话、自然语言发送、工具调用/结果、固定 pin、事件与停止。已通过合成 provider 纯回答/工具两种提示、真实 MCP tools/list/call、API 幂等/隔离/reader 403/PG 重启/全量竞态/PG/契约/前端/Chromium；真实模型验收未执行（无凭据），以本地合成 provider 页面验收替代并明确记录。`internal/app` WIP 与既有 gofmt 阻塞未改。提交并关闭；未 push。
+- 2026-10-25 — #70 生成精简中文总报告并在正式页面排版阅读：`builtin.reporter@1.2.0` 默认产出固定中文最终总结，正文只保留结论、关键问题、每条路径最新审查与去重局限，完整输入 / 证据独立保存为认证下载 JSON；历史英文结论经当前加密模型设置生成中文展示稿，模型不可用、英文输出、形状 / 预算失败返回真实错误（中文转换 503，整体中断 408），不生成英文替代报告。报告页用安全 Markdown 排版，统计与明细折叠，预览、下载及独立明细均核对大小与 SHA-256；路径正文点击打开图谱抽屉，节点读取固定快照源码，连线显示方向、图层、关系和证据。已通过 100 路径 / 1 审查 / 0 发现回归（总结约 1.9 KB，独立输入约 905 KB）、真实 300 路径中文报告（3,872 字节，298 条未完成审查）与容器重建逐字节一致、真实模型 / 认证下载 / 路径图谱浏览器验收、真实 PostgreSQL、隔离检出完整乱序竞态与 `make lint`；补入被忽略的契约夹具并修正既有 gofmt。主工作区仍被未跟踪的 `internal/app/example_test.go` 引用未实现方法阻塞，未修改、未删除、未计入通过。提交并关闭；未 push。
+
 ## Agent skills
 
 ### Issue tracker

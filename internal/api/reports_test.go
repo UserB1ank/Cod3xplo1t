@@ -17,6 +17,8 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/app"
 	"github.com/open-mcp-ai/Codexploit/internal/artifact"
 	"github.com/open-mcp-ai/Codexploit/internal/findings"
+	"github.com/open-mcp-ai/Codexploit/internal/llm"
+	"github.com/open-mcp-ai/Codexploit/internal/path"
 	"github.com/open-mcp-ai/Codexploit/internal/plugin"
 	"github.com/open-mcp-ai/Codexploit/internal/publication"
 	"github.com/open-mcp-ai/Codexploit/internal/reporting"
@@ -390,6 +392,7 @@ func reportsAuthorizeAndSurviveRestart(t *testing.T, config app.Config) {
 
 func TestReportAggregatesAllPagesAndPreservesFormatAndCandidatePolicy(t *testing.T) {
 	env := newTestEnv(t, false)
+	reportChineseModel(t, env)
 	project, snapshot, task, view := reportFixture(t, env)
 	for i := range 1102 {
 		status := verify.FindingCandidate
@@ -425,7 +428,7 @@ func TestReportAggregatesAllPagesAndPreservesFormatAndCandidatePolicy(t *testing
 				t.Fatalf("download: %d %s", body.status, body.body)
 			}
 			if config.format == "md" {
-				if !strings.Contains(string(body.body), "- findings: 1102") || !strings.Contains(body.header.Get("Content-Type"), "text/markdown") {
+				if !strings.Contains(string(body.body), "发现总数：1102") || !strings.Contains(string(body.body), "展示 10 项") || !strings.Contains(body.header.Get("Content-Type"), "text/markdown") {
 					t.Fatal("Markdown omitted findings or used wrong media type")
 				}
 				return
@@ -539,6 +542,9 @@ func TestFixedMarkdownIncludesReadableNonFindingReview(t *testing.T) {
 func fixedReportIncludesNonFindingReview(t *testing.T, format string) {
 	t.Helper()
 	env := newTestEnv(t, false)
+	if format == "md" {
+		reportChineseModel(t, env)
+	}
 	env.rt.Agent.Runtime = &echoRuntime{Answer: func(goal string) agent.Answer {
 		answer := agentTestAnswer(goal)
 		answer.Hypothesis.Status = agent.HypothesisInconclusive
@@ -565,6 +571,27 @@ func fixedReportIncludesNonFindingReview(t *testing.T, format string) {
 	if err != nil || run.Status != agent.RunSucceeded {
 		t.Fatalf("review did not complete: %+v %v", run, err)
 	}
+	if format == "md" {
+		old := *run
+		old.ID, old.CreatedAt, old.FinishedAt, old.Version = "run-obsolete-summary", "2000-01-01T00:00:00Z", "2000-01-01T00:00:01Z", 1000
+		answer := *run.Answer
+		answer.Hypothesis.Statement = "过期尝试，不应重复进入最终总结"
+		old.Answer = &answer
+		if err := env.rt.Store.CreateRun(old); err != nil {
+			t.Fatal(err)
+		}
+		paths := []path.Path{target}
+		for i := 1; i < 100; i++ {
+			p := target
+			p.ID = fmt.Sprintf("path-summary-%03d", i)
+			p.Signature = fmt.Sprintf("summary-signature-%03d", i)
+			p.Limitations = []string{strings.Repeat("Repeated raw coverage limitation. ", 100), "Native trace artifacts: artifact-summary-only-metadata"}
+			paths = append(paths, p)
+		}
+		if err := env.rt.Store.ReplacePaths(audit.ID, paths); err != nil {
+			t.Fatal(err)
+		}
+	}
 	opened := do(t, env.ts, http.MethodPost, "/api/v1/projects/"+project+"/knowledge/views", map[string]any{"api_version": "codexploit/v1", "snapshot_id": snapshot}, nil)
 	var pin struct {
 		View struct {
@@ -583,9 +610,38 @@ func fixedReportIncludesNonFindingReview(t *testing.T, format string) {
 	inv := waitReport(t, env, result.Report)
 	downloaded := do(t, env.ts, http.MethodGet, "/api/v1/projects/"+project+"/snapshots/"+snapshot+"/artifacts/"+inv.Outputs[0].ID+"/content", nil, nil)
 	if format == "md" {
-		if !strings.Contains(string(downloaded.body), "## Path review results") || !strings.Contains(string(downloaded.body), run.ID) || !strings.Contains(string(downloaded.body), run.Answer.Hypothesis.Statement) {
-			t.Fatal("Markdown report omitted the readable non-finding assessment")
+		body := string(downloaded.body)
+		if !strings.Contains(body, "# 最终分析总结") || !strings.Contains(body, "证据不足") || !strings.Contains(body, "已确认漏洞：0") || len(downloaded.body) > 30*1024 {
+			t.Fatal("Markdown is not a compact Chinese final assessment")
 		}
+		if strings.Contains(body, "````json") || strings.Contains(body, "Path review results") || strings.Contains(body, "input/output tokens") {
+			t.Fatal("Markdown mixes raw inputs or execution logs into the conclusion")
+		}
+		if !strings.Contains(body, "候选路径共 100 条") || !strings.Contains(body, "尚无有效结论 99 条") || strings.Contains(body, "Repeated raw coverage") {
+			t.Fatal("summary omitted its denominator or repeated raw path detail")
+		}
+		if strings.Contains(body, "过期尝试") || strings.Contains(body, "run-obsolete-summary") {
+			t.Fatal("older attempt polluted the final summary")
+		}
+		seenLines := map[string]bool{}
+		for _, line := range strings.Split(body, "\n") {
+			if !strings.HasPrefix(line, "- ") {
+				continue
+			}
+			if seenLines[line] {
+				t.Fatalf("summary repeats an identical translated limitation: %q", line)
+			}
+			seenLines[line] = true
+		}
+		input := do(t, env.ts, http.MethodGet, "/api/v1/projects/"+project+"/snapshots/"+snapshot+"/artifacts/"+inv.Request.Inputs[0].ID+"/content", nil, nil)
+		if input.status != 200 || !strings.Contains(string(input.body), run.Answer.Hypothesis.Statement) || !strings.Contains(string(input.body), "final-summary/zh-CN/1") {
+			t.Fatal("original assessment or saved Chinese presentation missing from separate input")
+		}
+		rerendered, err := reporting.Executor().Run(t.Context(), inv, [][]byte{input.body})
+		if err != nil || string(rerendered) != body {
+			t.Fatal("saved input did not render identical bytes without contacting the provider")
+		}
+		t.Logf("human summary %d bytes; separate input %d bytes", len(downloaded.body), len(input.body))
 		return
 	}
 	var report struct {
@@ -606,4 +662,82 @@ func fixedReportIncludesNonFindingReview(t *testing.T, format string) {
 	if review.RunID != run.ID || review.PathID != target.ID || review.Answer == nil || review.Answer.Hypothesis.Status != agent.HypothesisInconclusive || review.Answer.FindingCandidate || len(review.Answer.SupportingEvidence) != 1 {
 		t.Fatalf("review provenance or evidence lost: %+v", review)
 	}
+}
+
+func TestFinalReportRefusesUnavailableOrEnglishChinesePresentation(t *testing.T) {
+	env := newTestEnv(t, false)
+	project, snapshot, task, view := reportFixture(t, env)
+	if err := env.rt.Store.UpsertFinding(verify.Finding{ID: "find-translation", HypothesisID: "hyp-translation", AuditID: task, SnapshotID: snapshot, Title: "Untrusted input reaches a sensitive operation", Status: verify.FindingCandidate, Version: 1}); err != nil {
+		t.Fatal(err)
+	}
+	create := func() response {
+		return do(t, env.ts, http.MethodPost, "/api/v1/projects/"+project+"/reports", map[string]any{"api_version": "codexploit/v1", "snapshot_id": snapshot, "task_id": task, "view_id": view, "format": "md", "include_candidates": true}, nil)
+	}
+	if result := create(); result.status != 503 || !strings.Contains(string(result.body), "report_chinese_unavailable") {
+		t.Fatalf("unconfigured model: %d %s", result.status, result.body)
+	}
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]string{"role": "assistant", "content": `["Still an English conclusion"]`}, "finish_reason": "stop"}}})
+	}))
+	defer provider.Close()
+	settings, err := llm.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	public, _ := settings.Public()
+	if _, err := settings.Save(llm.Update{Enabled: true, Protocol: "chat-completions", BaseURL: provider.URL, Model: "invalid-language-fixture", TimeoutSeconds: 10, MaxOutputTokens: 1024}, public.Version); err != nil {
+		t.Fatal(err)
+	}
+	env.server.LLMSettings = settings
+	if result := create(); result.status != 503 {
+		t.Fatalf("English provider result became success: %d %s", result.status, result.body)
+	}
+	listed := do(t, env.ts, http.MethodGet, "/api/v1/projects/"+project+"/reports?snapshot_id="+snapshot, nil, nil)
+	var page struct {
+		Reports []plugin.Invocation `json:"reports"`
+	}
+	listed.decode(t, &page)
+	if len(page.Reports) != 0 {
+		t.Fatal("failed Chinese generation published a report")
+	}
+}
+
+// Exercise the real settings -> HTTP provider -> fixed input -> authenticated
+// download boundary. This provider translates prose, never statuses or IDs.
+func reportChineseModel(t *testing.T, env *testEnv) {
+	t.Helper()
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Messages []llm.Message `json:"messages"`
+		}
+		if json.NewDecoder(r.Body).Decode(&request) != nil || len(request.Messages) != 2 {
+			t.Error("invalid translation request")
+			w.WriteHeader(400)
+			return
+		}
+		var texts []string
+		if json.Unmarshal([]byte(request.Messages[1].Content), &texts) != nil {
+			t.Error("missing prose array")
+			w.WriteHeader(400)
+			return
+		}
+		for i := range texts {
+			if strings.Contains(texts[i], "artifact-summary-only-metadata") {
+				t.Error("artifact metadata mixed into human summary translation")
+			}
+			texts[i] = "该次审查证据不足，尚未确认漏洞。"
+		}
+		raw, _ := json.Marshal(texts)
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"role": "assistant", "content": string(raw)}, "finish_reason": "stop"}}, "usage": map[string]int{"prompt_tokens": 100, "completion_tokens": 50}})
+	}))
+	t.Cleanup(provider.Close)
+	settings, err := llm.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	public, _ := settings.Public()
+	if _, err := settings.Save(llm.Update{Enabled: true, Protocol: "chat-completions", BaseURL: provider.URL, Model: "translation-fixture", TimeoutSeconds: 30, MaxOutputTokens: 4096}, public.Version); err != nil {
+		t.Fatal(err)
+	}
+	env.server.LLMSettings = settings
 }

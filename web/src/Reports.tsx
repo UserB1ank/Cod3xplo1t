@@ -12,9 +12,12 @@ import { EmptyState, Hint, Panel } from "./components";
 import { dateLabel, shortId } from "./domain";
 import type { Snapshot } from "./types";
 import { latestSnapshot, type Task } from "./workbench";
+import { Markdown } from "./Markdown";
+import type { ArtifactRef } from "./Artifacts";
 import { readRevisionDirectory } from "./knowledgeData";
 import {
   readVerifiedReport,
+  readVerifiedArtifact,
   reportActive,
   type ReportRecord,
   type ReportSettings,
@@ -41,6 +44,7 @@ const errorText = (error: unknown) => {
       report_evidence_missing:
         "发现引用的证据或路径缺失、损坏或不属于所选快照，未生成报告。",
       report_input_changed: "采集期间发现、路径或覆盖发生变化，请刷新后重试。",
+      report_chinese_unavailable: "中文总结转换不可用或失败，请检查模型设置后重试；本次未生成英文替代报告。",
       view_superseded: "所选图谱已重建，请刷新固定视图后重新生成。",
       report_interrupted: "输入采集已中断，未生成成功报告。",
       plugin_budget: "所选范围超过生成预算，请缩小范围或调整预算。",
@@ -261,6 +265,19 @@ export function Reports({
       }
     });
   }
+  function downloadInput(ref: ArtifactRef) {
+    void run("校验并下载独立明细", async (signal) => {
+      const bytes = await readVerifiedArtifact(api, ref, signal);
+      if (signal.aborted) return;
+      const url = URL.createObjectURL(new Blob([bytes], { type: ref.media_type }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${ref.id}.json`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setNotice("独立明细已核对大小与 SHA-256，已开始下载。");
+    });
+  }
   function cancelReport() {
     if (!selected || !canWrite) return;
     const record = selected;
@@ -381,7 +398,7 @@ export function Reports({
               <legend>导出格式</legend>
               {(
                 [
-                  ["md", "Markdown", "供人工审阅"],
+                  ["md", "中文最终总结", "仅结论、关键问题与必要建议"],
                   ["json", "JSON", "完整结构与证据"],
                   ["sarif", "SARIF 2.1", "兼容分析工具"],
                 ] as const
@@ -614,6 +631,8 @@ export function Reports({
                 )}
               </div>
             </div>
+            <details className="report-metadata">
+              <summary>固定范围、统计与完整证据明细</summary>
             <div className="report-counts">
               {[
                 ["confirmed", "已确认"],
@@ -669,6 +688,8 @@ export function Reports({
                 </>
               )}
             </dl>
+            {selected.request.inputs[0] && <button className="button secondary" disabled={!!busy} onClick={() => downloadInput(selected.request.inputs[0])}>校验并下载完整明细（独立 JSON）</button>}
+            </details>
             {selected.error_code && (
               <div className="error-message" role="alert">
                 {stateNames[selected.status] || selected.status} ·{" "}
@@ -687,7 +708,14 @@ export function Reports({
                 本次读取已核对完整大小与 SHA-256
               </div>
             )}
-            {text && <pre className="report-preview">{text}</pre>}
+            {text && (config.format === "md" ? <div className="report-summary" onClickCapture={(event) => {
+              const anchor = (event.target as HTMLElement).closest("a");
+              const ref = selected.request.inputs[0];
+              if (ref && anchor?.getAttribute("href") === `/api/v1/projects/${ref.scope.project_id}/snapshots/${ref.scope.snapshot_id}/artifacts/${ref.id}/content`) {
+                event.preventDefault();
+                downloadInput(ref);
+              }
+            }}><Markdown source={text} /></div> : <pre className="report-preview">{text}</pre>)}
           </div>
         </Panel>
       )}

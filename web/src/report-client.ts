@@ -37,9 +37,17 @@ export async function readVerifiedReport(
   ref: ArtifactRef,
   signal?: AbortSignal,
 ): Promise<Uint8Array<ArrayBuffer>> {
+  if (ref.kind !== "report.document") throw new Error("报告产物类型无效。");
+  return readVerifiedArtifact(api, ref, signal);
+}
+
+export async function readVerifiedArtifact(
+  api: ApiClient,
+  ref: ArtifactRef,
+  signal?: AbortSignal,
+): Promise<Uint8Array<ArrayBuffer>> {
   const maxBytes = 64 * 1048576;
   if (
-    ref.kind !== "report.document" ||
     !Number.isSafeInteger(ref.bytes) ||
     ref.bytes < 1 ||
     ref.bytes > maxBytes

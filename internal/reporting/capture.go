@@ -15,6 +15,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/artifact"
 	"github.com/open-mcp-ai/Codexploit/internal/findings"
 	"github.com/open-mcp-ai/Codexploit/internal/knowledge"
+	"github.com/open-mcp-ai/Codexploit/internal/llm"
 	"github.com/open-mcp-ai/Codexploit/internal/path"
 	"github.com/open-mcp-ai/Codexploit/internal/plugin"
 	"github.com/open-mcp-ai/Codexploit/internal/publication"
@@ -52,6 +53,7 @@ type Service struct {
 	Knowledge *knowledge.Reader
 	Artifacts artifact.Store
 	Host      *plugin.Host
+	Models    *llm.Manager
 }
 
 func (s *Service) Create(ctx context.Context, project string, request Request) (plugin.Invocation, error) {
@@ -72,6 +74,9 @@ func (s *Service) Create(ctx context.Context, project string, request Request) (
 	}
 	if request.Budget.TimeoutSeconds == 0 {
 		request.Budget.TimeoutSeconds = 60
+		if request.Format == "md" {
+			request.Budget.TimeoutSeconds = 120
+		}
 	}
 	if request.Budget.MaxInputBytes < 1 || request.Budget.MaxInputBytes > 256<<20 || request.Budget.TimeoutSeconds < 1 || request.Budget.TimeoutSeconds > 120 {
 		return plugin.Invocation{}, plugin.ErrInvalid
@@ -106,6 +111,16 @@ func (s *Service) Create(ctx context.Context, project string, request Request) (
 	}
 	if !bytes.Equal(raw, check) {
 		return plugin.Invocation{}, ErrChanged
+	}
+	if request.Format == "md" {
+		first.Summary, err = prepareSummary(ctx, first, s.Models)
+		if err != nil {
+			return plugin.Invocation{}, err
+		}
+		raw, err = json.Marshal(first)
+		if err != nil {
+			return plugin.Invocation{}, err
+		}
 	}
 	if int64(len(raw)) > request.Budget.MaxInputBytes {
 		return plugin.Invocation{}, plugin.ErrBudget
@@ -354,7 +369,7 @@ func (s *Service) collect(ctx context.Context, scope artifact.Scope, settings Se
 				if !pathIDs[run.PathID] || run.SnapshotID != scope.SnapshotID || run.AuditID != task.ID {
 					return Capture{}, ErrMissingEvidence
 				}
-				review := Review{RunID: run.ID, TaskID: run.AuditID, PathID: run.PathID, Version: run.Version, Status: run.Status, StopReason: run.StopReason, Runtime: run.Runtime, RuntimeVersion: run.RuntimeVersion, Pin: run.Pin, Answer: run.Answer, ToolCalls: run.ToolCalls, InputTokens: run.InputTokens, OutputTokens: run.OutputTokens, FinishedAt: run.FinishedAt}
+				review := Review{RunID: run.ID, TaskID: run.AuditID, PathID: run.PathID, Version: run.Version, Status: run.Status, StopReason: run.StopReason, Runtime: run.Runtime, RuntimeVersion: run.RuntimeVersion, Pin: run.Pin, Answer: run.Answer, ToolCalls: run.ToolCalls, InputTokens: run.InputTokens, OutputTokens: run.OutputTokens, FinishedAt: run.FinishedAt, CreatedAt: run.CreatedAt}
 				if err := take(review); err != nil {
 					return Capture{}, err
 				}

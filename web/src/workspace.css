@@ -2629,3 +2629,9 @@ textarea::placeholder {
     border-top: 1px solid var(--border);
   }
 }
+
+.report-summary { margin-top: 24px; max-width: 920px; padding: clamp(16px, 3vw, 32px); border: 1px solid var(--border); border-radius: 6px; background: var(--panel); overflow-wrap: anywhere; }
+.report-summary .markdown-body { font-size: 14px; line-height: 1.85; }
+.report-metadata { margin: 16px 0; }
+.report-metadata > summary { cursor: pointer; color: var(--muted); margin-bottom: 16px; }
+.path-graph-selection { margin-top: 18px; overflow-wrap: anywhere; }

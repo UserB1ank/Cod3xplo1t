@@ -27,6 +27,7 @@ import {
   type CallNeighborhood,
 } from "./entry-graph";
 import { latestSnapshot } from "./workbench";
+import { pathGraph, type PathStep } from "./path-graph";
 import { readRevisionDirectory } from "./knowledgeData";
 
 type Layer = "entries" | "scg" | "asg" | "paths";
@@ -122,19 +123,13 @@ interface AuditPath {
   snapshot_id: string;
   entry_subject: string;
   entry_node_id?: string;
+  target_node_id?: string;
   target_subject: string;
   target_kind: string;
   path_kind: string;
   path_status: string;
   status: string;
-  steps?: {
-    layer: string;
-    subject?: string;
-    file?: string;
-    line?: number;
-    kind: string;
-    evidence?: string;
-  }[];
+  steps?: PathStep[];
   scg_refs?: string[];
   limitations?: string[];
   score?: {
@@ -1565,6 +1560,7 @@ function EntryInspector({
 }
 
 function LocalEntryGraph({
+  path = false,
   calls,
   nodes,
   edges,
@@ -1574,6 +1570,7 @@ function LocalEntryGraph({
   onNode,
   onEdge,
 }: {
+  path?: boolean;
   calls?: boolean;
   nodes: AttackNode[];
   edges: ASGEdge[];
@@ -1593,13 +1590,13 @@ function LocalEntryGraph({
         className="entry-graph-canvas"
         tabIndex={0}
         role="region"
-        aria-label="局部调用关系图，可横向滚动"
+        aria-label={path ? "审查路径图谱，可横向滚动" : "局部调用关系图，可横向滚动"}
       >
         <svg
           width={graph.width}
           height={graph.height}
           viewBox={`0 0 ${graph.width} ${graph.height}`}
-          aria-label="入口节点及有向关系"
+          aria-label={path ? "路径节点及有向证据关系" : "入口节点及有向关系"}
         >
           <defs>
             <marker
@@ -1701,7 +1698,7 @@ function LocalEntryGraph({
         </svg>
       </div>
       <div className="entry-graph-legend">
-        {calls ? (
+        {path ? <span>● 路径入口 → 已记录步骤 → 敏感操作 · 保留工具证据等级</span> : calls ? (
           <span>● 函数 / 方法 · 连线为已解析调用</span>
         ) : (
           <>
@@ -2107,7 +2104,7 @@ function PathPanel({
                     />
                     <button
                       aria-pressed={focus?.path_id === row.path_id}
-                      onClick={() => setFocusID(row.path_id)}
+                      onClick={() => { setFocusID(row.path_id); onSelect(row); }}
                     >
                       <span>
                         <strong>
@@ -2500,6 +2497,26 @@ function PathInspector({
   row: AuditPath;
 }) {
   const base = `/v1/projects/${projectID}/knowledge/views/${view.view_id}`;
+  const graph = pathGraph(row);
+  const [node, setNode] = useState<AttackNode>();
+  const [edge, setEdge] = useState<(typeof graph.edges)[number]>();
+  useEffect(() => { setNode(undefined); setEdge(undefined); }, [row.path_id]);
+  const nodeInfo = useQuery<{ provenance: Provenance } | undefined>(
+    (signal) => node && (!node.file || !node.line)
+      ? api.get(`${base}/provenance?fact_id=${encodeURIComponent(node.node_id)}`, signal)
+      : Promise.resolve(undefined),
+    [api, base, node?.node_id],
+  );
+  const nodeRecord = nodeInfo.data?.provenance;
+  const nodeLocation = nodeRecord && nodeRecord.fact_id === node?.node_id ? nodeRecord.location : undefined;
+  const nodeFile = node?.file || nodeLocation?.file;
+  const nodeLine = node?.line || nodeLocation?.start_line;
+  const source = useQuery<Slice | undefined>(
+    (signal) => nodeFile && nodeLine && nodeLine > 0
+      ? api.get<Slice>(`${base}/code-slice?file=${encodeURIComponent(nodeFile)}&start_line=${Math.max(1, nodeLine - 8)}&end_line=${nodeLine + 16}&max_lines=80&max_sections=1`, signal)
+      : Promise.resolve(undefined),
+    [api, base, nodeFile, nodeLine],
+  );
   const provenance = useQuery(
     (signal) =>
       api.get<{ provenance: Provenance }>(
@@ -2518,6 +2535,33 @@ function PathInspector({
           {row.target_kind} · {row.status}
         </span>
       </div>
+      <Panel title="路径图谱" className="knowledge-inspector-panel">
+        {graph.nodes.length ? <LocalEntryGraph
+          path nodes={graph.nodes} edges={graph.edges}
+          root={row.entry_node_id || graph.nodes[0].node_id}
+          selected={node?.node_id || ""} selectedEdge={edge?.edge_id}
+          onNode={(item) => { setNode(item); setEdge(undefined); }}
+          onEdge={(item) => { setEdge(graph.edges.find((candidate) => candidate.edge_id === item.edge_id)); setNode(undefined); }}
+        /> : <Hint>该路径没有可解析的节点身份，无法渲染图谱。</Hint>}
+        <Hint>{row.path_kind === "data_flow" ? "连线表示工具已记录的静态数据流证据；摘要边未展开的中间过程不作推测。" : "连线表示已记录的路径步骤，调用可达性不代表数据流或可利用性。"}</Hint>
+        {graph.omitted > 0 && <Hint>{graph.omitted} 条步骤缺失端点，未绘制连线；未自动跨越缺失步骤。</Hint>}
+        {node && <div className="path-graph-selection">
+          <strong>{node.subject}</strong>
+          <p className="mono">{node.node_id}</p>
+          <p>{nodeFile && nodeLine && nodeLine > 0 ? `${nodeFile}:${nodeLine}` : "位置未解析"}</p>
+          {nodeInfo.error && <Hint>节点位置查询失败：{nodeInfo.error}</Hint>}
+          {source.loading && <p>正在读取固定快照源码…</p>}
+          {source.error && <Hint>{source.error}</Hint>}
+          {source.data && <SourceReader key={node.node_id} api={api} base={base} snapshotID={row.snapshot_id} initial={source.data} focusLine={nodeLine || 1} />}
+        </div>}
+        {edge && <dl className="detail-grid path-graph-selection">
+          <dt>关系</dt><dd>{edge.kind}</dd>
+          <dt>方向</dt><dd className="mono">{edge.from} → {edge.to}</dd>
+          <dt>图层</dt><dd>{edge.layer}</dd>
+          <dt>证据</dt><dd className="mono">{edge.evidence || "未记录"}</dd>
+          <dt>解析 / 置信度</dt><dd>{edge.resolution || "未记录"} / {edge.confidence || "未记录"}</dd>
+        </dl>}
+      </Panel>
       <Panel title="证据等级与评分" className="knowledge-inspector-panel">
         <dl className="knowledge-provenance">
           <div>
@@ -2574,7 +2618,7 @@ function PathInspector({
                 {step.file ? (
                   <span className="muted mono">
                     {" "}
-                    {`${step.file}:${step.line || 0}`}
+                    {step.line && step.line > 0 ? `${step.file}:${step.line}` : `${step.file} · 行号未解析`}
                   </span>
                 ) : null}
               </li>

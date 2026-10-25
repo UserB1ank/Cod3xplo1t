@@ -249,3 +249,9 @@ Two storage details worth knowing when reading history:
   which is the intended signal.
 - Calibration is a scoring change, not a code change to the generator: the path set
   is evidence-driven and should not move when weights do.
+
+## 正式路径图谱阅读
+
+在“审查路径”列表点击路径正文即打开图谱抽屉，复选框仍仅用于选择审查范围。图谱直接使用固定视图返回的 `entry_node_id`、`target_node_id` 及 `steps.from/to`，保留方向、环路和中间节点；缺失端点不自动补边。点击节点可查看稳定身份、位置及固定快照源码，点击连线可查看层、关系、原始证据及解析 / 置信度。零行号显示为位置未解析。
+
+Joern 以摘要边保存的路径展示该已记录边，并明确中间过程未展开，不推测中间节点，也不把静态数据流候选提升为漏洞确认。完整的原生追踪仍通过证据产物保存。
