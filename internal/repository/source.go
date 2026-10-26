@@ -215,6 +215,10 @@ func planDir(root string, l Limits) (*dirPlan, error) {
 }
 
 func planDirectory(root fs.FS, l Limits) (*dirPlan, error) {
+	return inventoryDirectory(root, l, true)
+}
+
+func inventoryDirectory(root fs.FS, l Limits, integrity bool) (*dirPlan, error) {
 	matcher := newIgnoreMatcher(l)
 	plan := &dirPlan{}
 	plan.ensureSkipCapacity(l)
@@ -280,7 +284,23 @@ func planDirectory(root fs.FS, l Limits) (*dirPlan, error) {
 			return nil
 		}
 
-		digest, binary, derr := hashFile(root, rel, l, plan)
+		var digest string
+		var binary bool
+		var derr error
+		if integrity {
+			digest, binary, derr = hashFile(root, rel, l, plan)
+		} else {
+			f, e := root.Open(rel)
+			if e != nil {
+				return e
+			}
+			prefix, e := readPrefix(f)
+			f.Close()
+			if e != nil {
+				return e
+			}
+			binary = IsBinary(prefix)
+		}
 		if derr != nil {
 			return derr
 		}
@@ -305,7 +325,9 @@ func planDirectory(root fs.FS, l Limits) (*dirPlan, error) {
 		return nil, err
 	}
 	sort.Slice(plan.Entries, func(i, j int) bool { return plan.Entries[i].Rel < plan.Entries[j].Rel })
-	plan.Digest = digestEntries(plan.Entries)
+	if integrity {
+		plan.Digest = digestEntries(plan.Entries)
+	}
 	return plan, nil
 }
 
@@ -382,7 +404,11 @@ func copyVerified(root fs.FS, target string, e planEntry) error {
 		return err
 	}
 	h := sha256.New()
-	_, cerr := io.Copy(io.MultiWriter(out, h), in)
+	var writer io.Writer = out
+	if e.Digest != "" {
+		writer = io.MultiWriter(out, h)
+	}
+	_, cerr := io.Copy(writer, io.LimitReader(in, e.Size+1))
 	closeErr := out.Close()
 	if cerr != nil {
 		return cerr
@@ -390,7 +416,7 @@ func copyVerified(root fs.FS, target string, e planEntry) error {
 	if closeErr != nil {
 		return closeErr
 	}
-	if got := hex.EncodeToString(h.Sum(nil)); got != e.Digest {
+	if got := hex.EncodeToString(h.Sum(nil)); e.Digest != "" && got != e.Digest {
 		return fmt.Errorf("%w: %s", ErrSourceChanged, e.Rel)
 	}
 	if e.Mode&0o111 != 0 {

@@ -72,10 +72,10 @@ func (c *Compiler) Compile(ctx context.Context, project, id, version string, req
 		return Plan{}, invalid("/api_version", "schema", "Expected codexploit/v1")
 	}
 	if req.MaxInputBytes == 0 {
-		req.MaxInputBytes = 64 << 20
+		req.MaxInputBytes = artifact.SourceWarningBytes
 	}
-	if req.MaxInputBytes < 1 || req.MaxInputBytes > 256<<20 {
-		return Plan{}, invalid("/max_input_bytes", "budget", "Input budget must be 1–268435456 bytes")
+	if req.MaxInputBytes < 1 || req.MaxInputBytes > artifact.MaxSourceBytes {
+		return Plan{}, invalid("/max_input_bytes", "budget", "Input budget must be 1–8589934592 bytes")
 	}
 	record, err := c.Workflows.Get(ctx, project, id, version)
 	if err != nil {

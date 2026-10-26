@@ -37,7 +37,7 @@ func ExtractDirectory(ctx context.Context, input io.Reader, contentType string) 
 	if err != nil || media != "multipart/form-data" || params["boundary"] == "" {
 		return nil, ErrInvalid
 	}
-	bounded := &io.LimitedReader{R: contextReader{ctx, input}, N: 192<<20 + 1}
+	bounded := &io.LimitedReader{R: contextReader{ctx, input}, N: MaxExpandedBytes + (64 << 20) + 1}
 	r := multipart.NewReader(bounded, params["boundary"])
 	part, err := r.NextPart()
 	if err != nil || part.FormName() != "manifest" {
@@ -63,7 +63,7 @@ func ExtractDirectory(ctx context.Context, input io.Reader, contentType string) 
 	var total int64
 	for _, file := range manifest.Files {
 		digest, decodeErr := hex.DecodeString(file.SHA256)
-		if !validName(file.Path) || decodeErr != nil || len(digest) != 32 || strings.ToLower(file.SHA256) != file.SHA256 {
+		if !validName(file.Path) || (file.SHA256 != "" && (decodeErr != nil || len(digest) != 32 || strings.ToLower(file.SHA256) != file.SHA256)) {
 			return nil, ErrInvalid
 		}
 		if file.Size < 0 || file.Size > MaxFileBytes || file.Size > MaxExpandedBytes-total {
@@ -121,10 +121,14 @@ func ExtractDirectory(ctx context.Context, input io.Reader, contentType string) 
 			return nil, ErrInvalid
 		}
 		hash := sha256.New()
-		if err := stage.add(ctx, name, false, file.Size, io.TeeReader(part, hash)); err != nil {
+		var reader io.Reader = part
+		if file.SHA256 != "" {
+			reader = io.TeeReader(part, hash)
+		}
+		if err := stage.add(ctx, name, false, file.Size, reader); err != nil {
 			return nil, err
 		}
-		if fmt.Sprintf("%x", hash.Sum(nil)) != file.SHA256 {
+		if file.SHA256 != "" && fmt.Sprintf("%x", hash.Sum(nil)) != file.SHA256 {
 			return nil, ErrInvalid
 		}
 		delete(wanted, name)

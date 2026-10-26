@@ -550,6 +550,7 @@ func (r *Runtime) wirePlugins(executors []plugin.Executor) error {
 	if err != nil {
 		return err
 	}
+	objects.BindSourceDirectories(r.Manager)
 	r.Plugins, err = plugin.NewHost(plugin.Deps{Catalog: r.PluginCatalog, Repository: repo, Artifacts: objects, Scopes: index, Executors: executors})
 	if err != nil {
 		return err

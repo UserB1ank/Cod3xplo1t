@@ -16,6 +16,7 @@ import (
 	"github.com/cyberphone/json-canonicalization/go/src/webpki.org/jsoncanonicalizer"
 	"github.com/google/jsonschema-go/jsonschema"
 	contracts "github.com/open-mcp-ai/Codexploit/contracts/v2"
+	"github.com/open-mcp-ai/Codexploit/internal/artifact"
 	"github.com/open-mcp-ai/Codexploit/internal/plugin"
 )
 
@@ -167,7 +168,12 @@ func runFileJob(ctx context.Context, pkg plugin.Package, op plugin.Operation, in
 	}
 	for i, raw := range inputs {
 		path := fmt.Sprintf("inputs/%d.input", i)
-		if err = os.WriteFile(filepath.Join(work, filepath.FromSlash(path)), raw, 0400); err != nil {
+		if inv.Request.Inputs[i].SchemaID == artifact.SourceDirectorySchema {
+			path = inv.Request.SourceDirectories[i]
+			if !filepath.IsAbs(path) {
+				return result, plugin.ErrInvalid
+			}
+		} else if err = os.WriteFile(filepath.Join(work, filepath.FromSlash(path)), raw, 0400); err != nil {
 			return result, err
 		}
 		ref := inv.Request.Inputs[i]
@@ -250,6 +256,19 @@ func runFileJob(ctx context.Context, pkg plugin.Package, op plugin.Operation, in
 	if json.Unmarshal(canonical, &report) != nil || report.InvocationID != inv.ID || report.APIVersion != pkg.Manifest.Runtime.Protocol {
 		return result, plugin.ErrProtocolViolation
 	}
+	c := report.Coverage
+	for _, n := range []*int64{c.Seen, c.Analyzed, c.Skipped, c.Failed} {
+		if n != nil && (*n < 0 || *n > 1<<40) {
+			return result, plugin.ErrProtocolViolation
+		}
+	}
+	if c.Seen != nil && c.Analyzed != nil && c.Skipped != nil && c.Failed != nil && *c.Seen != *c.Analyzed+*c.Skipped+*c.Failed {
+		return result, plugin.ErrProtocolViolation
+	}
+	if (c.Truncated || (c.Failed != nil && *c.Failed > 0) || (c.Skipped != nil && *c.Skipped > 0)) && report.Status == "SUCCEEDED" {
+		return result, plugin.ErrProtocolViolation
+	}
+	result = plugin.RawResult{Status: report.Status, Coverage: report.Coverage, Limitations: report.Limitations}
 	if report.Status != "SUCCEEDED" && report.Status != "PARTIAL" {
 		if report.Status == "UNSUPPORTED" {
 			return result, plugin.ErrUnsupported
@@ -262,18 +281,6 @@ func runFileJob(ctx context.Context, pkg plugin.Package, op plugin.Operation, in
 			code = report.ErrorCode
 		}
 		return result, &plugin.ExecutionError{Code: code}
-	}
-	c := report.Coverage
-	for _, n := range []*int64{c.Seen, c.Analyzed, c.Skipped, c.Failed} {
-		if n != nil && (*n < 0 || *n > 1<<40) {
-			return result, plugin.ErrProtocolViolation
-		}
-	}
-	if c.Seen != nil && c.Analyzed != nil && c.Skipped != nil && c.Failed != nil && *c.Seen != *c.Analyzed+*c.Skipped+*c.Failed {
-		return result, plugin.ErrProtocolViolation
-	}
-	if (c.Truncated || (c.Failed != nil && *c.Failed > 0) || (c.Skipped != nil && *c.Skipped > 0)) && report.Status == "SUCCEEDED" {
-		return result, plugin.ErrProtocolViolation
 	}
 	outputRoot, err := os.OpenRoot(filepath.Join(work, "outputs"))
 	if err != nil {

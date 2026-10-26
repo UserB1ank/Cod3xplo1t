@@ -1,6 +1,8 @@
 package plugin
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -48,13 +50,24 @@ func normalizeCodeIDs(inv Invocation, raw []byte) ([]byte, error) {
 		}
 		return loc
 	}
-	for _, s := range symbols {
-		f := fileInfo[text(s, "file_id")]
-		if f == nil {
+	symbolBaseIDs := make([]string, len(symbols))
+	symbolBaseCounts := map[string]int{}
+	for index, symbol := range symbols {
+		file := fileInfo[text(symbol, "file_id")]
+		if file == nil {
 			return nil, ErrInvalid
 		}
-		language := strings.ToLower(text(f, "language"))
-		id := scg.SymbolID(inv.Request.Scope.SnapshotID, language, text(f, "path"), text(s, "qualified_name"), text(s, "signature"), location(s))
+		language := strings.ToLower(text(file, "language"))
+		id := scg.SymbolID(inv.Request.Scope.SnapshotID, language, text(file, "path"), text(symbol, "qualified_name"), text(symbol, "signature"), location(symbol))
+		symbolBaseIDs[index] = id
+		symbolBaseCounts[id]++
+	}
+	for index, s := range symbols {
+		base := symbolBaseIDs[index]
+		id := base
+		if symbolBaseCounts[base] > 1 {
+			id = disambiguatedCanonicalID("sym-", base, text(s, "id"))
+		}
 		if seen[id] {
 			return nil, ErrInvalid
 		}
@@ -68,9 +81,20 @@ func normalizeCodeIDs(inv Invocation, raw []byte) ([]byte, error) {
 		s["id"] = ids[text(s, "id")]
 		s["file_id"] = ids[text(s, "file_id")]
 	}
-	for _, c := range calls {
-		loc := location(c)
-		id := scg.CallSiteID(inv.Request.Scope.SnapshotID, loc.File, loc.Line, loc.Col, text(c, "callee_text"))
+	callBaseIDs := make([]string, len(calls))
+	callBaseCounts := map[string]int{}
+	for index, call := range calls {
+		loc := location(call)
+		id := scg.CallSiteID(inv.Request.Scope.SnapshotID, loc.File, loc.Line, loc.Col, text(call, "callee_text"))
+		callBaseIDs[index] = id
+		callBaseCounts[id]++
+	}
+	for index, c := range calls {
+		base := callBaseIDs[index]
+		id := base
+		if callBaseCounts[base] > 1 {
+			id = disambiguatedCanonicalID("cs-", base, text(c, "id"))
+		}
 		if seen[id] {
 			return nil, ErrInvalid
 		}
@@ -100,6 +124,19 @@ func normalizeCodeIDs(inv Invocation, raw []byte) ([]byte, error) {
 		doc[key], _ = json.Marshal(value)
 	}
 	return json.Marshal(doc)
+}
+
+// A qualified symbol or call can share every canonical field with another
+// native node, for example two compiler-generated constructors at one source
+// location. Those nodes cannot share an identity, so only colliding nodes
+// receive a second deterministic digest that includes their pinned native ID.
+func disambiguatedCanonicalID(prefix, base, native string) string {
+	h := sha256.New()
+	for _, field := range []string{"codexploit/plugin/canonical-id/v1", prefix, base, native} {
+		fmt.Fprintf(h, "%d:%s", len(field), field)
+	}
+	sum := h.Sum(nil)
+	return prefix + hex.EncodeToString(sum[:16])
 }
 
 // A tool can refer to a single native output using output:<port>. Only the

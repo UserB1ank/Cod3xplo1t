@@ -1,3 +1,4 @@
+import { startProjectAnalysis } from "./analysis-start";
 import {
   useCallback,
   useEffect,
@@ -295,7 +296,8 @@ export default function App() {
     setError("");
     setNotice("");
     try {
-      await work();
+      const result = await work();
+      if (result === false) return;
       refresh((n) => n + 1);
       setNotice(notice || `${label}完成`);
       done?.();
@@ -896,10 +898,10 @@ export default function App() {
                       onStartAnalysis={(agentAssisted) =>
                         void action(
                           "开始图谱化分析",
-                          () =>
-                            api.startAnalysis(project.id, {
-                              agent_assisted: agentAssisted,
-                            }),
+                          async () => {
+                            const result = await startProjectAnalysis(api, project.id, agentAssisted, message => window.confirm(message));
+                            return result || false;
+                          },
                           undefined,
                           "分析请求已提交；阶段状态以面板为准",
                         )
@@ -3256,7 +3258,7 @@ function ProjectForm({
           }
         }
         if (kind === "uploaded_directory" && !directory) {
-          setError("请先选择目录并等待文件校验完成。");
+          setError("请先选择目录并等待文件统计完成。");
           return;
         }
         setError("");
@@ -3385,7 +3387,7 @@ function ProjectForm({
           </label>
         )}
         <Hint>
-          创建时自动保存一份源码和内部快照，不自动构建图谱，也不会启动 Agent。
+          创建时保存一份只读源码目录，不自动构建图谱，也不会启动 Agent。
           名称与说明之后可编辑；换一份代码请另建项目。
           {kind === "local_folder" &&
             "本地目录包含未提交修改；目录内的 .git 不会切换读取方式。"}
@@ -3398,7 +3400,7 @@ function ProjectForm({
       </fieldset>
       {busy && kind.startsWith("uploaded_") && (
         <div role="status">
-          <progress /> 正在上传、校验并保存审计输入…{" "}
+          <progress /> 正在上传并保存只读源码…{" "}
           <button
             type="button"
             className="text-button"

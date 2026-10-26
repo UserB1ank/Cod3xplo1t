@@ -44,7 +44,8 @@
       "capability": "source",
       "schemas": [
         "codexploit/source-tar/v1",
-        "codexploit/source-files/v1"
+        "codexploit/source-files/v1",
+        "codexploit/source-directory/v1"
       ]
     },
     {

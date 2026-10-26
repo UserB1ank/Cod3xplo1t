@@ -28,7 +28,7 @@ type Budget struct {
 
 func (b Budget) defaults() (Budget, error) {
 	if b.MaxInputBytes == 0 {
-		b.MaxInputBytes = 64 << 20
+		b.MaxInputBytes = artifact.SourceWarningBytes
 	}
 	if b.MaxOutputBytes == 0 {
 		b.MaxOutputBytes = 16 << 20
@@ -45,7 +45,7 @@ func (b Budget) defaults() (Budget, error) {
 	if b.TimeoutSeconds == 0 {
 		b.TimeoutSeconds = 60
 	}
-	if b.MaxInputBytes < 1 || b.MaxInputBytes > 256<<20 || b.MaxOutputBytes < 1 || b.MaxOutputBytes > 64<<20 || b.MaxFiles < 1 || b.MaxFiles > 20000 || b.MaxFileBytes < 1 || b.MaxFileBytes > 4<<20 || b.MaxASTNodes < 1 || b.MaxASTNodes > 500000 || b.TimeoutSeconds < 1 || b.TimeoutSeconds > 120 {
+	if b.MaxInputBytes < 1 || b.MaxInputBytes > artifact.MaxSourceBytes || b.MaxOutputBytes < 1 || b.MaxOutputBytes > 64<<20 || b.MaxFiles < 1 || b.MaxFiles > 20000 || b.MaxFileBytes < 1 || b.MaxFileBytes > 4<<20 || b.MaxASTNodes < 1 || b.MaxASTNodes > 500000 || b.TimeoutSeconds < 1 || b.TimeoutSeconds > 120 {
 		return Budget{}, ErrInvalid
 	}
 	return b, nil
@@ -74,18 +74,19 @@ func (b Budget) stageDefaults() (Budget, error) {
 }
 
 type Request struct {
-	APIVersion    string          `json:"api_version"`
-	ID            string          `json:"invocation_id,omitempty"`
-	PluginID      string          `json:"plugin_id"`
-	PluginVersion string          `json:"plugin_version"`
-	PackageDigest string          `json:"package_digest"`
-	Scope         artifact.Scope  `json:"scope"`
-	Inputs        []artifact.Ref  `json:"inputs"`
-	Config        json.RawMessage `json:"config"`
-	Budget        Budget          `json:"budget"`
-	OperationID   string          `json:"operation_id,omitempty"`
-	InputPorts    []string        `json:"input_ports,omitempty"`
-	WorkerID      string          `json:"worker_id,omitempty"`
+	SourceDirectories map[int]string  `json:"-"`
+	APIVersion        string          `json:"api_version"`
+	ID                string          `json:"invocation_id,omitempty"`
+	PluginID          string          `json:"plugin_id"`
+	PluginVersion     string          `json:"plugin_version"`
+	PackageDigest     string          `json:"package_digest"`
+	Scope             artifact.Scope  `json:"scope"`
+	Inputs            []artifact.Ref  `json:"inputs"`
+	Config            json.RawMessage `json:"config"`
+	Budget            Budget          `json:"budget"`
+	OperationID       string          `json:"operation_id,omitempty"`
+	InputPorts        []string        `json:"input_ports,omitempty"`
+	WorkerID          string          `json:"worker_id,omitempty"`
 }
 type Coverage struct {
 	Events          []StageEvent   `json:"-"`
@@ -232,6 +233,7 @@ func NewHost(deps Deps) (*Host, error) {
 }
 
 func (h *Host) Execute(ctx context.Context, request Request) (Invocation, error) {
+	request.SourceDirectories = nil // host-resolved only, never accepted from callers
 	if request.APIVersion != "codexploit/v1" {
 		return Invocation{}, ErrInvalid
 	}

@@ -82,3 +82,17 @@ func directoryBody(t *testing.T, manifest sourceimport.DirectoryManifest, files 
 	}
 	return buffer.Bytes(), writer.FormDataContentType()
 }
+
+func TestDirectoryUploadDoesNotRequireContentDigests(t *testing.T) {
+	content := []byte("package main\n")
+	manifest := sourceimport.DirectoryManifest{Files: []sourceimport.DirectoryFile{{Path: "main.go", Size: int64(len(content))}}}
+	body, kind := directoryBody(t, manifest, map[string][]byte{"main.go": content})
+	upload, err := sourceimport.ExtractDirectory(t.Context(), bytes.NewReader(body), kind)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer upload.Close()
+	if upload.Report.Files != 1 {
+		t.Fatalf("upload: %+v", upload.Report)
+	}
+}

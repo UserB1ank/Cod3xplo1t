@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,7 +37,7 @@ func ReadJob(path string) (JobRequest, error) {
 		if request.APIVersion == "codexploit/file-job/v2" && input.ArtifactID == "" {
 			return JobRequest{}, ErrJob
 		}
-		if !safeRelative(input.Path) || input.Bytes < 0 || len(input.SHA256) != 64 {
+		if (!safeRelative(input.Path) && !(input.SchemaID == "codexploit/source-directory/v1" && filepath.IsAbs(input.Path))) || input.Bytes < 0 || len(input.SHA256) != 64 {
 			return JobRequest{}, ErrJob
 		}
 	}
@@ -108,4 +109,50 @@ func WriteResult(path string, result JobResult) error {
 		return err
 	}
 	return os.Rename(temporary, path)
+}
+
+// SourceDirectory resolves a host-bound read-only directory. It inventories
+// paths and sizes only; source content digests and archives are not required.
+func SourceDirectory(request JobRequest, port string) (string, map[string]bool, error) {
+	var selected *LocalInput
+	for i := range request.Inputs {
+		if request.Inputs[i].Port == port {
+			if selected != nil {
+				return "", nil, ErrJob
+			}
+			selected = &request.Inputs[i]
+		}
+	}
+	if selected == nil || selected.SchemaID != "codexploit/source-directory/v1" || !filepath.IsAbs(selected.Path) || selected.Bytes > request.Budget.MaxInputBytes {
+		return "", nil, ErrJob
+	}
+	root, err := os.OpenRoot(selected.Path)
+	if err != nil {
+		return "", nil, ErrJob
+	}
+	defer root.Close()
+	files := map[string]bool{}
+	var total int64
+	err = fs.WalkDir(root.FS(), ".", func(name string, d fs.DirEntry, e error) error {
+		if e != nil {
+			return e
+		}
+		if d.IsDir() {
+			return nil
+		}
+		info, e := d.Info()
+		if e != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0222 != 0 {
+			return ErrJob
+		}
+		if info.Size() > request.Budget.MaxInputBytes-total {
+			return ErrJob
+		}
+		total += info.Size()
+		files[name] = true
+		return nil
+	})
+	if err != nil {
+		return "", nil, ErrJob
+	}
+	return selected.Path, files, nil
 }

@@ -228,9 +228,7 @@ export function ProjectHome({
   const completed =
     !!selected &&
     (selected.state === "SUCCEEDED" || selected.state === "PARTIAL");
-  const snapshot = input?.snapshot_id
-    ? snapshots.find((value) => value.snapshot_id === input.snapshot_id)
-    : snapshots[0];
+
 
   useEffect(() => {
     if (!active) return;
@@ -282,10 +280,10 @@ export function ProjectHome({
             {legacy
               ? "旧项目保留原有代码源、快照与任务引用，不会自动挑选最新版本。"
               : state === "ready"
-                ? `源码已保存 · 输入校验 ${snapshot?.snapshot_id?.slice(0, 20) || input?.snapshot_id?.slice(0, 20) || ""}…`
+                ? "源码已保存 · 只读目录"
                 : state === "failed"
                   ? "失败详情来自服务端；重试会重新绑定同一项目的一次审计输入。"
-                  : "正在后台保存源码并生成不可变快照，不会自动开始分析。"}
+                  : "正在保存只读源码目录，不会自动开始分析。"}
           </small>
         </div>
         <span className={`input-state ${state}`}>
@@ -453,7 +451,7 @@ export function ProjectHome({
             <>
               <button
                 className="button primary"
-                disabled={!ready || !engine?.ready || busy || active || !canWrite}
+                disabled={!ready || !engine?.ready || busy || active || !canWrite || !!latest && ["SUCCEEDED", "PARTIAL"].includes(latest.state)}
                 onClick={() => onStartAnalysis(agentAssisted)}
               >
                 {active ? (
@@ -463,9 +461,9 @@ export function ProjectHome({
                 )}
                 {active
                   ? "分析进行中"
-                  : latest
-                    ? "重新开始分析"
-                    : "开始图谱化分析"}
+                  : latest && ["SUCCEEDED", "PARTIAL"].includes(latest.state)
+                    ? "图谱化已完成"
+                    : latest ? "重试图谱化分析" : "开始图谱化分析"}
               </button>
               {active && canWrite && (
                 <button
@@ -659,7 +657,7 @@ export function ProjectHome({
               <RefreshCw size={13} />
               {state === "failed"
                 ? "输入失败不会留下“已就绪”的项目；可重试或删除。"
-                : "页面会自动刷新输入状态，无需手动固定快照。"}
+                : "页面会自动刷新源码导入状态。"}
             </p>
           )}
         </section>

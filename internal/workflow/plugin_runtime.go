@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/open-mcp-ai/Codexploit/internal/artifact"
@@ -38,7 +39,7 @@ func (e PluginExecutor) Execute(ctx context.Context, node CompiledNode, scope ar
 			return NodeResult{}, bindErr
 		}
 	}
-	request := plugin.Request{APIVersion: "codexploit/v1", ID: id, PluginID: node.PluginID, PluginVersion: node.PluginVersion, PackageDigest: record.PackageDigest, Scope: scope, Inputs: inputs, Config: node.Config, Budget: plugin.Budget{TimeoutSeconds: node.TimeoutSeconds}, OperationID: node.OperationID, InputPorts: names}
+	request := plugin.Request{APIVersion: "codexploit/v1", ID: id, PluginID: node.PluginID, PluginVersion: node.PluginVersion, PackageDigest: record.PackageDigest, Scope: scope, Inputs: inputs, Config: node.Config, Budget: plugin.Budget{TimeoutSeconds: node.TimeoutSeconds, MaxInputBytes: executionInputBudget(inputs)}, OperationID: node.OperationID, InputPorts: names}
 	var inv plugin.Invocation
 	for {
 		inv, err = e.Host.Execute(ctx, request)
@@ -86,5 +87,24 @@ func (e PluginExecutor) Execute(ctx context.Context, node CompiledNode, scope ar
 	}
 }
 func invocationResult(inv plugin.Invocation) NodeResult {
-	return NodeResult{Status: inv.Status, InvocationID: inv.ID, Outputs: inv.Outputs, ErrorCode: inv.ErrorCode}
+	note := ""
+	if inv.ErrorCode != "" {
+		for _, line := range inv.Limitations {
+			if strings.HasPrefix(line, "joern:frontend=") && len(note)+len(line) < 2000 {
+				if note != "" {
+					note += "\n"
+				}
+				note += line
+			}
+		}
+	}
+	return NodeResult{Status: inv.Status, InvocationID: inv.ID, Outputs: inv.Outputs, ErrorCode: inv.ErrorCode, Note: note}
+}
+
+func executionInputBudget(inputs []artifact.Ref) int64 {
+	total := int64(0)
+	for _, ref := range inputs {
+		total += ref.Bytes
+	}
+	return max(artifact.SourceWarningBytes, total)
 }

@@ -22,6 +22,6 @@ export function ArchivePicker({ onChange }: { onChange?: (file?: File) => void }
       setName(selected.name);
       onChange?.(selected);
     }}
-    hint="ZIP / TAR / TAR.GZ / TGZ · 压缩包 ≤ 64 MiB，展开 ≤ 128 MiB，单文件 ≤ 4 MiB，最多 10000 项。自动过滤版本库、生成目录和明确敏感文件；导入完成后查看排除记录。"
+    hint="ZIP / TAR / TAR.GZ / TGZ · 压缩包与源码 ≤ 8 GiB；图谱化默认 500 MiB，超过后确认继续，单文件 ≤ 4 MiB，最多 10000 项。自动过滤版本库、生成目录和明确敏感文件；导入完成后查看排除记录。"
   />;
 }

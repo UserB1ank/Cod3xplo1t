@@ -22,3 +22,15 @@ func TestFileJobV2CarriesFixedArtifactIdentity(t *testing.T) {
 		t.Fatal("artifact identity lost")
 	}
 }
+
+func TestDirectorySourceBindingDoesNotReadOrHashFileContents(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main"), 0400); err != nil {
+		t.Fatal(err)
+	}
+	request := pluginsdk.JobRequest{Inputs: []pluginsdk.LocalInput{{Port: "source", Kind: "source.snapshot", SchemaID: "codexploit/source-directory/v1", Path: dir, Bytes: 12}}, Budget: pluginsdk.Budget{MaxInputBytes: 500 << 20}}
+	got, files, err := pluginsdk.SourceDirectory(request, "source")
+	if err != nil || got != dir || !files["main.go"] {
+		t.Fatalf("directory binding: %s %v %v", got, files, err)
+	}
+}

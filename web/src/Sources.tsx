@@ -226,7 +226,7 @@ export function Sources({
           )}
           {singleInput ? (
             <Hint>
-              一个项目对应一份源码的一次审计。源码在创建时自动保存为不可变快照；
+              一个项目对应一份源码的一次审计。源码导入后保存为只读目录；
               输入就绪后不再提供“更新代码”入口，其他代码请另建项目。
               {auditInput?.failure_message && <><br />上次导入失败：{auditInput.failure_message}</>}
             </Hint>
@@ -252,7 +252,7 @@ export function Sources({
                 <tr>
                   <th>代码源</th>
                   <th>读取方式 / 位置</th>
-                  <th>最新快照</th>
+                  <th>{singleInput ? "源码目录" : "最新快照"}</th>
                   <th>操作</th>
                 </tr>
               </thead>
@@ -278,12 +278,12 @@ export function Sources({
                         {source.location}
                       </code>
                       <small className="source-secondary">
-                        定义 v{source.version} ·{" "}
+                        {singleInput ? "只读源码 · " : `定义 v${source.version} · `}
                         {source.kind === "git_repository"
                           ? `请求 ${source.ref}`
-                          : "内容寻址"}
+                          : singleInput ? "直接目录读取" : "内容寻址"}
                       </small>
-                      {source.import && <details><summary>导入 {source.import.format} · 排除 {source.import.skipped} 项</summary><p className="muted">上传摘要：{source.import.sha256}。生成目录与版本库按整目录合并为一条排除记录；排除记录最多展示 200 项，快照阶段的省略另见覆盖范围。</p><ul>{source.import.excluded.map((path, index) => <li key={index}><code>{path}</code></li>)}</ul></details>}
+                      {source.import && <details><summary>导入 {source.import.format} · 排除 {source.import.skipped} 项</summary><p className="muted">生成目录与版本库按整目录合并为一条排除记录；排除记录最多展示 200 项，导入时的省略另见覆盖范围。</p><ul>{source.import.excluded.map((path, index) => <li key={index}><code>{path}</code></li>)}</ul></details>}
                       {source.credential_ref && (
                         <small className="source-secondary">
                           凭据引用：{source.credential_ref}
@@ -297,11 +297,10 @@ export function Sources({
                             className="text-button"
                             onClick={() => setSelected(source.snapshot)}
                           >
-                            {source.snapshot.slice(0, 21)}…
+                            {singleInput ? "查看源码详情" : `${source.snapshot.slice(0,21)}…`}
                           </button>
                           <small className="source-secondary">
-                            {source.files} 个文件 · 第 {source.revision}{" "}
-                            次快照发布
+                            {source.files} 个文件{!singleInput && ` · 第 ${source.revision} 次快照发布`}
                           </small>
                         </>
                       ) : (
@@ -339,7 +338,7 @@ export function Sources({
                             <GitBranch size={14} />
                           )}
                           {inputReady
-                            ? "源码已固定"
+                            ? "源码只读"
                             : source.kind.startsWith("uploaded_") ? "读取固定输入" : source.snapshot
                               ? canBuildKnowledge ? "更新快照与图谱" : "更新快照"
                               : canBuildKnowledge ? "生成快照与图谱" : "生成快照"}
@@ -399,7 +398,7 @@ export function Sources({
             const data = new FormData(form);
             run("add", async () => {
               if (kind === "uploaded_directory") {
-                if (!directory) throw new Error("请先选择目录并等待文件校验完成。");
+                if (!directory) throw new Error("请先选择目录并等待文件统计完成。");
                 importController.current = new AbortController();
                 await importDirectory(api, project.id, sourceID, String(data.get("name")), directory, buildGraph, importController.current.signal);
               } else if (kind === "uploaded_archive") {
@@ -420,7 +419,7 @@ export function Sources({
               form.reset();
               setSourceID(`src-${crypto.randomUUID()}`);
               setAdding(false);
-              setNotice(kind.startsWith("uploaded_") ? "源码已上传并固定快照，可查看图谱、产物或手动创建任务。" : canCreateTask ? "代码源已保存，可生成快照并创建任务。" : "代码源已保存，可生成固定快照并查看产物。");
+              setNotice(singleInput ? "源码已保存为只读目录，可开始图谱化分析。" : kind.startsWith("uploaded_") ? "源码已上传并固定快照，可查看图谱、产物或手动创建任务。" : canCreateTask ? "代码源已保存，可生成快照并创建任务。" : "代码源已保存，可生成固定快照并查看产物。");
             });
           }}
         >
@@ -497,7 +496,7 @@ export function Sources({
             </div>
           )}
           </fieldset>
-          {busy === "add" && kind.startsWith("uploaded_") && <div role="status"><progress /> 正在上传、校验并建立快照… <button type="button" className="text-button" onClick={() => importController.current?.abort()}>取消上传</button></div>}
+          {busy === "add" && kind.startsWith("uploaded_") && <div role="status"><progress /> 正在上传并保存源码… <button type="button" className="text-button" onClick={() => importController.current?.abort()}>取消上传</button></div>}
           <div className="form-footer">
             <button className="button primary" disabled={!!busy}>
               {busy === "add" ? "正在保存…" : "添加代码源"}
@@ -508,28 +507,20 @@ export function Sources({
       <Modal
         open={!!selected}
         onClose={() => setSelected(undefined)}
-        title="代码源快照与覆盖范围"
+        title={singleInput ? "只读源码与覆盖范围" : "代码源快照与覆盖范围"}
         wide
       >
         {!details ? (
-          <p role="status">正在读取真实快照…</p>
+          <p role="status">正在读取源码信息…</p>
         ) : (
           <>
             <dl className="source-snapshot">
-              <dt>快照</dt>
-              <dd>
-                <code>{details.snapshot_id}</code>
-              </dd>
+              {!singleInput && <><dt>快照</dt><dd><code>{details.snapshot_id}</code></dd></>}
               <dt>代码源</dt>
               <dd>
-                {details.source_id} · 定义 v{details.source_version}
+                {details.source_id}{!singleInput && ` · 定义 v${details.source_version}`}
               </dd>
-              <dt>内容版本</dt>
-              <dd>
-                <code>{details.commit}</code>
-              </dd>
-              <dt>请求版本</dt>
-              <dd>{details.requested_ref || "当前文件内容"}</dd>
+              {singleInput ? <><dt>保存方式</dt><dd>只读源码目录</dd></> : <><dt>内容版本</dt><dd><code>{details.commit}</code></dd><dt>请求版本</dt><dd>{details.requested_ref || "当前文件内容"}</dd></>}
               <dt>覆盖范围</dt>
               <dd>
                 {details.files} 个文件 · 省略 {details.skipped_total} 项
@@ -552,7 +543,7 @@ export function Sources({
                   onArtifacts(details.snapshot_id);
                 }}
               >
-                查看此快照产物
+                {singleInput ? "查看分析产物" : "查看此快照产物"}
               </button>
               <button
                 className="button primary"
@@ -562,7 +553,7 @@ export function Sources({
                   onTask(details.snapshot_id);
                 }}
               >
-                使用此快照新建任务
+                {singleInput ? "使用此源码新建任务" : "使用此快照新建任务"}
               </button>
             </div>
           </>

@@ -84,7 +84,7 @@ type Limits struct {
 // directories, vendors and caches are excluded, with a conservative size budget.
 func DefaultLimits() Limits {
 	return Limits{
-		MaxRepoBytes:      512 << 20, // 512 MiB of accepted content
+		MaxRepoBytes:      8 << 30, // deployment bound; analysis asks for consent above 500 MiB
 		MaxFiles:          50000,
 		MaxFileBytes:      4 << 20, // 4 MiB per file
 		MaxDepth:          32,

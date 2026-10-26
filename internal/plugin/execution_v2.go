@@ -136,6 +136,9 @@ func (h *Host) prepareStageOutputs(ctx context.Context, inv Invocation, executor
 		defer result.Close()
 	}
 	if err != nil {
+		if validateStageCoverage(result.Status, result.Coverage) == nil {
+			return nil, observedStageCoverage(result, inv.Request.Inputs), boundedStageLimitations(result.Limitations), err
+		}
 		return nil, Coverage{}, nil, err
 	}
 	if result.Status != "SUCCEEDED" && result.Status != "PARTIAL" {
@@ -180,10 +183,6 @@ func (h *Host) prepareStageOutputs(ctx context.Context, inv Invocation, executor
 			return nil, Coverage{}, nil, err
 		}
 		if out.Kind != "tool.native" {
-			if out.Bytes > 64<<20 {
-				_ = reader.Close()
-				return nil, Coverage{}, nil, ErrBudget
-			}
 			raw, readErr := io.ReadAll(io.LimitReader(reader, inv.Request.Budget.MaxOutputBytes+1))
 			closeErr := reader.Close()
 			if readErr != nil || closeErr != nil || int64(len(raw)) != out.Bytes || digest(raw) != out.SHA256 {
@@ -262,6 +261,10 @@ func (h *Host) prepareStageOutputs(ctx context.Context, inv Invocation, executor
 			return nil, Coverage{}, nil, &ExecutionError{Code: "output_contract_mismatch"}
 		}
 	}
+	return refs, observedStageCoverage(result, inv.Request.Inputs), result.Limitations, nil
+}
+
+func observedStageCoverage(result RawResult, inputs []artifact.Ref) Coverage {
 	coverage := Coverage{Truncated: result.Coverage.Truncated || result.Status == "PARTIAL", Stage: &result.Coverage, Events: result.Events}
 	if result.Coverage.Unit == "files" {
 		if result.Coverage.Seen != nil {
@@ -277,5 +280,24 @@ func (h *Host) prepareStageOutputs(ctx context.Context, inv Invocation, executor
 			coverage.UnhandledFiles = int(*result.Coverage.Skipped)
 		}
 	}
-	return refs, coverage, result.Limitations, nil
+	for _, ref := range inputs {
+		if ref.Kind == "source.snapshot" {
+			coverage.InputBytes += ref.Bytes
+		}
+	}
+	return coverage
+}
+
+func boundedStageLimitations(notes []string) []string {
+	out := []string{}
+	for _, note := range notes {
+		if len(out) >= 100 {
+			break
+		}
+		if len(note) > 2000 {
+			note = note[:2000]
+		}
+		out = append(out, note)
+	}
+	return out
 }

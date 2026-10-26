@@ -91,7 +91,11 @@ func (s *Server) handleImportSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer root.Close()
-	snapshot, err := s.Manager.Create(ctx, repository.Source{Raw: "/uploaded", Kind: repository.KindDir, Files: root.FS(), NameOverride: fmt.Sprintf("projects/%s/sources/%s/v1", project, id)})
+	capture := s.Manager.Create
+	if hasInput {
+		capture = s.Manager.ImportSource
+	}
+	snapshot, err := capture(ctx, repository.Source{Raw: "/uploaded", Kind: repository.KindDir, Files: root.FS(), NameOverride: fmt.Sprintf("projects/%s/sources/%s/v1", project, id)})
 	if err != nil {
 		if hasInput {
 			s.failProjectInput(project, id, "snapshot_failed", err)

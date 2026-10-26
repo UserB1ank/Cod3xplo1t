@@ -13,8 +13,9 @@ import (
 const MaxBytes int64 = 512 << 20
 
 type Local struct {
-	root  string
-	index Index
+	ResolveSourceDirectory func(context.Context, Scope) (string, error)
+	root                   string
+	index                  Index
 }
 
 func NewLocal(root string, index Index) (*Local, error) {
@@ -159,7 +160,17 @@ func (s *Local) Open(ctx context.Context, scope Scope, id string, budget int64) 
 }
 
 func (s *Local) Stat(ctx context.Context, scope Scope, id string, budget int64) (Ref, error) {
-	r, ref, err := s.Open(ctx, scope, id, budget)
+	if id == sourceDirectoryID(scope) && s.ResolveSourceDirectory != nil {
+		ref, err := s.SourceDirectoryRef(ctx, scope)
+		if err != nil {
+			return Ref{}, err
+		}
+		if budget < ref.Bytes {
+			return Ref{}, ErrBudget
+		}
+		return ref, nil
+	}
+	r, ref, err := s.Open(ctx, scope, id, min(budget, MaxBytes))
 	if err != nil {
 		return Ref{}, err
 	}

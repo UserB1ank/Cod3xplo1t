@@ -14,7 +14,7 @@ test("directory selection screens sensitive bytes before transmission and keeps 
   assert.equal(selection.manifest.files.length, 1);
   assert.equal(selection.manifest.files[0].path, "internal/服务 main.go");
   assert.equal(selection.manifest.files[0].size, 16);
-  assert.match(selection.manifest.files[0].sha256, /^[a-f0-9]{64}$/);
+  assert.equal(selection.manifest.files[0].sha256, "");
   // A generated directory is recorded once, not once per file; a sensitive file is
   // still named individually.
   assert.deepEqual(selection.manifest.excluded, ["node_modules", ".env"]);

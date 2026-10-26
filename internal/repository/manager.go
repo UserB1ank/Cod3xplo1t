@@ -136,6 +136,16 @@ func (m *Manager) lock(key string) func() {
 // It is idempotent: an existing snapshot with the same identity triple is
 // returned unchanged instead of being rebuilt.
 func (m *Manager) Create(ctx context.Context, src Source) (*Snapshot, error) {
+	return m.create(ctx, src, false)
+}
+
+// ImportSource stores one read-only source directory. Its identity belongs to the
+// project source, not its contents; subsequent calls reuse that directory.
+func (m *Manager) ImportSource(ctx context.Context, src Source) (*Snapshot, error) {
+	return m.create(ctx, src, true)
+}
+
+func (m *Manager) create(ctx context.Context, src Source, single bool) (*Snapshot, error) {
 	l := m.Limits.WithDefaults()
 	if err := l.Validate(); err != nil {
 		return nil, err
@@ -173,11 +183,14 @@ func (m *Manager) Create(ctx context.Context, src Source) (*Snapshot, error) {
 		}
 		snap.VCS = "none"
 		snap.RequestedRef = ""
-		plan, err = planDirectory(directory, l)
+		plan, err = inventoryDirectory(directory, l, !single)
 		if err != nil {
 			return nil, err
 		}
 		snap.Commit = contentRevision(plan.Digest)
+		if single {
+			snap.Commit = "project-source"
+		}
 	case KindLocalGit, KindRemoteGit:
 		snap.VCS = "git"
 		ref := res.Source.Ref
@@ -215,7 +228,15 @@ func (m *Manager) Create(ctx context.Context, src Source) (*Snapshot, error) {
 		return nil, fmt.Errorf("repository: unsupported source kind %q", res.Kind)
 	}
 
-	snap.SnapshotID = SnapshotID(snap.Identity, snap.Commit, snap.SubmoduleState)
+	resolvedCommit := snap.Commit
+	if single {
+		snap.Commit = "project-source"
+	}
+	if single {
+		snap.SnapshotID = SnapshotID(snap.Identity, snap.Commit, nil)
+	} else {
+		snap.SnapshotID = SnapshotID(snap.Identity, snap.Commit, snap.SubmoduleState)
+	}
 	final := m.snapshotDir(snap.SnapshotID)
 	if existing, lerr := LoadSnapshot(final); lerr == nil {
 		if existing.Commit != snap.Commit || existing.Identity != snap.Identity {
@@ -240,15 +261,17 @@ func (m *Manager) Create(ctx context.Context, src Source) (*Snapshot, error) {
 		if err := copyDirectory(directory, tree, plan); err != nil {
 			return nil, err
 		}
-		latest, err := planDirectory(directory, l)
-		if err != nil {
-			return nil, fmt.Errorf("%w: directory cannot be revalidated", ErrSourceChanged)
-		}
-		if latest.Digest != plan.Digest {
-			return nil, ErrSourceChanged
+		if !single {
+			latest, err := planDirectory(directory, l)
+			if err != nil {
+				return nil, fmt.Errorf("%w: directory cannot be revalidated", ErrSourceChanged)
+			}
+			if latest.Digest != plan.Digest {
+				return nil, ErrSourceChanged
+			}
 		}
 	default:
-		plan, err = m.extractCommitTree(ctx, res.Path, snap.Commit, tree, l, snap.SubmoduleState)
+		plan, err = m.extractCommitTree(ctx, res.Path, resolvedCommit, tree, l, snap.SubmoduleState, !single)
 		if err != nil {
 			return nil, err
 		}
@@ -321,7 +344,7 @@ func (s *Snapshot) describeLimitations() {
 	if s.WorktreeDirty {
 		s.addLimitation("source working tree had %d uncommitted change(s) at snapshot time; this snapshot reflects commit %s only", s.DirtyPathCount, shortSHA(s.Commit))
 	}
-	if s.VCS == "none" {
+	if s.VCS == "none" && s.Commit != "project-source" {
 		s.addLimitation("directory source without VCS metadata: the revision is a content digest of the accepted file set, not a commit")
 	}
 }

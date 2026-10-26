@@ -23,15 +23,15 @@ import (
 )
 
 const (
-	MaxUploadBytes   int64 = 64 << 20
-	MaxExpandedBytes int64 = 128 << 20
+	MaxUploadBytes   int64 = 8 << 30
+	MaxExpandedBytes int64 = 8 << 30
 	MaxFileBytes     int64 = 4 << 20
 	MaxFiles               = 10000
 )
 
 var (
 	ErrInvalid = errors.New("源码上传无效：请检查文件清单、摘要、相对路径或 ZIP / TAR / TAR.GZ 结构，只支持普通文件与目录")
-	ErrBudget  = errors.New("源码上传超限：压缩包最多 64 MiB，源码总计最多 128 MiB、10000 项，单文件最多 4 MiB")
+	ErrBudget  = errors.New("源码上传超限：压缩包和源码总计最多 8 GiB、10000 项，单文件最多 4 MiB")
 )
 
 type Report struct {

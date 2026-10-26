@@ -45,6 +45,9 @@ func (s *Server) snapshotArtifactScope(w http.ResponseWriter, r *http.Request) (
 }
 
 func (s *Server) publishSourceArtifacts(ctx context.Context, project string, snap *repository.Snapshot) error {
+	if snap.Commit == "project-source" && s.analysisProvider().Workflow().Nodes[0].PluginID == "codexploit.joern" {
+		return nil
+	}
 	index, ok := s.Store.(artifact.Index)
 	if !ok || s.Artifacts == nil {
 		return artifact.ErrNotFound
@@ -67,7 +70,7 @@ func (s *Server) handleSnapshotArtifacts(w http.ResponseWriter, r *http.Request)
 			writeArtifactError(w, artifact.ErrNotFound)
 			return
 		}
-		if err := artifact.PublishSnapshot(r.Context(), s.Artifacts, scope, snap); err != nil {
+		if err := s.publishSourceArtifacts(r.Context(), scope.ProjectID, snap); err != nil {
 			writeArtifactError(w, err)
 			return
 		}

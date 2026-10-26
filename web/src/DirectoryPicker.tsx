@@ -41,10 +41,10 @@ export function DirectoryPicker({ onChange }: { onChange: (selection?: Directory
           }
         } finally { if (!current.signal.aborted) setReading(false); }
       }}
-      hint="仅上传筛选后的相对路径和文件内容；≤ 128 MiB、10000 个源码文件，单文件 ≤ 4 MiB。生成目录、版本库与明确敏感文件在读取内容前排除。本次上传固定所读取的字节；读取期间请勿修改文件。"
+      hint="仅上传筛选后的相对路径和文件内容；≤ 8 GiB、10000 个源码文件，单文件 ≤ 4 MiB。生成目录、版本库与明确敏感文件在读取内容前排除。导入后保存为只读源码目录；超过 500 MiB 时，开始图谱化前会请求确认。"
     />
     {!supported && <p role="alert" className="error-message">当前浏览器不支持目录选择，请使用上传压缩包入口。</p>}
-    {reading && <p role="status" className="file-picker-status"><progress /> 正在筛选文件并核对摘要…</p>}
+    {reading && <p role="status" className="file-picker-status"><progress /> 正在筛选文件并统计大小…</p>}
     {selection && <div className="file-picker-result" role="status">
       <div className="file-picker-summary">
         <span>将上传 <strong>{selection.files.length}</strong> 个文件</span>

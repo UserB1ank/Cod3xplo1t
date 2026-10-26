@@ -108,8 +108,24 @@ func (h *Host) prepareDocument(ctx context.Context, inv Invocation, suffix, kind
 func (h *Host) analyze(ctx context.Context, inv Invocation) ([]artifact.Ref, Coverage, []string, error) {
 	executor := h.executor(inv.Request)
 	inputs := [][]byte{}
-	for _, ref := range inv.Request.Inputs {
-		reader, _, err := h.deps.Artifacts.Open(ctx, inv.Request.Scope, ref.ID, inv.Request.Budget.MaxInputBytes)
+	for i, ref := range inv.Request.Inputs {
+		if ref.SchemaID == artifact.SourceDirectorySchema {
+			directories, ok := h.deps.Artifacts.(artifact.DirectoryStore)
+			if !ok {
+				return nil, Coverage{}, nil, ErrUnsupported
+			}
+			dir, err := directories.SourceDirectory(ctx, ref.Scope, ref.ID)
+			if err != nil {
+				return nil, Coverage{}, nil, err
+			}
+			if inv.Request.SourceDirectories == nil {
+				inv.Request.SourceDirectories = map[int]string{}
+			}
+			inv.Request.SourceDirectories[i] = dir
+			inputs = append(inputs, nil)
+			continue
+		}
+		reader, _, err := h.deps.Artifacts.Open(ctx, inv.Request.Scope, ref.ID, min(artifact.MaxBytes, inv.Request.Budget.MaxInputBytes))
 		if err != nil {
 			return nil, Coverage{}, nil, err
 		}

@@ -25,7 +25,7 @@ func TestPackagedScannerUpgradePreservesHistoricalImmutableVersion(t *testing.T)
 	if err := json.Unmarshal(scanner.Manifest(), &previous); err != nil {
 		t.Fatal(err)
 	}
-	previous.Version = "1.0.10"
+	previous.Version = "1.0.14"
 	legacy, err := json.Marshal(previous)
 	if err != nil {
 		t.Fatal(err)
@@ -62,7 +62,7 @@ func TestPackagedScannerUpgradePreservesHistoricalImmutableVersion(t *testing.T)
 		t.Fatalf("upgrading the packaged scanner prevents startup: %v", err)
 	}
 	defer upgraded.Close()
-	old, err := upgraded.PluginCatalog.Get(ctx, scanner.ID, "1.0.10")
+	old, err := upgraded.PluginCatalog.Get(ctx, scanner.ID, "1.0.14")
 	if err != nil || old.PackageDigest != oldDigest {
 		t.Fatalf("historical scanner rewritten: %v", err)
 	}

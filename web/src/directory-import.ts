@@ -34,7 +34,7 @@ function validPath(path: string) {
 
 const maxIncludedFiles = 10000;
 const maxFileBytes = 4 * 1024 * 1024;
-const maxBytes = 128 * 1024 * 1024;
+const maxBytes = 8 * 1024 * 1024 * 1024;
 // The manifest is a record of what was skipped, not a dump of it: the server keeps
 // 200 entries and the response only shows those.
 const manifestExcludedLimit = 200;
@@ -109,12 +109,8 @@ export async function prepareDirectory(input: Iterable<File>, signal?: AbortSign
     const key = path.toLowerCase();
     if (seen.has(key)) throw new Error("目录包含重名路径（大小写不敏感），请调整后重试。");
     seen.add(key);
-    if (file.size > maxFileBytes || selection.bytes + file.size > maxBytes) throw new Error("目录最多 128 MiB，单文件最多 4 MiB。");
-    const bytes = await file.arrayBuffer(); // one bounded file at a time
-    signal?.throwIfAborted();
-    if (bytes.byteLength !== file.size) throw new Error("目录文件读取发生变化，请重新选择目录。");
-    const sha256 = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), n => n.toString(16).padStart(2, "0")).join("");
-    selection.manifest.files.push({ path, size: file.size, sha256 });
+    if (file.size > maxFileBytes || selection.bytes + file.size > maxBytes) throw new Error("目录最多 8 GiB，单文件最多 4 MiB。");
+    selection.manifest.files.push({ path, size: file.size, sha256: "" });
     selection.files.push(file);
     selection.bytes += file.size;
   }

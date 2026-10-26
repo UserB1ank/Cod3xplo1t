@@ -10,8 +10,8 @@ export function archiveFormat(name: string) {
 
 export function validateArchive(file: File) {
   archiveFormat(file.name);
-  if (!file.size || file.size > 64 * 1024 * 1024)
-    throw new Error("源码压缩包不能为空，且不能超过 64 MiB。");
+  if (!file.size || file.size > 8 * 1024 * 1024 * 1024)
+    throw new Error("源码压缩包不能为空，且不能超过 8 GiB。");
 }
 
 export async function importArchive(

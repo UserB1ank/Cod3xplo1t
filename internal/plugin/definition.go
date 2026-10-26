@@ -156,7 +156,7 @@ func ValidateDefinition(manifest Manifest) error {
 				for _, required := range wanted {
 					found := false
 					for _, p := range actual {
-						if p.Kind == required.Kind && p.SchemaID == required.SchemaID && p.Required {
+						if p.Kind == required.Kind && (p.SchemaID == required.SchemaID || (p.Kind == "source.snapshot" && p.SchemaID == "codexploit/source-directory/v1")) && p.Required {
 							found = true
 						}
 					}

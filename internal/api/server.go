@@ -195,7 +195,11 @@ func NewServer(store storage.FullStore, mgr *repository.Manager, analyzer *analy
 		cancel()
 		s.AllowNetwork = s.Manager.AllowNetwork
 		if index, ok := store.(artifact.Index); ok {
-			s.Artifacts, _ = artifact.NewLocal(filepath.Join(s.Manager.Root, "artifacts"), index)
+			objects, err := artifact.NewLocal(filepath.Join(s.Manager.Root, "artifacts"), index)
+			if err == nil {
+				objects.BindSourceDirectories(s.Manager)
+				s.Artifacts = objects
+			}
 		}
 	}
 	if publisher, ok := store.(publication.Store); ok {

@@ -20,10 +20,11 @@ import (
 )
 
 type analysisRunStartRequest struct {
-	APIVersion     string `json:"api_version"`
-	IdempotencyKey string `json:"idempotency_key,omitempty"`
-	AgentAssisted  bool   `json:"agent_assisted"`
-	Runtime        string `json:"runtime,omitempty"`
+	APIVersion         string `json:"api_version"`
+	IdempotencyKey     string `json:"idempotency_key,omitempty"`
+	AgentAssisted      bool   `json:"agent_assisted"`
+	Runtime            string `json:"runtime,omitempty"`
+	ConfirmSourceBytes int64  `json:"confirm_source_bytes,omitempty"`
 }
 
 type analysisStageDefinition struct {
@@ -168,8 +169,16 @@ func (s *Server) handleStartAnalysisRun(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	root, err := s.analysisRoot(r.Context(), projectID, input.SnapshotID)
+	if errors.Is(err, artifact.ErrBudget) {
+		writeError(w, http.StatusRequestEntityTooLarge, "source_size_limit", errors.New("源码文件总大小超过部署上限 8 GiB，请缩小导入范围"))
+		return
+	}
 	if err != nil {
-		writeError(w, http.StatusConflict, "analysis_input_unavailable", errors.New("the immutable source snapshot is missing"))
+		writeError(w, http.StatusConflict, "analysis_input_unavailable", errors.New("the read-only project source directory is unavailable"))
+		return
+	}
+	if root.Bytes > artifact.SourceWarningBytes && req.ConfirmSourceBytes != root.Bytes {
+		writeJSON(w, http.StatusConflict, map[string]any{"api_version": "codexploit/v1", "code": "source_size_confirmation_required", "error": fmt.Sprintf("源码文件总大小为 %d 字节，超过 500 MiB，确认是否继续图谱化？", root.Bytes), "source_bytes": root.Bytes, "threshold_bytes": artifact.SourceWarningBytes})
 		return
 	}
 	runtimeName := strings.TrimSpace(req.Runtime)
@@ -219,7 +228,7 @@ func (s *Server) handleStartAnalysisRun(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	plan, err := s.WorkflowCompiler.Compile(r.Context(), projectID, spec.ID, spec.Version, workflow.CompileRequest{
-		APIVersion: "codexploit/v1", SnapshotID: input.SnapshotID, Inputs: []string{root.ID}, Language: analysisLanguage(spec),
+		APIVersion: "codexploit/v1", SnapshotID: input.SnapshotID, Inputs: []string{root.ID}, Language: analysisLanguage(spec), MaxInputBytes: max(artifact.SourceWarningBytes, root.Bytes),
 	})
 	if err != nil {
 		writeWorkflowError(w, err)
@@ -284,6 +293,21 @@ func (s *Server) analysisRoot(ctx context.Context, projectID, snapshotID string)
 		return artifact.Ref{}, err
 	}
 	scope := artifact.Scope{ProjectID: projectID, SourceID: binding.SourceID, SnapshotID: snapshotID}
+	if s.analysisProvider().Workflow().Nodes[0].PluginID == workflow.DefaultEnginePluginID {
+		directories, ok := s.Artifacts.(artifact.DirectoryStore)
+		if !ok {
+			return artifact.Ref{}, artifact.ErrNotFound
+		}
+		return directories.SourceDirectoryRef(ctx, scope)
+	}
+	// Historical adapters still require an archive; only explicit legacy
+	// execution creates it. Formal project analysis uses directories above.
+	source, loadErr := s.Manager.Load(snapshotID)
+	if loadErr == nil {
+		if err := artifact.PublishSnapshot(ctx, s.Artifacts, scope, source); err != nil {
+			return artifact.Ref{}, err
+		}
+	}
 	refs, err := s.Artifacts.List(ctx, scope, "", 100)
 	if err != nil {
 		return artifact.Ref{}, err

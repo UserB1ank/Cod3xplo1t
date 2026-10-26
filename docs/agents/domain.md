@@ -14,3 +14,5 @@
 术语：新项目一份源码一次审计；内部snapshot固定输入；AnalysisRun记录四阶段；主Agent session与run分开；audit/task、AuditPath、workflow_run、invocation、child_run有不同身份。工具事实、模型假设、验证裁定分层；候选/确认、优先级/严重度、阶段结束/覆盖完成互不替代。
 
 历史P阶段和旧草案保留参考，不能据其重做已关闭Issue、恢复指令类型分类器、显式快照主流程或SQLite维护路线。
+
+2026-10-25 人工修正：新项目改为单份只读源码目录，停用内容版本化和源码完整性验证，Joern 直接读取目录；500 MiB 是启动提醒，超限确认后继续。见 `docs/adr/0002-read-only-project-source.md`。旧 `snapshot_id` 仅保留内部关联兼容，不据其恢复新项目多快照产品流程。

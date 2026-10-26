@@ -291,7 +291,7 @@ func (m *Manager) ensureCloneCache(ctx context.Context, url string) (string, err
 // rules and the binary policy, and returns the resulting plan. Submodule
 // gitlinks are excluded from the tree: an empty directory in their place would
 // misrepresent content that Codexploit never fetched.
-func (m *Manager) extractCommitTree(ctx context.Context, repoPath, commit, dst string, l Limits, submodules []SubmoduleState) (*dirPlan, error) {
+func (m *Manager) extractCommitTree(ctx context.Context, repoPath, commit, dst string, l Limits, submodules []SubmoduleState, integrity bool) (*dirPlan, error) {
 	commit = strings.ToLower(strings.TrimSpace(commit))
 	if !isHexSHA(commit) {
 		return nil, fmt.Errorf("repository: refusing to archive non-SHA revision %q", commit)
@@ -308,7 +308,7 @@ func (m *Manager) extractCommitTree(ctx context.Context, repoPath, commit, dst s
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
-	plan, extractErr := extractTar(stdout, dst, l, submodules)
+	plan, extractErr := extractSourceTar(stdout, dst, l, submodules, integrity)
 	waitErr := cmd.Wait()
 	if extractErr != nil {
 		return nil, extractErr
@@ -322,6 +322,10 @@ func (m *Manager) extractCommitTree(ctx context.Context, repoPath, commit, dst s
 // extractTar writes a tar stream to dst under the same policies as planDir.
 // Every skipped entry is counted and explained.
 func extractTar(r io.Reader, dst string, l Limits, submodules []SubmoduleState) (*dirPlan, error) {
+	return extractSourceTar(r, dst, l, submodules, true)
+}
+
+func extractSourceTar(r io.Reader, dst string, l Limits, submodules []SubmoduleState, integrity bool) (*dirPlan, error) {
 	matcher := newIgnoreMatcher(l)
 	plan := &dirPlan{}
 	plan.ensureSkipCapacity(l)
@@ -430,14 +434,20 @@ func extractTar(r io.Reader, dst string, l Limits, submodules []SubmoduleState) 
 		if err := os.WriteFile(target, data, mode); err != nil {
 			return nil, err
 		}
-		sum := sha256.Sum256(data)
-		plan.Entries = append(plan.Entries, planEntry{Rel: name, Size: int64(len(data)), Mode: mode.Perm(), Digest: hex.EncodeToString(sum[:])})
+		digest := ""
+		if integrity {
+			sum := sha256.Sum256(data)
+			digest = hex.EncodeToString(sum[:])
+		}
+		plan.Entries = append(plan.Entries, planEntry{Rel: name, Size: int64(len(data)), Mode: mode.Perm(), Digest: digest})
 		plan.Stats.Files++
 		plan.Stats.Bytes += int64(len(data))
 		total += int64(len(data))
 	}
 	sort.Slice(plan.Entries, func(i, j int) bool { return plan.Entries[i].Rel < plan.Entries[j].Rel })
-	plan.Digest = digestEntries(plan.Entries)
+	if integrity {
+		plan.Digest = digestEntries(plan.Entries)
+	}
 	return plan, nil
 }
 

@@ -203,6 +203,9 @@ func (s *Server) captureSourceSnapshot(ctx context.Context, source storage.Sourc
 	if source.Kind == "git_repository" {
 		input.Kind, input.Ref = repository.KindRemoteGit, source.Ref
 		input.ProjectID, input.CredentialRef = source.ProjectID, source.CredentialRef
+		if _, err := s.Store.GetProjectInput(ctx, source.ProjectID); err == nil {
+			return s.Manager.ImportSource(ctx, input)
+		}
 		return s.Manager.Create(ctx, input)
 	}
 	rootPath := s.LocalSourceRoot
@@ -220,6 +223,9 @@ func (s *Server) captureSourceSnapshot(ctx context.Context, source storage.Sourc
 	}
 	defer directory.Close()
 	input.Kind, input.Files = repository.KindDir, directory.FS()
+	if _, err := s.Store.GetProjectInput(ctx, source.ProjectID); err == nil {
+		return s.Manager.ImportSource(ctx, input)
+	}
 	return s.Manager.Create(ctx, input)
 }
 
