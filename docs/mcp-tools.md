@@ -79,8 +79,12 @@ parsing prose:
 | `inspect_project` | `section=source/analysis/workflow/plugins/invocations/tasks/paths/agent_runs/findings/reports/artifacts/system`；读取真实目录、阶段与错误码、工作流事件、产物摘要和脱敏存储 readiness。`id` 定位分析、工作流或调用；`limit/cursor/offset` 按适用目录分页。报告目录在当前调用页内筛选，继续读取需使用返回的 cursor。 |
 | `list_source_files` | 冻结源码路径分页，支持 contains/offset/limit；不依赖已发布图谱。 |
 | `read_source_file` | 文件相对路径、start_line/max_lines；最多 200 行、16 KB，拒绝逃逸、链接、敏感文件和非文本，不依赖图谱。 |
+| `list_entry_points` | 按入口类型、信任边界、文件或生成器分页读取 ASG 入口；返回主体、位置、证据状态、SCG 引用和完整匹配数。 |
+| `list_sinks` | 按 SQL、反序列化、表达式 / JNDI、XXE、进程、网络、文件、LDAP、模板等类别读取全部命中 sink；未产生数据流的 sink 也保留，规则命中不表示可被利用。 |
+| `get_asg_node` | 读取一个 ASG 节点、相邻边、已解析源码证据与限定；控制存在不等于有效，静态候选不等于漏洞成立。 |
+| `repo_map` | 返回不超过 2,000 字节的仓库定向图：主要模块、入口边界、sink 类别、文件未解析率和精确覆盖分母。 |
 
-source 元数据、物理源码树和图谱是否就绪分别报告；`graph_not_ready` 不等于快照丢失。先检查 source/analysis，再按 workflow_run_id 和 invocation_id 追踪实际错误。新 file-job 的已知错误码保留；历史调用没有保存的底层日志不会被补造。工具结果超过 32 KiB 返回可缩小查询的完整错误，不截断 JSON。配置值、凭据、宿主路径、任意日志、SQL 和 Shell 不在此工具面。对话保留模型请求与 MCP 结果的配对记录，仍不改变漏洞裁定。
+source 元数据、物理源码树和图谱是否就绪分别报告；`graph_not_ready` 不等于快照丢失。攻击面目录不以“是否已有数据流”过滤，失败时保留精确总数、页码和截断原因。先检查 source/analysis，再按 workflow_run_id 和 invocation_id 追踪实际错误。新 file-job 的已知错误码保留；历史调用没有保存的底层日志不会被补造。工具结果超过 32 KiB 返回可缩小查询的完整错误，不截断 JSON。配置值、凭据、宿主路径、任意日志、SQL 和 Shell 不在此工具面。对话保留模型请求与 MCP 结果的配对记录，仍不改变漏洞裁定。
 
 工作台输入：回车发送，Ctrl+回车在光标/选区插入换行。输入法确认和长按回车不触发发送；同一发送过程有并发栅栏。
 

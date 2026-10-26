@@ -235,6 +235,17 @@ func (f *agentFixture) pathWithSymbol(t *testing.T) (path.Path, scg.Symbol) {
 	return path.Path{}, scg.Symbol{}
 }
 
+func (f *agentFixture) firstASGNodeID(t *testing.T, subject string) string {
+	t.Helper()
+	nodes, _, err := f.store.ListASGNodes(context.Background(), storage.ASGNodeQuery{
+		SnapshotID: agentSnapID, Subject: subject, Limit: 1,
+	})
+	if err != nil || len(nodes) == 0 {
+		t.Fatalf("fixture has no ASG node %q: %v", subject, err)
+	}
+	return nodes[0].ID
+}
+
 func pathRefs(paths []path.Path) []string {
 	out := make([]string, 0, len(paths))
 	for _, p := range paths {

@@ -174,6 +174,7 @@ type ASGNodeView struct {
 	Outgoing    []asg.Edge     `json:"outgoing"`
 	Incoming    []asg.Edge     `json:"incoming"`
 	DerivedFrom []ASGReference `json:"derived_from"`
+	Limitations []string       `json:"limitations"`
 	Meta        ASGMeta        `json:"meta"`
 }
 
@@ -201,7 +202,12 @@ func (s *ASGService) Node(ctx context.Context, snapshotID, nodeID string) (*ASGN
 	if err != nil {
 		return nil, mapASGError(err, snapshotID)
 	}
-	view := &ASGNodeView{Node: node, Outgoing: outgoing, Incoming: incoming}
+	view := &ASGNodeView{
+		Node: node, Outgoing: outgoing, Incoming: incoming,
+		Limitations: []string{
+			"ASG presence is a static candidate and is not proof of vulnerability or exploitability; this view does not assess control effectiveness, source trust or sink exploitability.",
+		},
+	}
 	if view.Outgoing == nil {
 		view.Outgoing = []asg.Edge{}
 	}
@@ -221,6 +227,12 @@ func (s *ASGService) Node(ctx context.Context, snapshotID, nodeID string) (*ASGN
 	}
 	sort.Strings(scgIDs)
 	view.DerivedFrom = s.resolveReferences(ctx, snapshotID, scgIDs)
+	if node.Kind == asg.NodeSecurityControl {
+		view.Limitations = append(view.Limitations, "A control is present, but its effectiveness is not assessed by this view.")
+	}
+	if node.Evidence == asg.StatusInferred {
+		view.Limitations = append(view.Limitations, "This node was inferred by a rule and must be checked in source context.")
+	}
 	view.Meta = s.meta(ctx, snapshotID, "asg_node", map[string]string{"node_id": nodeID}, started)
 	return view, nil
 }

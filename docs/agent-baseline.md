@@ -78,3 +78,32 @@ make bench-agent
 1. 改动前运行 `make bench-agent`，保存 `dist/agent-baseline.json`。
 2. 改动后重跑，逐字段 diff：任何 `rounds`、`tool_calls`、`novelty`、`stop_reason` 的变化都必须能解释。
 3. 期望的变化写进对应 Issue 的验收；无法解释的变化视为回归，不合并。
+
+## 攻击面目录工具真实模型对照（2026-10-26）
+
+`cmd/bench-tools` 对同一组 5 个固定事实任务比较旧图谱工具和加入
+`repo_map` / `list_entry_points` / `list_sinks` / `get_asg_node` 后的目录工具。
+旧工具先返回目录页，模型必须再查一次详情；目录工具直接返回宿主固定的完整事实。
+最终答案只有在精确事实和证据 id 都通过宿主校验时才算成功。
+
+真实运行使用部署中已启用的 `deepseek-chat`，每个场景和变体重复 2 次，共
+20 个有效样本，全部通过答案 / 证据校验：
+
+| 指标 | 旧工具 | 目录工具 |
+|---|---:|---:|
+| 平均 provider 轮数 | 3.70 | 2.70 |
+| 圆整后平均轮数减少 |  | **1.00** |
+
+这是合成黄金集上的工具可用性对照，证明固定事实的探索开销下降，不证明真实仓库漏洞
+召回率或误报率改善。真实调用必须显式开启：
+
+```sh
+go run ./cmd/bench-tools \
+  --allow-real \
+  --repeats=2 \
+  --postgres-dsn-file=<dsn-file> \
+  --settings-key-file=<installation-key-file> \
+  --out=dist/agent-tools-baseline.json
+```
+
+不带 `--allow-real` 只输出计划摘要，不解密模型设置，也不访问网络。

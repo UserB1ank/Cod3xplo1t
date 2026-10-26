@@ -228,7 +228,7 @@ func scanASGNode(scan func(...any) error) (asg.Node, error) {
 }
 
 // asgNodeFilter builds the shared WHERE clause of ASG node reads.
-func asgNodeFilter(q ASGNodeQuery) (string, []any) {
+func (s *SQL) asgNodeFilter(q ASGNodeQuery) (string, []any) {
 	where := []string{"snapshot_id = ?"}
 	args := []any{q.SnapshotID}
 	if len(q.Kinds) > 0 {
@@ -243,6 +243,14 @@ func asgNodeFilter(q ASGNodeQuery) (string, []any) {
 		where = append(where, "subject = ?")
 		args = append(args, q.Subject)
 	}
+	if len(q.SubjectPrefixes) > 0 {
+		prefixes := make([]string, 0, len(q.SubjectPrefixes))
+		for _, prefix := range q.SubjectPrefixes {
+			prefixes = append(prefixes, "subject LIKE ?")
+			args = append(args, prefix+"%")
+		}
+		where = append(where, "("+strings.Join(prefixes, " OR ")+")")
+	}
 	if q.Query != "" {
 		like := "%" + strings.ToLower(q.Query) + "%"
 		where = append(where, "(LOWER(subject) LIKE ? OR LOWER(label) LIKE ?)")
@@ -256,7 +264,38 @@ func asgNodeFilter(q ASGNodeQuery) (string, []any) {
 		where = append(where, "file = ?")
 		args = append(args, q.File)
 	}
+	catalogID := s.asgDetailText("catalog_id")
+	if q.Classified != nil {
+		if *q.Classified {
+			where = append(where, "COALESCE("+catalogID+", '') <> ''")
+		} else {
+			where = append(where, "COALESCE("+catalogID+", '') = ''")
+		}
+	}
+	if q.CatalogID != "" {
+		where = append(where, catalogID+" = ?")
+		args = append(args, q.CatalogID)
+	}
+	if q.ReceiverType != "" {
+		where = append(where, s.asgDetailText("method_full_name")+" LIKE ?")
+		args = append(args, q.ReceiverType+".%")
+	}
+	if q.HasFlow != nil {
+		where = append(where, s.asgDetailText("has_flow")+" = ?")
+		if *q.HasFlow {
+			args = append(args, "true")
+		} else {
+			args = append(args, "false")
+		}
+	}
 	return strings.Join(where, " AND "), args
+}
+
+func (s *SQL) asgDetailText(key string) string {
+	if s.postgres {
+		return "detail_json::jsonb ->> '" + key + "'"
+	}
+	return "json_extract(detail_json, '$." + key + "')"
 }
 
 // ListASGNodes implements ASGStore.
@@ -264,12 +303,21 @@ func (s *SQL) ListASGNodes(ctx context.Context, q ASGNodeQuery) ([]asg.Node, int
 	if err := s.requireASG(ctx, q.SnapshotID); err != nil {
 		return nil, 0, err
 	}
-	where, args := asgNodeFilter(q)
+	where, args := s.asgNodeFilter(q)
 	var total int
 	if err := s.db.QueryRowContext(ctx, s.rebind(`SELECT COUNT(1) FROM asg_nodes WHERE `+where), args...).Scan(&total); err != nil {
 		return nil, 0, mapSQLError(err)
 	}
-	query := `SELECT ` + asgNodeColumns + ` FROM asg_nodes WHERE ` + where + ` ORDER BY kind, label, node_id LIMIT ? OFFSET ?`
+	order := "kind, label, node_id"
+	if q.OrderBySinkPriority {
+		cast := "REAL"
+		if s.postgres {
+			cast = "DOUBLE PRECISION"
+		}
+		order = "(CASE WHEN COALESCE(" + s.asgDetailText("catalog_id") + ", '') <> '' THEN 0 ELSE 1 END), " +
+			"CAST(COALESCE(" + s.asgDetailText("priority") + ", '0') AS " + cast + ") DESC, label, node_id"
+	}
+	query := `SELECT ` + asgNodeColumns + ` FROM asg_nodes WHERE ` + where + ` ORDER BY ` + order + ` LIMIT ? OFFSET ?`
 	args = append(args, normaliseLimit(q.Limit, 200, 2000), max(q.Offset, 0))
 	rows, err := s.db.QueryContext(ctx, s.rebind(query), args...)
 	if err != nil {

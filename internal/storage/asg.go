@@ -14,11 +14,23 @@ type ASGNodeQuery struct {
 	// class without knowing its id.
 	Subject string
 	// Query matches a case-insensitive substring of Subject or Label.
-	Query     string
-	Generator string
-	File      string
-	Limit     int
-	Offset    int
+	Query string
+	// SubjectPrefixes keeps nodes whose subject starts with any listed prefix.
+	// It is deliberately more specific than Query for typed catalogues such as
+	// entry points and sinks.
+	SubjectPrefixes []string
+	Generator       string
+	File            string
+	// Catalogue filters read the stable Java sink metadata stored in Detail.
+	// Classified is nil for no filter, true for a catalogue-hit high-risk
+	// partition and false for an unclassified fallback-rule partition.
+	Classified          *bool
+	CatalogID           string
+	ReceiverType        string
+	HasFlow             *bool
+	OrderBySinkPriority bool
+	Limit               int
+	Offset              int
 }
 
 // ASGEdgeQuery filters an ASG edge listing.

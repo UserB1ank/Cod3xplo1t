@@ -34,7 +34,10 @@ func NewProjectClient(ctx context.Context, svc *graph.Service, store storage.Ful
 // NewProjectClientWithTools adds authenticated application operations to the
 // private project surface. The public stdio server remains read-only.
 func NewProjectClientWithTools(ctx context.Context, svc *graph.Service, store storage.FullStore, projectID, snapshotID string, catalog *plugin.Catalog, add func(*sdk.Server)) (*sdk.ClientSession, error) {
-	p := projectReader{store: store, graph: svc, project: projectID, snapshot: snapshotID}
+	p := projectReader{
+		store: store, graph: svc, asg: graph.NewASGService(store, svc),
+		project: projectID, snapshot: snapshotID,
+	}
 	p.catalog = catalog
 	if _, err := store.GetProject(ctx, projectID); err != nil {
 		return nil, err
@@ -44,6 +47,10 @@ func NewProjectClientWithTools(ctx context.Context, svc *graph.Service, store st
 	register(reg, &sdk.Tool{Name: "inspect_project", Description: "Inspect real application state for this project. Start with source or analysis when graph queries fail; missing graph does not mean missing source."}, p.inspect)
 	register(reg, &sdk.Tool{Name: "read_source_file", Description: "Read a bounded line window from frozen project source, even before graph publication. No build or execution."}, p.readSource)
 	register(reg, &sdk.Tool{Name: "list_source_files", Description: "List frozen source paths independently of graph indexing, with bounded pagination and optional path substring."}, p.listFiles)
+	register(reg, &sdk.Tool{Name: "list_entry_points", Description: "List attack-surface entry points by kind or trust boundary. Returns subject, location and evidence status with an exact match count."}, p.listEntryPoints)
+	register(reg, &sdk.Tool{Name: "list_sinks", Description: "List sensitive operations by category, including sinks with no discovered flow. Presence is a static rule match, not exploitability."}, p.listSinks)
+	register(reg, &sdk.Tool{Name: "get_asg_node", Description: "Read one attack-surface node with resolved source evidence, adjacent relations and explicit effectiveness limitations."}, p.getASGNode)
+	register(reg, &sdk.Tool{Name: "repo_map", Description: "Return a compact repository map of modules, entry boundaries, sink categories, unresolved-file rates and coverage denominators."}, p.repoMap)
 	if add != nil {
 		add(server)
 	}
@@ -60,6 +67,7 @@ func connectClient(ctx context.Context, server *sdk.Server) (*sdk.ClientSession,
 type projectReader struct {
 	store             storage.FullStore
 	graph             *graph.Service
+	asg               *graph.ASGService
 	catalog           *plugin.Catalog
 	project, snapshot string
 }
@@ -254,6 +262,61 @@ type filesInput struct {
 	Contains string `json:"contains,omitempty"`
 	Offset   int    `json:"offset,omitempty"`
 	Limit    int    `json:"limit,omitempty"`
+}
+
+type entryPointsInput struct {
+	snapshotArg
+	Kind      string `json:"kind,omitempty" jsonschema:"http_route, rpc_handler, graphql_handler, message_consumer or cli_command"`
+	Boundary  string `json:"boundary,omitempty" jsonschema:"network, message, process or filesystem"`
+	File      string `json:"file,omitempty"`
+	Generator string `json:"generator,omitempty"`
+	Limit     int    `json:"limit,omitempty"`
+	Offset    int    `json:"offset,omitempty"`
+}
+
+type sinksInput struct {
+	snapshotArg
+	Category     string `json:"category,omitempty" jsonschema:"SQL/file/process/network/deserialization/expression/JNDI/XXE/LDAP/template category"`
+	Partition    string `json:"partition,omitempty" jsonschema:"high_risk for versioned Java catalogue hits, unclassified for fallback-rule exploration"`
+	RuleID       string `json:"rule_id,omitempty"`
+	ReceiverType string `json:"receiver_type,omitempty"`
+	HasFlow      *bool  `json:"has_flow,omitempty"`
+	File         string `json:"file,omitempty"`
+	Generator    string `json:"generator,omitempty"`
+	Limit        int    `json:"limit,omitempty"`
+	Offset       int    `json:"offset,omitempty"`
+}
+
+type asgNodeInput struct {
+	snapshotArg
+	NodeID string `json:"node_id"`
+}
+
+func (p projectReader) listEntryPoints(ctx context.Context, in entryPointsInput) (*graph.ASGEntryPointListPage, error) {
+	p.snapshot = in.SnapshotID
+	return p.asg.ListEntryPoints(ctx, p.snapshot, graph.ASGEntryPointQuery{
+		Kind: in.Kind, Boundary: in.Boundary, File: in.File,
+		Generator: in.Generator, Limit: in.Limit, Offset: in.Offset,
+	})
+}
+
+func (p projectReader) listSinks(ctx context.Context, in sinksInput) (*graph.ASGSinkListPage, error) {
+	p.snapshot = in.SnapshotID
+	return p.asg.ListSinks(ctx, p.snapshot, graph.ASGSinkQuery{
+		Category: in.Category, Partition: graph.ASGSinkPartition(in.Partition),
+		RuleID: in.RuleID, ReceiverType: in.ReceiverType, HasFlow: in.HasFlow,
+		File: in.File, Generator: in.Generator, Limit: in.Limit, Offset: in.Offset,
+	})
+}
+
+func (p projectReader) getASGNode(ctx context.Context, in asgNodeInput) (*graph.ASGNodeView, error) {
+	p.snapshot = in.SnapshotID
+	return p.asg.Node(ctx, p.snapshot, in.NodeID)
+}
+
+func (p projectReader) repoMap(ctx context.Context, in summaryInput) (*graph.RepoMap, error) {
+	p.snapshot = in.SnapshotID
+	return p.asg.RepoMap(ctx, p.snapshot)
 }
 
 func (p projectReader) listFiles(ctx context.Context, in filesInput) (*map[string]any, error) {

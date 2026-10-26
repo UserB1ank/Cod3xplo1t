@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/open-mcp-ai/Codexploit/internal/agent"
+	"github.com/open-mcp-ai/Codexploit/internal/asg"
 	"github.com/open-mcp-ai/Codexploit/internal/path"
 	"github.com/open-mcp-ai/Codexploit/internal/scg"
 	"github.com/open-mcp-ai/Codexploit/internal/storage"
@@ -32,16 +34,20 @@ import (
 // runtime that advertises the list and the registry that executes it must agree on
 // the exact strings.
 const (
-	ToolGetSymbol      = "get_symbol"
-	ToolListSymbols    = "list_symbols"
-	ToolGetCallers     = "get_callers"
-	ToolGetCallees     = "get_callees"
-	ToolFindCallPaths  = "find_call_paths"
-	ToolGetCodeSlice   = "get_code_slice"
-	ToolGraphSummary   = "graph_summary"
-	ToolGetPath        = "get_path"
-	ToolListAuditPaths = "list_audit_paths"
-	ToolListHypotheses = "list_hypotheses"
+	ToolGetSymbol       = "get_symbol"
+	ToolGetASGNode      = "get_asg_node"
+	ToolListSymbols     = "list_symbols"
+	ToolListEntryPoints = "list_entry_points"
+	ToolListSinks       = "list_sinks"
+	ToolRepoMap         = "repo_map"
+	ToolGetCallers      = "get_callers"
+	ToolGetCallees      = "get_callees"
+	ToolFindCallPaths   = "find_call_paths"
+	ToolGetCodeSlice    = "get_code_slice"
+	ToolGraphSummary    = "graph_summary"
+	ToolGetPath         = "get_path"
+	ToolListAuditPaths  = "list_audit_paths"
+	ToolListHypotheses  = "list_hypotheses"
 )
 
 // Caps on the tool arguments and on the text a tool returns.
@@ -52,6 +58,9 @@ const (
 	// paid for out of the model's context, so the largest legal page is the size
 	// that still leaves room to reason about it.
 	agentToolMaxSymbols = 50
+	// agentToolMaxASGNodes bounds one catalogue page. Rows omit large detail
+	// maps, but each still carries evidence and location.
+	agentToolMaxASGNodes = 25
 	// agentToolMaxNeighbors bounds one neighbourhood answer for the same reason.
 	agentToolMaxNeighbors = 20
 	// agentToolMaxRefs bounds the evidence ids one result reports. They are
@@ -87,9 +96,10 @@ const (
 // agentToolNames is the default advertised toolset, in the order the registry
 // sorts it. AgentToolNames returns a copy so a caller cannot reorder the contract.
 var agentToolNames = []string{
-	ToolFindCallPaths, ToolGetCallees, ToolGetCallers, ToolGetCodeSlice,
-	ToolGetPath, ToolGetSymbol, ToolGraphSummary, ToolListAuditPaths,
-	ToolListHypotheses, ToolListSymbols,
+	ToolFindCallPaths, ToolGetASGNode, ToolGetCallees, ToolGetCallers,
+	ToolGetCodeSlice, ToolGetPath, ToolGetSymbol, ToolGraphSummary,
+	ToolListAuditPaths, ToolListEntryPoints, ToolListHypotheses, ToolListSinks,
+	ToolListSymbols, ToolRepoMap,
 }
 
 // AgentToolNames returns the toolset the runtime advertises by default.
@@ -192,6 +202,30 @@ func agentToolset() []agentReadTool {
 			schema:   schemaListSymbols,
 			describe: "Search declarations (module_id?, kind?, name_contains?, qualified_name?, limit?, offset?); returns a bounded page and the total match count.",
 			call:     callListSymbols,
+		},
+		{
+			name:     ToolListEntryPoints,
+			schema:   schemaListEntryPoints,
+			describe: "List ASG entry points by kind or trust boundary (kind?, boundary?, file?, generator?, limit?, offset?); location and evidence status are preserved.",
+			call:     callListEntryPoints,
+		},
+		{
+			name:     ToolListSinks,
+			schema:   schemaListSinks,
+			describe: "List ASG sensitive operations by category, risk partition, rule, receiver, flow state, file or generator; catalogue and unclassified sinks remain separate, and presence is not exploitability.",
+			call:     callListSinks,
+		},
+		{
+			name:     ToolGetASGNode,
+			schema:   schemaGetASGNode,
+			describe: "Fetch one ASG node (node_id) with source evidence, adjacent edges and explicit effectiveness limitations.",
+			call:     callGetASGNode,
+		},
+		{
+			name:     ToolRepoMap,
+			schema:   schemaRepoMap,
+			describe: "Return a <=2000-byte repository map: top modules, entry boundaries, sink categories, unresolved-file rates and exact coverage denominators.",
+			call:     callRepoMap,
 		},
 		{
 			name:     ToolGetCallers,
@@ -406,6 +440,13 @@ func graphToolMeta(m Meta) toolMeta {
 	}
 }
 
+func asgToolMeta(m ASGMeta) toolMeta {
+	return toolMeta{
+		SnapshotID: m.SnapshotID, ASGVersion: m.ASGVersion, SCGVersion: m.SCGVersion,
+		Query: m.Query, Truncated: m.Truncated, TruncationReason: m.TruncationReason,
+	}
+}
+
 type toolSymbol struct {
 	ID            string `json:"id"`
 	QualifiedName string `json:"qualified_name"`
@@ -429,6 +470,39 @@ type toolCallSite struct {
 	Line       int    `json:"line,omitempty"`
 	CalleeText string `json:"callee_text,omitempty"`
 	Resolution string `json:"resolution,omitempty"`
+}
+
+type toolASGNode struct {
+	ID         string   `json:"node_id"`
+	Kind       string   `json:"kind"`
+	Subject    string   `json:"subject"`
+	Label      string   `json:"label,omitempty"`
+	File       string   `json:"file,omitempty"`
+	Line       int      `json:"line,omitempty"`
+	ModuleID   string   `json:"module_id,omitempty"`
+	Evidence   string   `json:"evidence_status"`
+	Confidence string   `json:"confidence"`
+	Generator  string   `json:"generator,omitempty"`
+	SCGRefs    []string `json:"scg_refs,omitempty"`
+	CatalogID  string   `json:"catalog_id,omitempty"`
+	Priority   float64  `json:"priority,omitempty"`
+	HasFlow    *bool    `json:"has_flow,omitempty"`
+}
+
+func compactASGNode(node asg.Node) toolASGNode {
+	priority, _ := strconv.ParseFloat(node.Detail["priority"], 64)
+	var hasFlow *bool
+	if node.Detail["catalog_id"] != "" {
+		value, _ := strconv.ParseBool(node.Detail["has_flow"])
+		hasFlow = &value
+	}
+	return toolASGNode{
+		ID: node.ID, Kind: string(node.Kind), Subject: node.Subject, Label: node.Label,
+		File: node.File, Line: node.Line, ModuleID: node.ModuleID,
+		Evidence: string(node.Evidence), Confidence: string(node.Confidence),
+		Generator: node.Generator, SCGRefs: copyStrings(node.SCGRefs),
+		CatalogID: node.Detail["catalog_id"], Priority: priority, HasFlow: hasFlow,
+	}
 }
 
 func compactCallSite(site scg.CallSite) toolCallSite {
@@ -536,6 +610,196 @@ func callListSymbols(ctx context.Context, env toolEnv, args json.RawMessage) (ag
 		Total   int          `json:"total"`
 		Meta    toolMeta     `json:"meta"`
 	}{rows, page.Total, graphToolMeta(page.Meta)}, notes, refs)
+}
+
+func callListEntryPoints(ctx context.Context, env toolEnv, args json.RawMessage) (agent.ToolResult, error) {
+	const name = ToolListEntryPoints
+	snapshot, err := scopeSnapshot(ctx)
+	if err != nil {
+		return invalidArg(name, err), nil
+	}
+	if env.asg == nil {
+		return missingService(name, "attack-surface"), nil
+	}
+	limit, clampedLimit, err := boundedJSONArg(args, "limit", agentToolDefaultLimit, 1, agentToolMaxASGNodes)
+	if err != nil {
+		return invalidArg(name, err), nil
+	}
+	offset, clampedOffset, err := boundedJSONArg(args, "offset", 0, 0, agentToolMaxOffset)
+	if err != nil {
+		return invalidArg(name, err), nil
+	}
+	var notes []string
+	if clampedLimit {
+		notes = append(notes, clampNote("limit", limit, agentToolMaxASGNodes))
+	}
+	if clampedOffset {
+		notes = append(notes, clampNote("offset", offset, agentToolMaxOffset))
+	}
+	page, err := env.asg.ListEntryPoints(ctx, snapshot, ASGEntryPointQuery{
+		Kind: strings.TrimSpace(textArg(args, "kind")), Boundary: strings.TrimSpace(textArg(args, "boundary")),
+		File: strings.TrimSpace(textArg(args, "file")), Generator: strings.TrimSpace(textArg(args, "generator")),
+		Limit: limit, Offset: offset,
+	})
+	if err != nil {
+		return failure(name, ctx, err)
+	}
+	if page.Meta.Truncated {
+		notes = append(notes, "the page is partial: "+page.Meta.TruncationReason)
+	}
+	nodes, refs := compactASGNodes(page.EntryPoints)
+	return toolJSON(name, struct {
+		EntryPoints []toolASGNode `json:"entry_points"`
+		Total       int           `json:"total"`
+		Offset      int           `json:"offset"`
+		Meta        toolMeta      `json:"meta"`
+		Limitations []string      `json:"limitations"`
+	}{
+		nodes, page.Total, offset, asgToolMeta(page.Meta),
+		[]string{"An entry point is a static registration fact; reachable handlers and external exposure may remain unresolved."},
+	}, notes, refs)
+}
+
+func callListSinks(ctx context.Context, env toolEnv, args json.RawMessage) (agent.ToolResult, error) {
+	const name = ToolListSinks
+	snapshot, err := scopeSnapshot(ctx)
+	if err != nil {
+		return invalidArg(name, err), nil
+	}
+	if env.asg == nil {
+		return missingService(name, "attack-surface"), nil
+	}
+	limit, clampedLimit, err := boundedJSONArg(args, "limit", agentToolDefaultLimit, 1, agentToolMaxASGNodes)
+	if err != nil {
+		return invalidArg(name, err), nil
+	}
+	offset, clampedOffset, err := boundedJSONArg(args, "offset", 0, 0, agentToolMaxOffset)
+	if err != nil {
+		return invalidArg(name, err), nil
+	}
+	var notes []string
+	if clampedLimit {
+		notes = append(notes, clampNote("limit", limit, agentToolMaxASGNodes))
+	}
+	if clampedOffset {
+		notes = append(notes, clampNote("offset", offset, agentToolMaxOffset))
+	}
+	var filters struct {
+		HasFlow *bool `json:"has_flow"`
+	}
+	if err := json.Unmarshal(args, &filters); err != nil {
+		return invalidArg(name, err), nil
+	}
+	page, err := env.asg.ListSinks(ctx, snapshot, ASGSinkQuery{
+		Category:     strings.TrimSpace(textArg(args, "category")),
+		Partition:    ASGSinkPartition(strings.TrimSpace(textArg(args, "partition"))),
+		RuleID:       strings.TrimSpace(textArg(args, "rule_id")),
+		ReceiverType: strings.TrimSpace(textArg(args, "receiver_type")),
+		HasFlow:      filters.HasFlow,
+		File:         strings.TrimSpace(textArg(args, "file")),
+		Generator:    strings.TrimSpace(textArg(args, "generator")),
+		Limit:        limit, Offset: offset,
+	})
+	if err != nil {
+		return failure(name, ctx, err)
+	}
+	if page.Meta.Truncated {
+		notes = append(notes, "the page is partial: "+page.Meta.TruncationReason)
+	}
+	nodes, refs := compactASGNodes(page.Sinks)
+	return toolJSON(name, struct {
+		Sinks       []toolASGNode          `json:"sinks"`
+		Total       int                    `json:"total"`
+		Partitions  ASGSinkPartitionCounts `json:"partitions"`
+		Offset      int                    `json:"offset"`
+		Meta        toolMeta               `json:"meta"`
+		Limitations []string               `json:"limitations"`
+	}{
+		nodes, page.Total, page.Partitions, offset, asgToolMeta(page.Meta),
+		[]string{"A sink is selected by a rule; its sensitivity, dangerous argument and exploitability are not automatically proven. Sinks without a discovered flow remain listed."},
+	}, notes, refs)
+}
+
+func compactASGNodes(nodes []asg.Node) ([]toolASGNode, []string) {
+	rows := make([]toolASGNode, 0, len(nodes))
+	refs := make([]string, 0, len(nodes)*3)
+	for _, node := range nodes {
+		rows = append(rows, compactASGNode(node))
+		refs = append(refs, node.ID)
+		refs = append(refs, node.SCGRefs...)
+	}
+	return rows, refs
+}
+
+func callGetASGNode(ctx context.Context, env toolEnv, args json.RawMessage) (agent.ToolResult, error) {
+	const name = ToolGetASGNode
+	snapshot, err := scopeSnapshot(ctx)
+	if err != nil {
+		return invalidArg(name, err), nil
+	}
+	nodeID, err := requiredJSONArg(args, "node_id")
+	if err != nil {
+		return invalidArg(name, err), nil
+	}
+	if env.asg == nil {
+		return missingService(name, "attack-surface"), nil
+	}
+	view, err := env.asg.Node(ctx, snapshot, nodeID)
+	if err != nil {
+		return failure(name, ctx, err)
+	}
+	outgoing := view.Outgoing
+	if len(outgoing) > agentToolMaxNeighbors {
+		outgoing = outgoing[:agentToolMaxNeighbors]
+	}
+	incoming := view.Incoming
+	if len(incoming) > agentToolMaxNeighbors {
+		incoming = incoming[:agentToolMaxNeighbors]
+	}
+	refs := []string{view.Node.ID}
+	refs = append(refs, view.Node.SCGRefs...)
+	for _, ref := range view.DerivedFrom {
+		refs = append(refs, ref.ID)
+	}
+	for _, edge := range outgoing {
+		refs = append(refs, edge.ID)
+	}
+	for _, edge := range incoming {
+		refs = append(refs, edge.ID)
+	}
+	var notes []string
+	if len(view.Outgoing) > len(outgoing) {
+		notes = append(notes, clampNote("outgoing edges", len(outgoing), agentToolMaxNeighbors))
+	}
+	if len(view.Incoming) > len(incoming) {
+		notes = append(notes, clampNote("incoming edges", len(incoming), agentToolMaxNeighbors))
+	}
+	return toolJSON(name, struct {
+		Node        asg.Node       `json:"node"`
+		Outgoing    []asg.Edge     `json:"outgoing"`
+		Incoming    []asg.Edge     `json:"incoming"`
+		DerivedFrom []ASGReference `json:"derived_from"`
+		Limitations []string       `json:"limitations"`
+		Meta        toolMeta       `json:"meta"`
+	}{
+		view.Node, outgoing, incoming, view.DerivedFrom, view.Limitations, asgToolMeta(view.Meta),
+	}, notes, refs)
+}
+
+func callRepoMap(ctx context.Context, env toolEnv, _ json.RawMessage) (agent.ToolResult, error) {
+	const name = ToolRepoMap
+	snapshot, err := scopeSnapshot(ctx)
+	if err != nil {
+		return invalidArg(name, err), nil
+	}
+	if env.asg == nil {
+		return missingService(name, "attack-surface"), nil
+	}
+	repo, err := env.asg.RepoMap(ctx, snapshot)
+	if err != nil {
+		return failure(name, ctx, err)
+	}
+	return toolJSON(name, repo, nil, []string{repo.SnapshotID})
 }
 
 func callGetCallers(ctx context.Context, env toolEnv, args json.RawMessage) (agent.ToolResult, error) {
@@ -1141,6 +1405,29 @@ const (
 		`"qualified_name":{"type":"string","maxLength":512},` +
 		`"limit":{"type":"integer","minimum":1,"maximum":10000},` +
 		`"offset":{"type":"integer","minimum":0,"maximum":10000}},"additionalProperties":false}`
+
+	schemaListEntryPoints = `{"type":"object","properties":{` +
+		`"kind":{"type":"string","enum":["http_route","rpc_handler","graphql_handler","message_consumer","cli_command"]},` +
+		`"boundary":{"type":"string","enum":["network","message","process","filesystem"]},` +
+		`"file":{"type":"string","maxLength":1024},` +
+		`"generator":{"type":"string","maxLength":256},` +
+		`"limit":{"type":"integer","minimum":1,"maximum":10000},` +
+		`"offset":{"type":"integer","minimum":0,"maximum":10000}},"additionalProperties":false}`
+
+	schemaListSinks = `{"type":"object","properties":{` +
+		`"category":{"type":"string","enum":["sql_execution","file_write","process_execution","network_request","deserialization","sensitive_output","expression_injection","jndi","xxe","file_read","ldap","template_injection"]},` +
+		`"partition":{"type":"string","enum":["high_risk","unclassified"]},` +
+		`"rule_id":{"type":"string","maxLength":256},` +
+		`"receiver_type":{"type":"string","maxLength":512},` +
+		`"has_flow":{"type":"boolean"},` +
+		`"file":{"type":"string","maxLength":1024},` +
+		`"generator":{"type":"string","maxLength":256},` +
+		`"limit":{"type":"integer","minimum":1,"maximum":10000},` +
+		`"offset":{"type":"integer","minimum":0,"maximum":10000}},"additionalProperties":false}`
+
+	schemaGetASGNode = `{"type":"object","properties":{"node_id":{"type":"string","maxLength":512}},"required":["node_id"],"additionalProperties":false}`
+
+	schemaRepoMap = `{"type":"object","properties":{},"additionalProperties":false}`
 
 	schemaGetCallers = `{"type":"object","properties":{` +
 		`"symbol_id":{"type":"string","maxLength":512},` +

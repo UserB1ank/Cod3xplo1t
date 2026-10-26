@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/open-mcp-ai/Codexploit/internal/asg"
@@ -99,6 +100,18 @@ func (m *Memory) ListASGNodes(_ context.Context, q ASGNodeQuery) ([]asg.Node, in
 		if q.Subject != "" && n.Subject != q.Subject {
 			continue
 		}
+		if len(q.SubjectPrefixes) > 0 {
+			matched := false
+			for _, prefix := range q.SubjectPrefixes {
+				if strings.HasPrefix(n.Subject, prefix) {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				continue
+			}
+		}
 		if q.Query != "" && !strings.Contains(strings.ToLower(n.Subject+"\x00"+n.Label), strings.ToLower(q.Query)) {
 			continue
 		}
@@ -108,9 +121,38 @@ func (m *Memory) ListASGNodes(_ context.Context, q ASGNodeQuery) ([]asg.Node, in
 		if q.File != "" && n.File != q.File {
 			continue
 		}
+		classified := n.Detail["catalog_id"] != ""
+		if q.Classified != nil && classified != *q.Classified {
+			continue
+		}
+		if q.CatalogID != "" && n.Detail["catalog_id"] != q.CatalogID {
+			continue
+		}
+		if q.ReceiverType != "" && !strings.HasPrefix(n.Detail["method_full_name"], q.ReceiverType+".") {
+			continue
+		}
+		if q.HasFlow != nil {
+			value, ok := parseStoredBool(n.Detail["has_flow"])
+			if !ok || value != *q.HasFlow {
+				continue
+			}
+		}
 		all = append(all, n)
 	}
 	sort.Slice(all, func(i, j int) bool {
+		if q.OrderBySinkPriority {
+			left, right := all[i].Detail["catalog_id"] != "", all[j].Detail["catalog_id"] != ""
+			if left != right {
+				return left
+			}
+			if left {
+				leftPriority, _ := strconv.ParseFloat(all[i].Detail["priority"], 64)
+				rightPriority, _ := strconv.ParseFloat(all[j].Detail["priority"], 64)
+				if leftPriority != rightPriority {
+					return leftPriority > rightPriority
+				}
+			}
+		}
 		if all[i].Kind != all[j].Kind {
 			return all[i].Kind < all[j].Kind
 		}
@@ -121,6 +163,17 @@ func (m *Memory) ListASGNodes(_ context.Context, q ASGNodeQuery) ([]asg.Node, in
 	})
 	total := len(all)
 	return page(all, q.Offset, normaliseLimit(q.Limit, 200, 2000)), total, nil
+}
+
+func parseStoredBool(value string) (bool, bool) {
+	switch value {
+	case "true":
+		return true, true
+	case "false":
+		return false, true
+	default:
+		return false, false
+	}
 }
 
 // GetASGNode implements ASGStore.

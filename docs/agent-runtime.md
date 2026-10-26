@@ -132,6 +132,24 @@ recorded as `expansion_decided` with the granted amounts, which is the audit tra
 `GET /api/runs/{id}/events?type=expansion_decided` exposes. Operator-gated approval
 is deliberately not implemented in this phase: the policy decides inside the run.
 
+## Attack-surface catalogue tools
+
+The path-agent allowlist also contains four read-only tools backed by the stored
+ASG. They take their snapshot from host scope; the model cannot substitute a
+different snapshot.
+
+| Tool | Bounded answer |
+|---|---|
+| `list_entry_points` | Filter entry registrations by kind, trust boundary, file or generator. Each row keeps subject, location, evidence status and SCG references, plus the exact match count. |
+| `list_sinks` | Filter sensitive operations by category, file or generator. Sinks with no discovered data flow remain listed; a rule match is not proof that the operation is exploitable. |
+| `get_asg_node` | Read one node with resolved source evidence, adjacent ASG edges and explicit limitations. A present control is not an effective control. |
+| `repo_map` | Return a compact orientation map with top modules, entry boundaries, sink categories, unresolved-call rates by file and exact coverage denominators. Its JSON is capped at 2,000 bytes. |
+
+The catalogue is not filtered by whether a data-flow path already exists. It is
+the independent attack-surface denominator that lets an agent find an entry,
+source or sink that the initial path queue did not select. These tools cannot
+write ASG facts, propose a path or produce a verdict.
+
 ## Protocol repairs
 
 Structural mistakes are corrected, not fatal. Once the model runtime accepts a

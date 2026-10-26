@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/open-mcp-ai/Codexploit/internal/asg"
@@ -52,6 +53,12 @@ func asgFixture(snapshotID string) *asg.Document {
 			{
 				ID: sinkID, SnapshotID: snapshotID, Kind: asg.NodeSensitiveOperation,
 				Subject: "sink:sql_execution", Label: "SQL execution",
+				Detail: map[string]string{
+					"sink_kind": asg.SinkSQL, "catalog_id": "java.sql.statement-execute-query",
+					"catalog_version": "1.0.0", "catalog_digest": "catalog-digest",
+					"method_full_name":    "java.sql.Statement.executeQuery:java.sql.ResultSet(java.lang.String)",
+					"dangerous_arguments": "[0]", "priority": "0.90", "has_flow": "false",
+				},
 				Evidence: asg.StatusObserved, Confidence: scg.Observed,
 				Generator: "rule.sink", File: "internal/db/query.go", Line: 17,
 				SCGRefs: []string{"sym-0002", "cs-0002"},
@@ -129,6 +136,8 @@ func asgEvidenceCounts(doc *asg.Document) map[string]int {
 	}
 	return out
 }
+
+func boolPointer(value bool) *bool { return &value }
 
 // assertASGNodeOrder checks the store's documented ordering so both
 // implementations are held to the same contract.
@@ -215,6 +224,19 @@ func TestASGRoundTrip(t *testing.T) {
 				t.Fatalf("subject filter returned %+v (%d total), err %v", bySubject, subjectTotal, err)
 			}
 
+			byPrefix, prefixTotal, err := tc.store.ListASGNodes(ctx, ASGNodeQuery{
+				SnapshotID:      asgSnapshotID,
+				Kinds:           []asg.NodeKind{asg.NodeEntryPoint},
+				SubjectPrefixes: []string{"http_route:", "rpc_handler:"},
+				Limit:           100,
+			})
+			if err != nil || prefixTotal != 1 || len(byPrefix) != 1 {
+				t.Fatalf("subject-prefix filter returned %+v (%d total), err %v", byPrefix, prefixTotal, err)
+			}
+			if !strings.HasPrefix(byPrefix[0].Subject, "http_route:") && !strings.HasPrefix(byPrefix[0].Subject, "rpc_handler:") {
+				t.Errorf("subject-prefix filter leaked %q", byPrefix[0].Subject)
+			}
+
 			byGenerator, generatorTotal, err := tc.store.ListASGNodes(ctx, ASGNodeQuery{
 				SnapshotID: asgSnapshotID,
 				Generator:  "rule.sink",
@@ -229,6 +251,19 @@ func TestASGRoundTrip(t *testing.T) {
 			})
 			if err != nil || fileTotal != 2 || len(byFile) != 2 {
 				t.Fatalf("file filter returned %d/%d nodes, err %v", len(byFile), fileTotal, err)
+			}
+
+			noFlow := false
+			byCatalogue, catalogueTotal, err := tc.store.ListASGNodes(ctx, ASGNodeQuery{
+				SnapshotID: asgSnapshotID, Kinds: []asg.NodeKind{asg.NodeSensitiveOperation},
+				Classified: boolPointer(true), CatalogID: "java.sql.statement-execute-query",
+				ReceiverType: "java.sql.Statement", HasFlow: &noFlow, OrderBySinkPriority: true,
+			})
+			if err != nil || catalogueTotal != 1 || len(byCatalogue) != 1 {
+				t.Fatalf("catalogue detail filter returned %+v (%d total), err %v", byCatalogue, catalogueTotal, err)
+			}
+			if byCatalogue[0].Detail["catalog_digest"] != "catalog-digest" || byCatalogue[0].Detail["has_flow"] != "false" {
+				t.Fatalf("catalogue detail filter lost provenance: %+v", byCatalogue[0])
 			}
 
 			byQuery, queryTotal, err := tc.store.ListASGNodes(ctx, ASGNodeQuery{SnapshotID: asgSnapshotID, Kinds: []asg.NodeKind{asg.NodeEntryPoint}, Query: "users"})

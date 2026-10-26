@@ -42,6 +42,14 @@ func agentToolArgs(t *testing.T, fixture *agentFixture) map[string]map[string]st
 			"audit_id": fixture.auditID, "limit": "5",
 		},
 		graph.ToolListHypotheses: {"audit_id": fixture.auditID, "limit": "5"},
+		graph.ToolListEntryPoints: {
+			"snapshot_id": agentSnapID, "kind": "http_route", "limit": "5",
+		},
+		graph.ToolListSinks: {
+			"snapshot_id": agentSnapID, "category": "process_execution", "limit": "5",
+		},
+		graph.ToolGetASGNode: {"snapshot_id": agentSnapID, "node_id": fixture.firstASGNodeID(t, "sink:process_execution")},
+		graph.ToolRepoMap:    {"snapshot_id": agentSnapID},
 	}
 }
 
@@ -92,8 +100,8 @@ func TestAgentToolNamesMatchTheRegisteredToolset(t *testing.T) {
 	if !sort.StringsAreSorted(names) {
 		t.Errorf("the advertised tool names are not sorted: %v", names)
 	}
-	if len(names) != 10 {
-		t.Errorf("advertised tools = %d, want 10: %v", len(names), names)
+	if len(names) != 14 {
+		t.Errorf("advertised tools = %d, want 14: %v", len(names), names)
 	}
 	registered := registry.Names()
 	if strings.Join(registered, ",") != strings.Join(names, ",") {
@@ -162,6 +170,26 @@ func TestAgentToolsAnswerAValidArgument(t *testing.T) {
 		map[string]string{"snapshot_id": agentSnapID, "symbol_id": sym.ID}); !result.OK {
 		t.Errorf("get_callers: %s", result.Error)
 	}
+	if result := callTool(t, registry, graph.ToolListEntryPoints,
+		map[string]string{"snapshot_id": agentSnapID, "boundary": "message"}); !result.OK ||
+		!strings.Contains(result.Result, "message_consumer") {
+		t.Errorf("list_entry_points does not return the message entry: %+v", result)
+	}
+	if result := callTool(t, registry, graph.ToolListSinks,
+		map[string]string{"snapshot_id": agentSnapID, "category": "process_execution"}); !result.OK ||
+		!strings.Contains(result.Result, "sink:process_execution") {
+		t.Errorf("list_sinks does not return the process sink: %+v", result)
+	}
+	if result := callTool(t, registry, graph.ToolListSinks,
+		map[string]string{"snapshot_id": agentSnapID, "partition": "unclassified"}); !result.OK ||
+		!strings.Contains(result.Result, `"unclassified":`) {
+		t.Errorf("list_sinks cannot isolate the fallback partition: %+v", result)
+	}
+	if result := callTool(t, registry, graph.ToolRepoMap,
+		map[string]string{"snapshot_id": agentSnapID}); !result.OK ||
+		!strings.Contains(result.Result, `"entry_points_by_boundary"`) {
+		t.Errorf("repo_map does not return real distributions: %+v", result)
+	}
 
 	// A valid query that finds nothing is an empty answer, not a failure.
 	result := callTool(t, registry, graph.ToolListHypotheses, map[string]string{"audit_id": "audit-nobody"})
@@ -222,6 +250,17 @@ func TestAgentToolsRejectABadArgumentWithoutFailing(t *testing.T) {
 	if _, err := agent.LegacyToolArgs(sliceSchema, map[string]string{"include": "everything"}); err == nil ||
 		!strings.Contains(err.Error(), "not one of") {
 		t.Errorf("get_code_slice accepted an unknown include: %v", err)
+	}
+
+	entrySchema := lookupTool(t, registry, graph.ToolListEntryPoints).Descriptor().InputSchema
+	if _, err := agent.LegacyToolArgs(entrySchema, map[string]string{"kind": "wormhole"}); err == nil ||
+		!strings.Contains(err.Error(), "not one of") {
+		t.Errorf("list_entry_points accepted an unknown kind: %v", err)
+	}
+	sinkSchema := lookupTool(t, registry, graph.ToolListSinks).Descriptor().InputSchema
+	if _, err := agent.LegacyToolArgs(sinkSchema, map[string]string{"category": "everything"}); err == nil ||
+		!strings.Contains(err.Error(), "not one of") {
+		t.Errorf("list_sinks accepted an unknown category: %v", err)
 	}
 
 	// A missing service is reported, not dereferenced.
