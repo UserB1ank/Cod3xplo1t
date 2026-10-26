@@ -29,6 +29,7 @@ Issue #5 在现有 `graph.Service`、`graph.ASGService` 与 `path.Service` 之�
 | `GET /neighborhood` | `symbol_id`、`direction=callers\|callees`、`depth`、`max_nodes` | SCG 调用邻居与未解析调用点 |
 | `GET /asg-neighborhood` | `node_id`、`depth=1\|2`、`max_nodes` | 有界 ASG 局部图；只展开出边，`DERIVED_FROM` 作为来源而非调用边；返回 `unresolved_edges`、截断与局限 |
 | `GET /nodes` | `kind`、`subject`、`q`、`cursor`、`limit` | ASG 节点分页；`q` 对 subject / label 做大小写不敏感子串匹配，正式入口目录使用 `kind=EntryPoint` |
+| `GET /sinks` | `category`、`partition=high_risk\|unclassified`、`rule_id`、`receiver_type`、`has_flow`、`file`、`generator`、`cursor`、`limit` | 固定视图的 Java sink 目录；高风险和未分类兜底分开，零数据流命中仍保留，并返回两区总数 |
 | `GET /paths` | `audit_id`、`entry_node_id`、`target_node_id`、`cursor`、`limit` | 固定快照的 AuditPath 分页 |
 | `GET /code-slice` | `symbol_id` 或 `file`、`start_line`、`end_line`、`include`、`max_lines`、`max_sections`、`context_lines` | 固定快照中的有界源码切片或文件行窗口 |
 | `GET /provenance` | `fact_id` | 事实来源 |
@@ -44,6 +45,8 @@ Issue #5 在现有 `graph.Service`、`graph.ASGService` 与 `path.Service` 之�
 ## 入口与路径选择
 
 正式页面先列出固定视图的 ASG `EntryPoint`，搜索与分页都由服务端完成；选中入口后读取 `asg-neighborhood` 的 1–2 跳节点和出边。节点抽屉读取固定视图的源码切片、节点文件位置、SCG 引用、边证据/置信和 `provenance`，不展示示例图。无入口、未构建攻击面、旧视图失效或节点不存在分别返回真实空态 / 409 / 404。
+
+攻击面页的敏感操作目录默认读取 `partition=high_risk`，行内固定显示目录规则、版本、摘要、危险参数、优先级、是否观察到数据流和审查限制。页面保留“未分类探索”和“全部攻击面节点”入口；规则命中不改变严重度或漏洞裁定。
 
 候选路径页读取固定视图的 `path.Path`：入口、目标、调用/数据证据等级、源文件位置、优先级、评分与筛选原因、任务/插件/Agent 来源和覆盖局限。勾选若干路径（1–5 条）后调用：
 

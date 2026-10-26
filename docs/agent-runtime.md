@@ -141,7 +141,7 @@ different snapshot.
 | Tool | Bounded answer |
 |---|---|
 | `list_entry_points` | Filter entry registrations by kind, trust boundary, file or generator. Each row keeps subject, location, evidence status and SCG references, plus the exact match count. |
-| `list_sinks` | Filter sensitive operations by category, file or generator. Sinks with no discovered data flow remain listed; a rule match is not proof that the operation is exploitable. |
+| `list_sinks` | Filter sensitive operations by category, high-risk / unclassified partition, rule, receiver type, flow state, file or generator. Sinks with no discovered data flow remain listed; a rule match is not proof that the operation is exploitable. |
 | `get_asg_node` | Read one node with resolved source evidence, adjacent ASG edges and explicit limitations. A present control is not an effective control. |
 | `repo_map` | Return a compact orientation map with top modules, entry boundaries, sink categories, unresolved-call rates by file and exact coverage denominators. Its JSON is capped at 2,000 bytes. |
 

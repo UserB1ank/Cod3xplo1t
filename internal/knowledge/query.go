@@ -420,6 +420,64 @@ type NodePage struct {
 	Meta       Meta       `json:"meta"`
 }
 
+// SinkQuery selects one pinned page of Java catalogue or fallback sink
+// matches. The view ID fixes the ASG version; callers cannot query latest.
+type SinkQuery struct {
+	Category     string
+	Partition    graph.ASGSinkPartition
+	RuleID       string
+	ReceiverType string
+	HasFlow      *bool
+	File         string
+	Generator    string
+	Cursor       string
+	Limit        int
+}
+
+// SinkPage is the pinned catalogue and the high-risk / unclassified totals.
+type SinkPage struct {
+	Sinks      []asg.Node                   `json:"sinks"`
+	Partitions graph.ASGSinkPartitionCounts `json:"partitions"`
+	NextCursor string                       `json:"next_cursor,omitempty"`
+	Meta       Meta                         `json:"meta"`
+}
+
+// Sinks lists all matching catalogue sinks, including zero-flow matches.
+func (r *Reader) Sinks(ctx context.Context, scope Scope, viewID string, q SinkQuery) (*SinkPage, error) {
+	view, _, err := r.loadView(ctx, scope, viewID)
+	if err != nil {
+		return nil, err
+	}
+	if err := requireLayer(view, LayerASG); err != nil {
+		return nil, err
+	}
+	if r.ASG == nil {
+		return nil, ErrLayerUnavailable
+	}
+	offset, err := decodeCursor(q.Cursor)
+	if err != nil {
+		return nil, err
+	}
+	limit := clampLimit(q.Limit)
+	page, err := r.ASG.ListSinks(ctx, scope.SnapshotID, graph.ASGSinkQuery{
+		Category: q.Category, Partition: q.Partition, RuleID: q.RuleID,
+		ReceiverType: q.ReceiverType, HasFlow: q.HasFlow, File: q.File,
+		Generator: q.Generator, Limit: limit, Offset: offset,
+	})
+	if err != nil {
+		return nil, mapError(err)
+	}
+	meta := metaFor(view, LayerASG, page.Total)
+	meta.Truncated = page.Meta.Truncated
+	meta.TruncationReason = page.Meta.TruncationReason
+	meta.ElapsedMS = page.Meta.ElapsedMS
+	next := ""
+	if offset+len(page.Sinks) < page.Total {
+		next = encodeCursor(offset + len(page.Sinks))
+	}
+	return &SinkPage{Sinks: page.Sinks, Partitions: page.Partitions, NextCursor: next, Meta: meta}, nil
+}
+
 // Nodes lists the attack surface of a view that pinned the ASG layer.
 func (r *Reader) Nodes(ctx context.Context, scope Scope, viewID string, q NodeQuery) (*NodePage, error) {
 	view, _, err := r.loadView(ctx, scope, viewID)

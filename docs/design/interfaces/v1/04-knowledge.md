@@ -22,7 +22,7 @@
 | `GetProvenance` | view_id、事实 ID | 生成插件、任务、参数摘要、证据与原始产物 |
 | `Publish` | GraphBatch、幂等键、预期版本 | 新视图引用、canonical ID 映射、统计 |
 
-v1 查询种类为 symbols、callers、callees、neighborhood、paths、code_slice、findings。查询是结构化 DTO，不将任意 SQL 或特定图数据库查询语言作为跨数据库公共契约。
+v1 查询种类为 symbols、callers、callees、neighborhood、sink catalogue、paths、code_slice、findings。查询是结构化 DTO，不将任意 SQL 或特定图数据库查询语言作为跨数据库公共契约。sink catalogue 固定高风险目录与未分类兜底分区，分别保留规则命中、零数据流 sink 和覆盖缺口。
 
 `KnowledgeView` 是某个 Scope 下各层版本的一份不可变清单。执行计划固定 view_id；任务显式执行发布节点后，后续节点可以使用新视图。不能在执行中隐式切换 latest。
 
@@ -41,6 +41,6 @@ v1 查询种类为 symbols、callers、callees、neighborhood、paths、code_sli
 
 PostgreSQL 可通过规范化节点、边、观察及版本索引提供上述接口。后续图数据库作为适配器或投影接入；公共查询和 Scope 语义保持一致，见 [持久化层](09-persistence.md)。
 
-现有 `graph.Service`、`ASGService` 与 `GraphStore.ReplaceGraph` 提供单快照查询和整图事务写入。Issue #5 已在其上接线 `internal/knowledge.Reader`：`OpenView` 固定快照的 SCG / ASG 版本与 `built_at`，`symbols`、`neighborhood`、`nodes`、`paths`、`code_slice`、`provenance` 按 pin 读取，重建后旧视图返回 `view_superseded` 而不是隐式换版；Schema 见 `contracts/v1/view.schema.json`，端口与限额见 [固定视图与知识查询](../../../knowledge.md)。Issue #8 已接入 `KnowledgePublisher`：`POST /api/v1/projects/{id}/knowledge/publications` 把一次插件调用的标准结果作为 GraphBatch 原子发布为不可变版本（`rev-N`），版本 CAS、幂等批次、scope / 孤立边校验、冲突观察保留与 outbox 在同一事务提交；`GET .../knowledge/revisions/{view}/facts` 按版本读取事实与全部观察，`view_id` 自描述版本号，不会被 latest 偷换。归一化冲突观察与多工具来源见 [固定视图与知识查询](../../../knowledge.md#发布与版本)。增量投影、PostgreSQL 规范化索引与观察账本查询仍待后续存储切片。
+现有 `graph.Service`、`ASGService` 与 `GraphStore.ReplaceGraph` 提供单快照查询和整图事务写入。Issue #5 已在其上接线 `internal/knowledge.Reader`：`OpenView` 固定快照的 SCG / ASG 版本与 `built_at`，`symbols`、`neighborhood`、`nodes`、`sinks`、`paths`、`code_slice`、`provenance` 按 pin 读取，重建后旧视图返回 `view_superseded` 而不是隐式换版；Schema 见 `contracts/v1/view.schema.json`，端口与限额见 [固定视图与知识查询](../../../knowledge.md)。Issue #8 已接入 `KnowledgePublisher`：`POST /api/v1/projects/{id}/knowledge/publications` 把一次插件调用的标准结果作为 GraphBatch 原子发布为不可变版本（`rev-N`），版本 CAS、幂等批次、scope / 孤立边校验、冲突观察保留与 outbox 在同一事务提交；`GET .../knowledge/revisions/{view}/facts` 按版本读取事实与全部观察，`view_id` 自描述版本号，不会被 latest 偷换。归一化冲突观察与多工具来源见 [固定视图与知识查询](../../../knowledge.md#发布与版本)。增量投影、PostgreSQL 规范化索引与观察账本查询仍待后续存储切片。
 
 验收：并发批次 CAS、原子可见性、重复提交、孤立边、跨 Scope 引用、冲突观察保留、固定视图分页和截断声明。

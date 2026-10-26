@@ -119,6 +119,7 @@ type SurfaceReader interface {
 	Nodes(ctx context.Context, snapshotID string, q graph.ASGNodeQuery) (*graph.ASGNodePage, error)
 	Node(ctx context.Context, snapshotID, nodeID string) (*graph.ASGNodeView, error)
 	Neighborhood(ctx context.Context, snapshotID, nodeID string, depth, maxNodes int) (*graph.ASGNeighborhood, error)
+	ListSinks(ctx context.Context, snapshotID string, q graph.ASGSinkQuery) (*graph.ASGSinkListPage, error)
 }
 
 // ArtifactReader resolves the raw artifacts provenance points at. It is
