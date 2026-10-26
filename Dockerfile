@@ -50,7 +50,7 @@ COPY internal/path/ ./internal/path/
 COPY internal/plugin/ ./internal/plugin/
 COPY plugins/joern/ ./plugins/joern/
 COPY scripts/package-joern.py ./scripts/package-joern.py
-RUN --mount=type=cache,target=/downloads python3 scripts/package-joern.py --cache /downloads --output /joern/codexploit.joern@2.1.1 > /joern-release.json
+RUN --mount=type=cache,target=/downloads python3 scripts/package-joern.py --cache /downloads --output /joern/codexploit.joern@2.3.0 > /joern-release.json
 
 FROM ${RUNTIME_IMAGE} AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends git openssh-client ca-certificates curl libstdc++6 && rm -rf /var/lib/apt/lists/* \

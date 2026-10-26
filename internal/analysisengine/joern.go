@@ -51,13 +51,22 @@ type symbol struct {
 	Location   *location
 }
 type securityNode struct {
-	ID        string
-	Symbol    *string `json:"symbol_ref"`
-	Location  *location
-	Entry     string   `json:"entry_kind"`
-	Operation string   `json:"operation_kind"`
-	Observed  string   `json:"observed_or_inferred"`
-	Evidence  []string `json:"evidence_refs"`
+	ID                 string
+	Symbol             *string `json:"symbol_ref"`
+	Location           *location
+	Entry              string   `json:"entry_kind"`
+	Operation          string   `json:"operation_kind"`
+	CatalogID          string   `json:"catalog_id"`
+	CatalogVersion     string   `json:"catalog_version"`
+	CatalogDigest      string   `json:"catalog_digest"`
+	MethodFullName     string   `json:"method_full_name"`
+	DangerousArguments []int    `json:"dangerous_arguments"`
+	Priority           float64  `json:"priority"`
+	HasFlow            bool     `json:"has_flow"`
+	MatchEvidence      string   `json:"match_evidence"`
+	RuleLimitations    string   `json:"limitations"`
+	Observed           string   `json:"observed_or_inferred"`
+	Evidence           []string `json:"evidence_refs"`
 }
 type relation struct {
 	ID, From, To, Kind string
@@ -69,6 +78,7 @@ type candidate struct {
 	Entry               string `json:"entry_ref"`
 	Sink                string `json:"sink_ref"`
 	Basis, Completeness string
+	PriorityHint        float64 `json:"priority_hint"`
 	Steps               []struct {
 		From     string `json:"from_ref"`
 		To       string `json:"to_ref"`
@@ -132,7 +142,7 @@ func (Joern) Project(b Bundle) (*plugin.NativeReport, error) {
 	if json.Unmarshal(b.Selected.Document.Data, &paths) != nil || json.Unmarshal(b.Generated.Document.Data, &generated) != nil || paths.Pins["code"] != b.Code.Ref.ID || paths.Pins["security"] != b.Security.Ref.ID || generated.Pins["code"] != b.Code.Ref.ID || generated.Pins["security"] != b.Security.Ref.ID {
 		return nil, invalid()
 	}
-	ledger := selection{Version: "joern.static-support/v1", Source: b.Generated.Ref.ID, Weights: workflow.Digest([]byte(`{"data_flow":1,"call_reachability":0.4,"hypothesis":0.1}`))}
+	ledger := selection{Version: "joern.static-support/v2", Source: b.Generated.Ref.ID, Weights: workflow.Digest([]byte(`{"data_flow":1,"call_reachability":0.4,"hypothesis":0.1,"catalog_priority":0.5}`))}
 	if b.Selected.Ref.ID != b.Generated.Ref.ID {
 		if b.Selected.Document.Producer.OperationID != "enhance" || !contains(b.Selected.Document.Inputs, b.Generated.Ref.ID) || b.Selection == nil {
 			return nil, invalid()
@@ -321,7 +331,22 @@ func (Joern) Project(b Bundle) (*plugin.NativeReport, error) {
 		if kind == asg.NodeEntryPoint || n.Observed == "inferred" {
 			evidence, confidence = asg.StatusInferred, scg.Inferred
 		}
-		v := asg.Node{ID: asg.NodeID(scope.SnapshotID, kind, subject, n.ID), SnapshotID: scope.SnapshotID, Kind: kind, Subject: subject, Label: subject, Evidence: evidence, Confidence: confidence, Generator: "joern.configured-taint", SCGRefs: refs, Detail: map[string]string{"standard_id": n.ID, "code_artifact_id": b.Code.Ref.ID, "security_artifact_id": b.Security.Ref.ID, "evidence_artifacts": strings.Join(n.Evidence, ","), "sensitivity": "rule_selected; runtime and controls unassessed"}}
+		detail := map[string]string{"standard_id": n.ID, "code_artifact_id": b.Code.Ref.ID, "security_artifact_id": b.Security.Ref.ID, "evidence_artifacts": strings.Join(n.Evidence, ","), "sensitivity": "rule_selected; runtime and controls unassessed"}
+		if n.CatalogID != "" {
+			detail["catalog_id"] = n.CatalogID
+			detail["catalog_version"] = n.CatalogVersion
+			detail["catalog_digest"] = n.CatalogDigest
+			detail["method_full_name"] = n.MethodFullName
+			detail["dangerous_arguments"] = fmt.Sprint(n.DangerousArguments)
+			detail["priority"] = fmt.Sprint(n.Priority)
+			detail["has_flow"] = fmt.Sprint(n.HasFlow)
+			detail["match_evidence"] = n.MatchEvidence
+			detail["sensitivity"] = "catalog_selected; runtime and controls unassessed"
+		}
+		if n.RuleLimitations != "" {
+			detail["rule_limitations"] = n.RuleLimitations
+		}
+		v := asg.Node{ID: asg.NodeID(scope.SnapshotID, kind, subject, n.ID), SnapshotID: scope.SnapshotID, Kind: kind, Subject: subject, Label: subject, Evidence: evidence, Confidence: confidence, Generator: "joern.configured-taint", SCGRefs: refs, Detail: detail}
 		if n.Location != nil {
 			v.File = n.Location.File
 			v.Line = n.Location.Line
@@ -423,10 +448,16 @@ func (Joern) Project(b Bundle) (*plugin.NativeReport, error) {
 		}
 		priority, ok := rank[p.ID]
 		if !ok {
-			priority = 1
+			priority = 1 + p.PriorityHint/2
 		}
 		selected := &audit.PathSelection{SchemaVersion: enhancement.SchemaVersion, Selection: "selected", Reason: "Joern static data-flow support; source trust and control effectiveness remain unassessed", ScoreVersion: 1, WeightsDigest: ledger.Weights, SourcePathID: p.ID, SourceArtifactID: b.Generated.Ref.ID, ProducerID: g.Engine.Name, ProducerVersion: g.Engine.Version, InvocationID: enhancement.InvocationID}
-		v := audit.Path{ID: p.ID, SnapshotID: scope.SnapshotID, SCGVersion: version, ASGVersion: surface.ASGVersion, EntryNodeID: entry.ID, EntryKind: entry.Subject, EntrySubject: entry.Label, TargetNodeID: sink.ID, TargetKind: "rule_selected", TargetSubject: sink.Label, PathKind: "data_flow", PathStatus: audit.PathCandidate, Status: audit.StatusDiscovered, Steps: steps, SCGRefs: refs, ASGRefs: asgRefs, EvidenceRefs: append(append([]string{}, p.Evidence...), b.Code.Ref.ID, b.Security.Ref.ID, b.Selected.Ref.ID), Depth: len(steps), Inputs: []string{entry.ID}, Controls: []string{}, Boundaries: []string{}, Assets: []string{}, Objectives: []string{}, OpenQuestions: append([]string{"source_trust_and_sanitizers_unassessed"}, p.Unresolved...), Limitations: append(append([]string{}, p.Limitations...), "Pinned Joern static trace; this candidate does not establish source controllability, ineffective controls or exploitability.", "Native trace artifacts: "+strings.Join(p.Evidence, ",")), Budget: audit.DefaultBudget(), Selection: selected, Features: audit.Features{DataflowEvidence: 1, Reasons: map[string]string{"dataflow_evidence": "Joern reachableByFlows on the pinned CPG; native evidence " + strings.Join(p.Evidence, ","), "controllability": "unassessed", "control_suspicion": "unassessed"}}, Score: audit.Score{Priority: priority, Support: priority, ScoreVersion: 1, Weights: map[string]float64{"static_support": 1}, ComputedAt: b.BuiltAt}, CreatedAt: b.BuiltAt, UpdatedAt: b.BuiltAt, Version: 1}
+		reasons := map[string]string{"dataflow_evidence": "Joern reachableByFlows on the pinned CPG; native evidence " + strings.Join(p.Evidence, ","), "controllability": "unassessed", "control_suspicion": "unassessed"}
+		weights := map[string]float64{"static_support": 1}
+		if p.PriorityHint > 0 {
+			reasons["catalog_priority"] = "Versioned sink-review hint; not severity or exploitability"
+			weights["catalog_priority"] = 0.5
+		}
+		v := audit.Path{ID: p.ID, SnapshotID: scope.SnapshotID, SCGVersion: version, ASGVersion: surface.ASGVersion, EntryNodeID: entry.ID, EntryKind: entry.Subject, EntrySubject: entry.Label, TargetNodeID: sink.ID, TargetKind: "rule_selected", TargetSubject: sink.Label, PathKind: "data_flow", PathStatus: audit.PathCandidate, Status: audit.StatusDiscovered, Steps: steps, SCGRefs: refs, ASGRefs: asgRefs, EvidenceRefs: append(append([]string{}, p.Evidence...), b.Code.Ref.ID, b.Security.Ref.ID, b.Selected.Ref.ID), Depth: len(steps), Inputs: []string{entry.ID}, Controls: []string{}, Boundaries: []string{}, Assets: []string{}, Objectives: []string{}, OpenQuestions: append([]string{"source_trust_and_sanitizers_unassessed"}, p.Unresolved...), Limitations: append(append([]string{}, p.Limitations...), "Pinned Joern static trace; this candidate does not establish source controllability, ineffective controls or exploitability.", "Native trace artifacts: "+strings.Join(p.Evidence, ",")), Budget: audit.DefaultBudget(), Selection: selected, Features: audit.Features{DataflowEvidence: 1, Reasons: reasons}, Score: audit.Score{Priority: priority, Support: priority, ScoreVersion: 1, Weights: weights, ComputedAt: b.BuiltAt}, CreatedAt: b.BuiltAt, UpdatedAt: b.BuiltAt, Version: 1}
 		v.Signature = audit.Signature(scope.SnapshotID, entry.ID, sink.ID, v.PathKind, v.CanonicalEdges())
 		v.Limitations = append(v.Limitations, upstreamLimits...)
 		result.Paths = append(result.Paths, v)

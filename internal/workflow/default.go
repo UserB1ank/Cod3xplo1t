@@ -9,10 +9,10 @@ import (
 // an existing run's meaning.
 const (
 	DefaultAnalysisWorkflowID      = "codexploit.default-analysis"
-	DefaultAnalysisWorkflowVersion = "2.0.1"
+	DefaultAnalysisWorkflowVersion = "2.2.0"
 	DefaultEngineID                = "joern"
 	DefaultEnginePluginID          = "codexploit.joern"
-	DefaultEnginePluginVersion     = "2.1.1"
+	DefaultEnginePluginVersion     = "2.3.0"
 )
 
 // DefaultAnalysisSpec returns the four deterministic stages that do not require
@@ -29,8 +29,8 @@ func DefaultAnalysisSpec() Spec {
 		Description: "One pinned Joern engine: CPG, taint queries, candidate paths and deterministic ranking.",
 		Inputs:      []string{"source.snapshot"},
 		Nodes: []Node{
-			{ID: "parse", PluginID: DefaultEnginePluginID, PluginVersion: DefaultEnginePluginVersion, OperationID: "parse", Needs: []string{}, Config: json.RawMessage(`{"frontend":"AUTO","heap_mib":1024}`), TimeoutSeconds: 900},
-			{ID: "semantic", PluginID: DefaultEnginePluginID, PluginVersion: DefaultEnginePluginVersion, OperationID: "taint", Needs: []string{"parse"}, Config: json.RawMessage(`{"max_flows":100,"max_call_depth":4,"heap_mib":1024}`), TimeoutSeconds: 900},
+			{ID: "parse", PluginID: DefaultEnginePluginID, PluginVersion: DefaultEnginePluginVersion, OperationID: "parse", Needs: []string{}, Config: json.RawMessage(`{"frontend":"AUTO","heap_mib":4096}`), TimeoutSeconds: 900},
+			{ID: "semantic", PluginID: DefaultEnginePluginID, PluginVersion: DefaultEnginePluginVersion, OperationID: "taint", Needs: []string{"parse"}, Config: json.RawMessage(`{"max_flows":100,"max_call_depth":4,"heap_mib":4096}`), TimeoutSeconds: 900},
 			{ID: "paths", PluginID: DefaultEnginePluginID, PluginVersion: DefaultEnginePluginVersion, OperationID: "paths", Needs: []string{"parse", "semantic"}, Config: empty, TimeoutSeconds: 60},
 			{ID: "enhance", PluginID: DefaultEnginePluginID, PluginVersion: DefaultEnginePluginVersion, OperationID: "enhance", Needs: []string{"paths"}, Config: empty, TimeoutSeconds: 60},
 		},

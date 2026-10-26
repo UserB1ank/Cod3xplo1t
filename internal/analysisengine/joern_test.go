@@ -76,3 +76,53 @@ func TestJoernProjectionRejectsMixedEngineAndGraphPins(t *testing.T) {
 		}
 	}
 }
+
+func TestJoernProjectionKeepsCatalogueSinksWithoutInventingFlows(t *testing.T) {
+	b := bundleFixture()
+	var security map[string]any
+	if err := json.Unmarshal(b.Security.Document.Data, &security); err != nil {
+		t.Fatal(err)
+	}
+	sinks := security["sinks"].([]any)
+	security["sinks"] = append(sinks, map[string]any{
+		"id": "sink-no-flow", "symbol_ref": "sym-sink", "operation_kind": "sink:deserialization",
+		"observed_or_inferred": "inferred", "location": map[string]any{"file": "service.py", "start_line": 8},
+		"evidence_refs": []string{"cpg-fixed"},
+	})
+	b.Security.Document.Data, _ = json.Marshal(security)
+	got, err := (Joern{}).Project(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sensitive := 0
+	for _, node := range got.Surface.Nodes {
+		if node.Kind == asg.NodeSensitiveOperation {
+			sensitive++
+		}
+	}
+	if sensitive != 2 || len(got.Surface.Edges) != 1 {
+		t.Fatalf("zero-flow sink was dropped or given a fabricated edge: nodes=%d edges=%d", sensitive, len(got.Surface.Edges))
+	}
+}
+
+func TestJoernProjectionCarriesCataloguePriorityIntoReviewOrdering(t *testing.T) {
+	b := bundleFixture()
+	var paths map[string]any
+	if err := json.Unmarshal(b.Generated.Document.Data, &paths); err != nil {
+		t.Fatal(err)
+	}
+	rows := paths["paths"].([]any)
+	rows[0].(map[string]any)["priority_hint"] = 0.9
+	b.Generated.Document.Data, _ = json.Marshal(paths)
+	b.Selected = b.Generated
+	got, err := (Joern{}).Project(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Paths.Paths) != 1 || got.Paths.Paths[0].Score.Priority <= 1 {
+		t.Fatalf("catalogue priority did not affect review ordering: %+v", got.Paths.Paths)
+	}
+	if got.Paths.Paths[0].Features.Reasons["catalog_priority"] == "" || got.Paths.Paths[0].Score.Weights["catalog_priority"] != 0.5 {
+		t.Fatalf("priority lineage is incomplete: %+v", got.Paths.Paths[0])
+	}
+}

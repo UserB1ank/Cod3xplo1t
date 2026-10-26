@@ -11,6 +11,7 @@ import (
 
 	contracts "github.com/open-mcp-ai/Codexploit/contracts/v1"
 	"github.com/open-mcp-ai/Codexploit/internal/asg"
+	"github.com/open-mcp-ai/Codexploit/internal/graph"
 	"github.com/open-mcp-ai/Codexploit/internal/knowledge"
 	"github.com/open-mcp-ai/Codexploit/internal/path"
 	"github.com/open-mcp-ai/Codexploit/internal/scg"
@@ -223,6 +224,48 @@ func (s *Server) handleKnowledgeNodes(w http.ResponseWriter, r *http.Request) {
 		nodes = []asg.Node{}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"api_version": "codexploit/v1", "nodes": nodes, "next_cursor": page.NextCursor, "meta": page.Meta})
+}
+
+func (s *Server) handleKnowledgeSinks(w http.ResponseWriter, r *http.Request) {
+	reader, ok := s.knowledgeReader(w)
+	if !ok {
+		return
+	}
+	scope, ok := s.knowledgeScope(w, r)
+	if !ok {
+		return
+	}
+	limit, ok := knowledgePageLimit(w, r, "limit", 100)
+	if !ok {
+		return
+	}
+	var hasFlow *bool
+	if raw := r.URL.Query().Get("has_flow"); raw != "" {
+		value, err := strconv.ParseBool(raw)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_request", errors.New("has_flow must be true or false"))
+			return
+		}
+		hasFlow = &value
+	}
+	page, err := reader.Sinks(r.Context(), scope, r.PathValue("viewID"), knowledge.SinkQuery{
+		Category: r.URL.Query().Get("category"), Partition: graph.ASGSinkPartition(r.URL.Query().Get("partition")),
+		RuleID: r.URL.Query().Get("rule_id"), ReceiverType: r.URL.Query().Get("receiver_type"),
+		HasFlow: hasFlow, File: r.URL.Query().Get("file"), Generator: r.URL.Query().Get("generator"),
+		Cursor: r.URL.Query().Get("cursor"), Limit: limit,
+	})
+	if err != nil {
+		if errors.Is(err, graph.ErrInvalidArgument) {
+			writeError(w, http.StatusBadRequest, "invalid_request", err)
+			return
+		}
+		writeKnowledgeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"api_version": "codexploit/v1", "sinks": page.Sinks, "next_cursor": page.NextCursor,
+		"total": page.Meta.Total, "partitions": page.Partitions, "meta": page.Meta,
+	})
 }
 
 func (s *Server) handleKnowledgeASGNeighborhood(w http.ResponseWriter, r *http.Request) {

@@ -36,16 +36,24 @@ func (j *job) enhance() error {
 		return failed("invalid_input")
 	}
 	type ranked struct {
-		ID    string
-		Score float64
-		Raw   json.RawMessage
-		Basis string
+		ID       string
+		Score    float64
+		Raw      json.RawMessage
+		Basis    string
+		Priority float64
 	}
 	rankedPaths := []ranked{}
 	seen := map[string]bool{}
 	for _, raw := range data.Paths {
-		var p struct{ ID, Basis string }
+		var p struct {
+			ID           string  `json:"id"`
+			Basis        string  `json:"basis"`
+			PriorityHint float64 `json:"priority_hint"`
+		}
 		if json.Unmarshal(raw, &p) != nil || p.ID == "" || seen[p.ID] {
+			return failed("invalid_input")
+		}
+		if p.PriorityHint < 0 || p.PriorityHint > 1 {
 			return failed("invalid_input")
 		}
 		seen[p.ID] = true
@@ -59,7 +67,8 @@ func (j *job) enhance() error {
 		default:
 			return failed("invalid_input")
 		}
-		rankedPaths = append(rankedPaths, ranked{p.ID, score, raw, p.Basis})
+		score += p.PriorityHint / 2
+		rankedPaths = append(rankedPaths, ranked{p.ID, score, raw, p.Basis, p.PriorityHint})
 	}
 	sort.Slice(rankedPaths, func(i, k int) bool {
 		if rankedPaths[i].Score != rankedPaths[k].Score {
@@ -75,7 +84,11 @@ func (j *job) enhance() error {
 			filtered = append(filtered, map[string]any{"path_id": p.ID, "filter_code": "path_budget", "reason": "Retained candidate budget; evidence remains in the immutable source artifact."})
 			continue
 		}
-		selected = append(selected, map[string]any{"path_id": p.ID, "rank": i + 1, "score": p.Score, "features": map[string]float64{"static_support": p.Score}, "reason_codes": []string{p.Basis, "source_trust_and_controls_unassessed"}})
+		reasons := []string{p.Basis, "source_trust_and_controls_unassessed"}
+		if p.Priority > 0 {
+			reasons = append(reasons, "catalog_priority")
+		}
+		selected = append(selected, map[string]any{"path_id": p.ID, "rank": i + 1, "score": p.Score, "features": map[string]float64{"static_support": p.Score, "catalog_priority": p.Priority}, "reason_codes": reasons})
 		chosen[p.ID] = true
 	}
 	for _, raw := range data.Paths {
@@ -85,7 +98,7 @@ func (j *job) enhance() error {
 			retained = append(retained, raw)
 		}
 	}
-	selection := map[string]any{"source_path_artifact": input.ArtifactID, "selected": selected, "filtered": filtered, "scoring_version": "joern.static-support/v1", "weights_digest": digest([]byte(`{"data_flow":1,"call_reachability":0.4,"hypothesis":0.1}`))}
+	selection := map[string]any{"source_path_artifact": input.ArtifactID, "selected": selected, "filtered": filtered, "scoring_version": "joern.static-support/v2", "weights_digest": digest([]byte(`{"data_flow":1,"call_reachability":0.4,"hypothesis":0.1,"catalog_priority":0.5}`))}
 	value := map[string]any{"paths": retained, "graph_pins": data.Pins, "omitted": data.Omitted}
 	if err = j.jsonOutput("paths", "discovery.paths", "codexploit/discovery-paths/v2", "paths.json", value); err != nil {
 		return err
@@ -93,7 +106,7 @@ func (j *job) enhance() error {
 	if err = j.jsonOutput("selection", "path.enhancement", "codexploit/path-enhancement/v2", "selection.json", selection); err != nil {
 		return err
 	}
-	j.partial(int64(len(data.Paths)), "paths", []string{"Priority records static support, not vulnerability severity or exploitability. Filtered candidates remain unreviewed in the source artifact."})
+	j.partial(int64(len(data.Paths)), "paths", []string{"Priority records static support plus a versioned sink-review hint, not vulnerability severity or exploitability. Filtered candidates remain unreviewed in the source artifact."})
 	if len(filtered) > 0 {
 		j.Result.Coverage.Truncated = true
 		j.Result.Coverage.Reasons = append(j.Result.Coverage.Reasons, "path_budget")

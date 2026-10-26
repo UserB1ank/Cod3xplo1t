@@ -2464,6 +2464,11 @@ pre {
 .knowledge-table tbody tr:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .knowledge-table tbody tr.selected { background: var(--panel-raised); }
 .knowledge-table td .muted { display: block; margin-top: 3px; font-size: 10px; }
+.knowledge-catalog-filters { display: flex; flex-wrap: wrap; gap: 8px; }
+.knowledge-catalog-summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px; padding: 12px 20px; border-bottom: 1px solid var(--border); background: var(--panel-raised); }
+.knowledge-catalog-summary strong { color: var(--accent); }
+.knowledge-catalog-summary span, .knowledge-catalog-summary small { color: var(--muted); }
+.knowledge-catalog-summary small { flex-basis: 100%; font-size: 10px; }
 .knowledge-provenance { display: flex; flex-direction: column; gap: 9px; padding: 0; margin: 14px 0; font-size: 11px; }
 .knowledge-provenance > div { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 14px; }
 .knowledge-provenance dt { color: var(--muted); }

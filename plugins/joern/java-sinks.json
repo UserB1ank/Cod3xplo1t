@@ -1,0 +1,397 @@
+{
+  "api_version": "codexploit/java-sink-catalog/v1",
+  "id": "java-sink-catalog",
+  "version": "1.0.0",
+  "entries": [
+    {
+      "id": "java.process.runtime-exec",
+      "category": "process_execution",
+      "match": {
+        "receiver_type": "java.lang.Runtime",
+        "method": "exec",
+        "match_type": "exact"
+      },
+      "dangerous_arguments": [0],
+      "priority": 0.98,
+      "evidence": "inferred",
+      "limitations": ["A matching call is not proof that an attacker controls the command or arguments"]
+    },
+    {
+      "id": "java.process.process-builder-start",
+      "category": "process_execution",
+      "match": {
+        "receiver_type": "java.lang.ProcessBuilder",
+        "method": "start",
+        "match_type": "exact"
+      },
+      "dangerous_arguments": [],
+      "priority": 0.93,
+      "evidence": "inferred",
+      "limitations": ["The command may be configured through ProcessBuilder receiver state rather than arguments to start"]
+    },
+    {
+      "id": "java.deserialization.object-input",
+      "category": "deserialization",
+      "match": {
+        "receiver_type": "java.io.ObjectInputStream",
+        "method": "readObject",
+        "match_type": "exact"
+      },
+      "dangerous_arguments": [],
+      "priority": 0.98,
+      "evidence": "inferred",
+      "limitations": ["Call presence does not establish an untrusted serialized stream or an available gadget chain"]
+    },
+    {
+      "id": "java.deserialization.xml-decoder",
+      "category": "deserialization",
+      "match": {
+        "receiver_type": "java.beans.XMLDecoder",
+        "method": "readObject",
+        "match_type": "exact"
+      },
+      "dangerous_arguments": [],
+      "priority": 0.97,
+      "evidence": "inferred",
+      "limitations": ["The decoder may read a trusted constant stream; type and source context remain unassessed"]
+    },
+    {
+      "id": "java.deserialization.xstream-fromxml",
+      "category": "deserialization",
+      "match": {
+        "receiver_type": "com.thoughtworks.xstream.XStream",
+        "method": "fromXML",
+        "match_type": "exact"
+      },
+      "dangerous_arguments": [0],
+      "priority": 0.94,
+      "evidence": "inferred",
+      "limitations": ["Configured allowlists and XStream version can materially change exploitability"]
+    },
+    {
+      "id": "java.deserialization.snakeyaml-load",
+      "category": "deserialization",
+      "match": {
+        "receiver_type": "org.yaml.snakeyaml.Yaml",
+        "method": "load",
+        "match_type": "exact"
+      },
+      "dangerous_arguments": [0],
+      "priority": 0.92,
+      "evidence": "inferred",
+      "limitations": ["SnakeYAML constructor configuration and application classpath determine gadget exposure"]
+    },
+    {
+      "id": "java.deserialization.snakeyaml-loadas",
+      "category": "deserialization",
+      "match": {
+        "receiver_type": "org.yaml.snakeyaml.Yaml",
+        "method": "loadAs",
+        "match_type": "exact"
+      },
+      "dangerous_arguments": [0, 1],
+      "priority": 0.91,
+      "evidence": "inferred",
+      "limitations": ["The target type restricts instantiation but trusted type configuration and input trust remain unassessed"]
+    },
+    {
+      "id": "java.expression.spel",
+      "category": "expression_injection",
+      "match": {
+        "receiver_type": "org.springframework.expression.spel.standard.SpelExpressionParser",
+        "method": "parseExpression",
+        "match_type": "exact"
+      },
+      "dangerous_arguments": [0],
+      "priority": 0.97,
+      "evidence": "inferred",
+      "limitations": ["Parsing an expression is not proof of evaluation with a powerful root object or security manager"]
+    },
+    {
+      "id": "java.expression.script-engine",
+      "category": "expression_injection",
+      "match": {
+        "receiver_type": "javax.script.ScriptEngine",
+        "method": "eval",
+        "match_type": "exact"
+      },
+      "dangerous_arguments": [0],
+      "priority": 0.94,
+      "evidence": "inferred",
+      "limitations": ["Concrete engine and bindings affect what evaluation can reach"]
+    },
+    {
+      "id": "java.expression.ognl-parse",
+      "category": "expression_injection",
+      "match": {
+        "receiver_type": "ognl.Ognl",
+        "method": "parseExpression",
+        "match_type": "exact"
+      },
+      "dangerous_arguments": [0],
+      "priority": 0.94,
+      "evidence": "inferred",
+      "limitations": ["Parsing alone does not establish evaluation context or attacker control"]
+    },
+    {
+      "id": "java.jndi.initial-context-lookup",
+      "category": "jndi",
+      "match": {
+        "receiver_type": "javax.naming.InitialContext",
+        "method": "lookup",
+        "match_type": "exact"
+      },
+      "dangerous_arguments": [0],
+      "priority": 0.98,
+      "evidence": "inferred",
+      "limitations": ["Runtime Java version, trustURLCodebase and naming manager policies affect remote loading"]
+    },
+    {
+      "id": "java.jndi.context-lookup",
+      "category": "jndi",
+      "match": {
+        "receiver_type": "javax.naming.Context",
+        "method": "lookup",
+        "match_type": "exact"
+      },
+      "dangerous_arguments": [0],
+      "priority": 0.95,
+      "evidence": "inferred",
+      "limitations": ["The concrete context provider and configured naming policies are not inferred"]
+    },
+    {
+      "id": "java.sql.statement-execute",
+      "category": "sql_execution",
+      "match": {
+        "receiver_type": "java.sql.Statement",
+        "method": "execute",
+        "match_type": "exact"
+      },
+      "dangerous_arguments": [0],
+      "priority": 0.9,
+      "evidence": "inferred",
+      "limitations": ["Parameterization and fixed SQL text require source inspection"]
+    },
+    {
+      "id": "java.sql.statement-execute-query",
+      "category": "sql_execution",
+      "match": {
+        "receiver_type": "java.sql.Statement",
+        "method": "executeQuery",
+        "match_type": "exact"
+      },
+      "dangerous_arguments": [0],
+      "priority": 0.9,
+      "evidence": "inferred",
+      "limitations": ["Parameterization and fixed SQL text require source inspection"]
+    },
+    {
+      "id": "java.sql.statement-execute-update",
+      "category": "sql_execution",
+      "match": {
+        "receiver_type": "java.sql.Statement",
+        "method": "executeUpdate",
+        "match_type": "exact"
+      },
+      "dangerous_arguments": [0],
+      "priority": 0.9,
+      "evidence": "inferred",
+      "limitations": ["Parameterization and fixed SQL text require source inspection"]
+    },
+    {
+      "id": "java.sql.mybatis-sqlsession-select",
+      "category": "sql_execution",
+      "match": {
+        "receiver_type": "org.apache.ibatis.session.SqlSession",
+        "method": "selectOne",
+        "match_type": "exact"
+      },
+      "dangerous_arguments": [0],
+      "priority": 0.88,
+      "evidence": "inferred",
+      "limitations": ["The mapped statement may use #{} bindings, ${} interpolation or fixed SQL; inspect the mapper definition"]
+    },
+    {
+      "id": "java.sql.hibernate-session-query",
+      "category": "sql_execution",
+      "match": {
+        "receiver_type": "org.hibernate.Session",
+        "method": "createQuery",
+        "match_type": "exact"
+      },
+      "dangerous_arguments": [0],
+      "priority": 0.88,
+      "evidence": "inferred",
+      "limitations": ["Named parameters can make a dynamic HQL query safe; parameter binding and query provenance require source inspection"]
+    },
+    {
+      "id": "java.xxe.document-builder",
+      "category": "xxe",
+      "match": {
+        "receiver_type": "javax.xml.parsers.DocumentBuilder",
+        "method": "parse",
+        "match_type": "exact"
+      },
+      "dangerous_arguments": [0],
+      "priority": 0.94,
+      "evidence": "inferred",
+      "limitations": ["Parser feature flags and external-entity restrictions may block the attack"]
+    },
+    {
+      "id": "java.xxe.sax-parser",
+      "category": "xxe",
+      "match": {
+        "receiver_type": "javax.xml.parsers.SAXParser",
+        "method": "parse",
+        "match_type": "exact"
+      },
+      "dangerous_arguments": [0, 1],
+      "priority": 0.92,
+      "evidence": "inferred",
+      "limitations": ["SAX feature and entity resolver configuration remain unassessed"]
+    },
+    {
+      "id": "java.xxe.xml-input-factory",
+      "category": "xxe",
+      "match": {
+        "receiver_type": "javax.xml.stream.XMLInputFactory",
+        "method": "createXMLStreamReader",
+        "match_type": "exact"
+      },
+      "dangerous_arguments": [0],
+      "priority": 0.9,
+      "evidence": "inferred",
+      "limitations": ["SUPPORT_DTD and external entity properties must be checked at the concrete factory"]
+    },
+    {
+      "id": "java.xxe.unmarshaller",
+      "category": "xxe",
+      "match": {
+        "receiver_type": "javax.xml.bind.Unmarshaller",
+        "method": "unmarshal",
+        "match_type": "exact"
+      },
+      "dangerous_arguments": [0],
+      "priority": 0.88,
+      "evidence": "inferred",
+      "limitations": ["JAXB provider and XXE hardening differ by runtime"]
+    },
+    {
+      "id": "java.network.http-url-connection",
+      "category": "network_request",
+      "match": {
+        "receiver_type": "java.net.HttpURLConnection",
+        "method": "connect",
+        "match_type": "exact"
+      },
+      "dangerous_arguments": [],
+      "priority": 0.75,
+      "evidence": "inferred",
+      "limitations": ["A server-side request is only a security issue under the application's network and trust model"]
+    },
+    {
+      "id": "java.network.http-client-send",
+      "category": "network_request",
+      "match": {
+        "receiver_type": "java.net.http.HttpClient",
+        "method": "send",
+        "match_type": "exact"
+      },
+      "dangerous_arguments": [0, 1],
+      "priority": 0.76,
+      "evidence": "inferred",
+      "limitations": ["A server-side request is only a security issue under the application's network and trust model"]
+    },
+    {
+      "id": "java.network.rest-template-exchange",
+      "category": "network_request",
+      "match": {
+        "receiver_type": "org.springframework.web.client.RestTemplate",
+        "method": "exchange",
+        "match_type": "exact"
+      },
+      "dangerous_arguments": [0],
+      "priority": 0.78,
+      "evidence": "inferred",
+      "limitations": ["Interceptors, URL allowlists and network egress may constrain reachability"]
+    },
+    {
+      "id": "java.file.files-new-input-stream",
+      "category": "file_read",
+      "match": {
+        "receiver_type": "java.nio.file.Files",
+        "method": "newInputStream",
+        "match_type": "exact"
+      },
+      "dangerous_arguments": [0],
+      "priority": 0.82,
+      "evidence": "inferred",
+      "limitations": ["Path normalization, authorization and confinement controls are not inferred"]
+    },
+    {
+      "id": "java.file.file-input-stream-read",
+      "category": "file_read",
+      "match": {
+        "receiver_type": "java.io.FileInputStream",
+        "method": "read",
+        "match_type": "exact"
+      },
+      "dangerous_arguments": [],
+      "priority": 0.72,
+      "evidence": "inferred",
+      "limitations": ["The file may be fixed or authorized; constructor provenance and controls require source inspection"]
+    },
+    {
+      "id": "java.file.files-new-output-stream",
+      "category": "file_write",
+      "match": {
+        "receiver_type": "java.nio.file.Files",
+        "method": "newOutputStream",
+        "match_type": "exact"
+      },
+      "dangerous_arguments": [0],
+      "priority": 0.86,
+      "evidence": "inferred",
+      "limitations": ["Path normalization, authorization and confinement controls are not inferred"]
+    },
+    {
+      "id": "java.ldap.dir-context-search",
+      "category": "ldap",
+      "match": {
+        "receiver_type": "javax.naming.directory.DirContext",
+        "method": "search",
+        "match_type": "exact"
+      },
+      "dangerous_arguments": [0, 1],
+      "priority": 0.84,
+      "evidence": "inferred",
+      "limitations": ["LDAP escaping and directory authorization remain unassessed"]
+    },
+    {
+      "id": "java.template.freemarker-get-template",
+      "category": "template_injection",
+      "match": {
+        "receiver_type": "freemarker.template.Configuration",
+        "method": "getTemplate",
+        "match_type": "exact"
+      },
+      "dangerous_arguments": [0],
+      "priority": 0.84,
+      "evidence": "inferred",
+      "limitations": ["Template loading restrictions and attacker control over template content are not inferred"]
+    },
+    {
+      "id": "java.template.spring-process",
+      "category": "template_injection",
+      "match": {
+        "receiver_type": "org.thymeleaf.spring5.SpringTemplateEngine",
+        "method": "process",
+        "match_type": "exact"
+      },
+      "dangerous_arguments": [0],
+      "priority": 0.82,
+      "evidence": "inferred",
+      "limitations": ["Unsafe expression evaluation depends on template content and dialect configuration"]
+    }
+  ]
+}

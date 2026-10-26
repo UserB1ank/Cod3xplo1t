@@ -48,12 +48,18 @@ const (
 
 // Sink kinds recorded in a SensitiveOperation node's subject.
 const (
-	SinkSQL             = "sql_execution"
-	SinkFileWrite       = "file_write"
-	SinkProcess         = "process_execution"
-	SinkNetwork         = "network_request"
-	SinkDeserialization = "deserialization"
-	SinkSensitiveOutput = "sensitive_output"
+	SinkSQL                 = "sql_execution"
+	SinkFileWrite           = "file_write"
+	SinkProcess             = "process_execution"
+	SinkNetwork             = "network_request"
+	SinkDeserialization     = "deserialization"
+	SinkSensitiveOutput     = "sensitive_output"
+	SinkExpressionInjection = "expression_injection"
+	SinkJNDI                = "jndi"
+	SinkXXE                 = "xxe"
+	SinkFileRead            = "file_read"
+	SinkLDAP                = "ldap"
+	SinkTemplateInjection   = "template_injection"
 )
 
 // Control kinds recorded in a SecurityControl node's subject.

@@ -83,6 +83,16 @@ Joern 多语言、污点语义与路径操作已接入，详见 [Joern 手册](.
 
 `codexploit.joern@2.1.1` / 默认流程 `2.0.1` 对路径枚举上限返回有证据的 PARTIAL；原始流报告与 coverage 标记截断，审查路径和 Agent 继续继承上游局限。其他执行/输出/轨迹预算失败仍不发布输出；已知 file-job 错误码保留。已完成真实 CPG 的超限 red → green、独立进程错误分类、上游截断到领域审查路径、独立源码读取与项目隔离的回归。
 
+## Java sink 目录与高风险分区（2026-10-26）
+
+`codexploit.joern@2.3.0` 随包发布 `java-sink-catalog@1.0.0`。目录以严格 JSON 解码、固定分类和危险参数索引校验，并按解码后的规范字节计算 SHA-256；摘要不随格式空白变化。首批 30 个条目覆盖 Runtime / ProcessBuilder、Java / XML / XStream / SnakeYAML 反序列化、SpEL / ScriptEngine / OGNL、JNDI、JDBC Statement / MyBatis / Hibernate、XXE、HttpClient / RestTemplate、文件、LDAP 与模板入口。
+
+语义阶段先在固定 Java CPG 上保存全部精确类型 / 方法命中的 sink，再对目录安全和兜底规则执行数据流。未产生流的 XMLDecoder 调用仍出现在 inventory；高风险类别最多使用 80% `max_flows`，剩余预算交给配置规则，类别按最高 priority 排序并滚动复用未用份额。路径记录 `priority_hint`，`joern.static-support/v2` 只改变审查顺序，不改变严重度或裁定。
+
+真实容器验收使用已封存的 Joern 4.0.664 / JDK 21 包，而不是模拟 CPG：Java fixture 覆盖 Runtime、ObjectInputStream、XMLDecoder、SpEL、InitialContext、Context、DocumentBuilder、JDBC Statement、MyBatis、Hibernate、Freemarker 与 Thymeleaf；PreparedStatement 反例没有进入 SQL 目录。零流 inventory、每个高风险分区、`max_flows=4` 下 3/1 的目录 / 回退配额与 `pending` / `truncated` 账本、catalogue digest、PATH priority hint、enhancement 首项顺序均通过。
+
+每个 CPG / 目录类别 / 回退规则的分区行进入不可变 `flows` 产物，PostgreSQL invocation 重建后可再次读取；正式页面默认打开高风险目录并保留未分类探索。当前限制是 MyBatis mapper XML `${}` 等框架包装仍需专门语义模型，Java 真实语料质量评测留待下一阶段。
+
 - 使用正式服务保存的同一份 termcp 冻结源码（564 文件）在独立 PostgreSQL 运行完整四阶段，获得 100 条候选和三个知识版本，十份输出大小与 SHA-256 全部通过；原生污点报告 `truncated=true`。
 - 正式 18085 的原 termcp 项目通过相同后端领域入口重新运行：`analysis-7IZER32QJ62OGAGHMPGHQT7PQW`，固定原快照，四阶段 PARTIAL、`$publish` SUCCEEDED，100 条路径、十份输出校验通过，聚合 coverage.truncated=true。使用仓库外临时操作脚本在容器内调用既有 handler，没有新增网络入口、修改登录或模型设置，也没有用手工 SQL 伪造运行。
 - 早期临时脚本漏接 Audit 读取服务，曾产生一条 `analysis_task_unavailable` 聚合误报，其底层工作流已完成；该记录未删除或覆写。补齐脚本后以上新运行独立验收通过。原先 2.1.0 的失败记录逐行摘要不变，账号与加密模型设置摘要不变。

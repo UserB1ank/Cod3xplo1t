@@ -11,7 +11,7 @@ func TestDefaultAnalysisUsesOnePinnedJoernEngine(t *testing.T) {
 	}
 	for i, operation := range []string{"parse", "taint", "paths", "enhance"} {
 		node := spec.Nodes[i]
-		if node.PluginID != "codexploit.joern" || node.PluginVersion != "2.1.1" || node.OperationID != operation {
+		if node.PluginID != "codexploit.joern" || node.PluginVersion != "2.3.0" || node.OperationID != operation {
 			t.Fatalf("stage %d mixes engines: %+v", i, node)
 		}
 	}

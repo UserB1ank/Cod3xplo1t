@@ -17,7 +17,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/pkg/pluginsdk"
 )
 
-const adapterVersion = "2.1.1"
+const adapterVersion = "2.3.0"
 
 type failure struct {
 	Code        string
@@ -134,6 +134,11 @@ func (j *job) readBound(input pluginsdk.LocalInput) ([]byte, error) {
 	return pluginsdk.ReadInput(j.Root, req, input.Port)
 }
 func (j *job) source() (string, map[string]bool, error) {
+	for _, input := range j.inputs("source") {
+		if input.SchemaID == "codexploit/source-directory/v1" {
+			return pluginsdk.SourceDirectory(j.Request, "source")
+		}
+	}
 	raw, err := j.read("source")
 	if err != nil {
 		return "", nil, err
@@ -153,7 +158,7 @@ func (j *job) java(module, main string, heap int, args ...string) error {
 		return unavailable("dependency_unavailable")
 	}
 	if heap == 0 {
-		heap = 1024
+		heap = 4096
 	}
 	if heap < 256 || heap > 4096 {
 		return failed("invalid_config")
@@ -168,8 +173,15 @@ func (j *job) java(module, main string, heap int, args ...string) error {
 	command.Dir = j.Work
 	command.Env = []string{"HOME=" + j.Work, "TMPDIR=" + j.Work, "TMP=" + j.Work, "TEMP=" + j.Work, "JAVA_HOME=" + javaHome, "PATH=" + strings.Join([]string{filepath.Join(javaHome, "bin"), filepath.Join(j.Package, "vendor/php/bin"), filepath.Join(j.Package, "vendor/rust/bin"), "/usr/bin", "/bin"}, string(os.PathListSeparator)), "JAVA_TOOL_OPTIONS=" + options, "GOPROXY=off", "GOSUMDB=off", "GOTOOLCHAIN=local", "GOTELEMETRY=off", "LANG=C.UTF-8", "CARGO_NET_OFFLINE=true", "CARGO_HOME=" + j.Work, "RUSTUP_HOME=" + j.Work}
 	command.Stdout = io.Discard
-	command.Stderr = io.Discard
+	stderr := &boundedStderr{}
+	command.Stderr = stderr
 	if err := command.Run(); err != nil {
+		if bytes.Contains(stderr.tail, []byte("export_budget_exceeded")) {
+			return failed("report_budget_exceeded")
+		}
+		if bytes.Contains(stderr.tail, []byte("OutOfMemoryError")) || bytes.Contains(stderr.tail, []byte("Java heap space")) || bytes.Contains(stderr.tail, []byte("GC overhead limit exceeded")) {
+			return failed("memory_budget_exceeded")
+		}
 		return failed("execution_failed")
 	}
 	return nil
@@ -232,4 +244,34 @@ func copyFile(source, target string, max int64) error {
 		return failed("output_budget_exceeded")
 	}
 	return nil
+}
+
+// Only bounded, host-defined context crosses the job boundary. Vendor stderr
+// can contain source text and private paths and is never copied into reports.
+func (j *job) frontendFailure(front, step, reason string, err error) error {
+	if f, ok := err.(*failure); ok && reason == "" {
+		reason = f.Code
+	}
+	if reason == "" {
+		reason = "execution_failed"
+	}
+	j.Result.Limitations = append(j.Result.Limitations, "joern:frontend="+front+";step="+step+";reason="+reason)
+	return err
+}
+
+type boundedStderr struct{ tail []byte }
+
+func (b *boundedStderr) Write(p []byte) (int, error) {
+	n := len(p)
+	const limit = 64 << 10
+	if len(p) >= limit {
+		b.tail = append(b.tail[:0], p[len(p)-limit:]...)
+		return n, nil
+	}
+	if extra := len(b.tail) + len(p) - limit; extra > 0 {
+		copy(b.tail, b.tail[extra:])
+		b.tail = b.tail[:len(b.tail)-extra]
+	}
+	b.tail = append(b.tail, p...)
+	return n, nil
 }

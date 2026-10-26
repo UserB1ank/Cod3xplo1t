@@ -1,9 +1,9 @@
 {
   "api_version": "codexploit/plugin/v2",
   "id": "codexploit.joern",
-  "version": "2.1.1",
+  "version": "2.3.0",
   "name": "Joern · 多语言污点分析",
-  "description": "完整 Joern 前端、原生 CPG、可配置 source/sink 数据流查询与固定来源的候选路径。",
+  "description": "完整 Joern 前端、原生 CPG、版本化 Java sink 目录、全量命中与固定来源的候选路径。",
   "languages": [
     "C",
     "C++",
@@ -43,7 +43,7 @@
         {
           "name": "source",
           "kind": "source.snapshot",
-          "schema_id": "codexploit/source-tar/v1",
+          "schema_id": "codexploit/source-directory/v1",
           "cardinality": "one",
           "required": true
         }
@@ -72,7 +72,7 @@
             "type": "integer",
             "minimum": 256,
             "maximum": 4096,
-            "default": 1024
+            "default": 4096
           },
           "frontend": {
             "type": "string",
@@ -111,7 +111,7 @@
         {
           "name": "source",
           "kind": "source.snapshot",
-          "schema_id": "codexploit/source-tar/v1",
+          "schema_id": "codexploit/source-directory/v1",
           "cardinality": "one",
           "required": true
         },
@@ -239,7 +239,7 @@
             "type": "integer",
             "minimum": 256,
             "maximum": 4096,
-            "default": 1024
+            "default": 4096
           }
         }
       }

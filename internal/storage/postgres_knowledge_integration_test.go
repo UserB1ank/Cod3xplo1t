@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -154,6 +155,53 @@ func TestPostgresActiveInvocationFencesSnapshotAndRetiresGraphIndexes(t *testing
 	}
 	if _, err := s.ASGSummary(ctx, g.SnapshotID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("retired ASG remains: %v", err)
+	}
+}
+
+func TestPostgresJavaSinkCatalogueSurvivesReconnectAndConcurrentFilters(t *testing.T) {
+	a, b := postgresKnowledgeStores(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := a.PutProject(ctx, testProject("owner")); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.PutSnapshot(ctx, "owner", testSnapshot(asgSnapshotID)); err != nil {
+		t.Fatal(err)
+	}
+	document := asgFixture(asgSnapshotID)
+	if err := a.ReplaceASG(ctx, asgSnapshotID, document); err != nil {
+		t.Fatal(err)
+	}
+
+	noFlow := false
+	query := ASGNodeQuery{
+		SnapshotID: asgSnapshotID, Kinds: []asg.NodeKind{asg.NodeSensitiveOperation},
+		Classified: boolPointer(true), CatalogID: "java.sql.statement-execute-query",
+		ReceiverType: "java.sql.Statement", HasFlow: &noFlow, OrderBySinkPriority: true,
+	}
+	var group sync.WaitGroup
+	failures := make(chan error, 8)
+	for i := range 8 {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			store := a
+			if i%2 == 1 {
+				store = b
+			}
+			nodes, total, err := store.ListASGNodes(ctx, query)
+			if err == nil && (total != 1 || len(nodes) != 1 || nodes[0].Detail["catalog_digest"] != "catalog-digest") {
+				err = errors.New("catalogue verification failed")
+			}
+			failures <- err
+		}()
+	}
+	group.Wait()
+	close(failures)
+	for err := range failures {
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

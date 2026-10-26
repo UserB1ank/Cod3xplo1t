@@ -624,6 +624,12 @@
             "partial"
           ]
         },
+        "priority_hint": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Versioned sink-review ordering hint. It is not vulnerability severity or exploitability."
+        },
         "scg_refs": {
           "type": "array",
           "items": {

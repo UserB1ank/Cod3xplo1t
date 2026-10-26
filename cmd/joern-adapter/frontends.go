@@ -64,6 +64,7 @@ func selectFrontends(all []frontend, requested string, files map[string]bool) ([
 		requested = id
 	}
 	selected := []frontend{}
+	bytecode := []frontend{}
 	for _, f := range all {
 		if requested == f.ID {
 			return []frontend{f}, nil
@@ -71,11 +72,18 @@ func selectFrontends(all []frontend, requested string, files map[string]bool) ([
 		if requested == "AUTO" && f.Kind != "binary" {
 			for path := range files {
 				if f.matches(path) {
-					selected = append(selected, f)
+					if f.Kind == "bytecode" {
+						bytecode = append(bytecode, f)
+					} else {
+						selected = append(selected, f)
+					}
 					break
 				}
 			}
 		}
+	}
+	if len(selected) == 0 {
+		selected = bytecode
 	}
 	if len(selected) == 0 {
 		return nil, os.ErrNotExist

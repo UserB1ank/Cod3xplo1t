@@ -29,6 +29,11 @@ import {
 import { latestSnapshot } from "./workbench";
 import { pathGraph, type PathStep } from "./path-graph";
 import { readRevisionDirectory } from "./knowledgeData";
+import {
+  sinkCatalogQuery,
+  sinkEvidence,
+  type SinkPartition,
+} from "./sink-catalog";
 
 type Layer = "entries" | "scg" | "asg" | "paths";
 
@@ -108,6 +113,18 @@ interface Neighborhood {
   unresolved_edges: number;
   meta: Meta;
   limitations: string[];
+}
+
+interface SinkPartitionCounts {
+  high_risk: number;
+  unclassified: number;
+}
+
+interface SinkPage {
+  sinks: AttackNode[];
+  partitions: SinkPartitionCounts;
+  next_cursor: string;
+  meta: Meta;
 }
 
 interface AuditRef {
@@ -1838,84 +1855,216 @@ function NodePanel({
   onSelect: (node: AttackNode) => void;
   selected?: AttackNode;
 }) {
+  const [partition, setPartition] = useState<SinkPartition>("high_risk");
   const [kind, setKind] = useState("");
-  const { cursor, next, reset } = usePager();
-  useEffect(() => reset(), [kind, reset]);
+  const [category, setCategory] = useState("");
+  const { cursor, next, back, reset } = usePager();
+  useEffect(() => reset(), [kind, category, partition, reset]);
   const data = useQuery(
-    (signal) =>
-      api.get<{ nodes: AttackNode[]; next_cursor: string; meta: Meta }>(
-        `/v1/projects/${projectID}/knowledge/views/${view.view_id}/nodes?limit=50${kind ? `&kind=${encodeURIComponent(kind)}` : ""}&cursor=${encodeURIComponent(cursor)}`,
+    async (signal) => {
+      if (partition === "all") {
+        const page = await api.get<{
+          nodes: AttackNode[];
+          next_cursor: string;
+          meta: Meta;
+        }>(
+          `/v1/projects/${projectID}/knowledge/views/${view.view_id}/nodes?limit=50${kind ? `&kind=${encodeURIComponent(kind)}` : ""}&cursor=${encodeURIComponent(cursor)}`,
+          signal,
+        );
+        return {
+          nodes: page.nodes,
+          next_cursor: page.next_cursor,
+          total: page.meta.total,
+          meta: page.meta,
+        };
+      }
+      const page = await api.get<SinkPage>(
+        sinkCatalogQuery(
+          projectID,
+          view.view_id,
+          partition,
+          category,
+          cursor,
+        ),
         signal,
-      ),
-    [api, projectID, view.view_id, kind, cursor],
+      );
+      return {
+        nodes: page.sinks,
+        next_cursor: page.next_cursor,
+        total: page.meta.total,
+        meta: page.meta,
+        partitions: page.partitions,
+      };
+    },
+    [api, projectID, view.view_id, partition, category, kind, cursor],
   );
+  const catalogMode = partition !== "all";
   return (
     <Panel
-      title="攻击面节点"
+      title={catalogMode ? "敏感操作目录" : "攻击面节点"}
       action={
-        <select
-          aria-label="节点类型"
-          value={kind}
-          onChange={(event) => setKind(event.target.value)}
-        >
-          <option value="">全部类型</option>
-          <option value="EntryPoint">入口</option>
-          <option value="SensitiveOperation">敏感操作</option>
-          <option value="AttackerControlledInput">外部输入</option>
-          <option value="SecurityControl">安全控制</option>
-          <option value="TrustBoundary">信任边界</option>
-          <option value="Asset">资产</option>
-        </select>
+        <div className="knowledge-catalog-filters">
+          <select
+            aria-label="敏感操作范围"
+            value={partition}
+            onChange={(event) =>
+              setPartition(event.target.value as SinkPartition)
+            }
+          >
+            <option value="high_risk">高风险目录</option>
+            <option value="unclassified">未分类探索</option>
+            <option value="all">全部攻击面节点</option>
+          </select>
+          {catalogMode ? (
+            <select
+              aria-label="敏感操作类别"
+              value={category}
+              onChange={(event) => setCategory(event.target.value)}
+            >
+              <option value="">全部类别</option>
+              <option value="process_execution">命令执行</option>
+              <option value="deserialization">反序列化</option>
+              <option value="expression_injection">表达式注入</option>
+              <option value="jndi">JNDI</option>
+              <option value="sql_execution">SQL / HQL / MyBatis</option>
+              <option value="xxe">XXE</option>
+              <option value="network_request">服务端请求</option>
+              <option value="file_read">文件读取</option>
+              <option value="file_write">文件写入</option>
+              <option value="ldap">LDAP</option>
+              <option value="template_injection">模板执行</option>
+            </select>
+          ) : (
+            <select
+              aria-label="节点类型"
+              value={kind}
+              onChange={(event) => setKind(event.target.value)}
+            >
+              <option value="">全部类型</option>
+              <option value="EntryPoint">入口</option>
+              <option value="SensitiveOperation">敏感操作</option>
+              <option value="AttackerControlledInput">外部输入</option>
+              <option value="SecurityControl">安全控制</option>
+              <option value="TrustBoundary">信任边界</option>
+              <option value="Asset">资产</option>
+            </select>
+          )}
+        </div>
       }
     >
       {data.error ? (
         <Hint>{data.error}</Hint>
       ) : data.loading ? (
         <div className="knowledge-loading">
-          <Loader2 className="spin" size={16} /> 读取攻击面…
+          <Loader2 className="spin" size={16} />{" "}
+          {catalogMode ? "读取敏感操作目录…" : "读取攻击面…"}
         </div>
       ) : !data.data?.nodes.length ? (
-        <EmptyState title="没有匹配的节点">该快照的攻击面图谱为空。</EmptyState>
+        <EmptyState
+          title={catalogMode ? "该分区没有规则命中" : "没有匹配的节点"}
+        >
+          {catalogMode
+            ? "切换至未分类探索或全部节点继续核查；零命中不代表代码安全。"
+            : "该快照的攻击面图谱为空。"}
+        </EmptyState>
       ) : (
         <>
+          {catalogMode && data.data.partitions ? (
+            <div className="knowledge-catalog-summary">
+              <strong>高风险 {data.data.partitions.high_risk}</strong>
+              <span>未分类 {data.data.partitions.unclassified}</span>
+              <small>
+                目录规则命中只决定审查顺序，不代表严重度、漏洞裁定或可利用性。
+              </small>
+            </div>
+          ) : null}
           <div className="table-scroll">
             <table className="standard-table knowledge-table">
               <thead>
                 <tr>
                   <th>节点</th>
-                  <th>类型</th>
+                  <th>{catalogMode ? "规则与危险参数" : "类型"}</th>
                   <th>源码位置</th>
-                  <th>置信</th>
+                  <th>{catalogMode ? "流与审查边界" : "置信"}</th>
                 </tr>
               </thead>
               <tbody>
-                {data.data.nodes.map((node) => (
-                  <tr
-                    key={node.node_id}
-                    data-guide-row
-                    tabIndex={0}
-                    aria-selected={selected?.node_id === node.node_id}
-                    className={
-                      selected?.node_id === node.node_id ? "selected" : ""
-                    }
-                    onClick={() => onSelect(node)}
-                    onKeyDown={guideKeys}
-                  >
-                    <td>
-                      <strong>{node.label}</strong>
-                      <span className="mono muted">{node.subject}</span>
-                    </td>
-                    <td>{node.kind}</td>
-                    <td className="mono">
-                      {node.file ? `${node.file}:${node.line || 0}` : "—"}
-                    </td>
-                    <td>{node.confidence || "—"}</td>
-                  </tr>
-                ))}
+                {data.data.nodes.map((node) => {
+                  const evidence = sinkEvidence(node);
+                  return (
+                    <tr
+                      key={node.node_id}
+                      data-guide-row
+                      tabIndex={0}
+                      aria-selected={selected?.node_id === node.node_id}
+                      className={
+                        selected?.node_id === node.node_id ? "selected" : ""
+                      }
+                      onClick={() => onSelect(node)}
+                      onKeyDown={guideKeys}
+                    >
+                      <td>
+                        <strong>{node.label}</strong>
+                        <span className="mono muted">{node.subject}</span>
+                      </td>
+                      <td>
+                        {catalogMode ? (
+                          <>
+                            <span className="mono">{evidence.rule}</span>
+                            <span className="muted">
+                              危险参数 {evidence.arguments}
+                              {evidence.priority !== undefined
+                                ? ` · 优先级 ${evidence.priority.toFixed(2)}`
+                                : ""}
+                            </span>
+                          </>
+                        ) : (
+                          node.kind
+                        )}
+                      </td>
+                      <td className="mono">
+                        {node.file ? `${node.file}:${node.line || 0}` : "—"}
+                      </td>
+                      <td>
+                        {catalogMode ? (
+                          <>
+                            <span
+                              className={
+                                evidence.hasFlow
+                                  ? "badge active"
+                                  : "badge warning"
+                              }
+                            >
+                              {evidence.hasFlow
+                                ? "有观测数据流"
+                                : "无观测数据流"}
+                            </span>
+                            <span className="muted">
+                              v{evidence.version} ·{" "}
+                              {evidence.digest
+                                ? evidence.digest.slice(0, 12)
+                                : "无目录摘要"}
+                            </span>
+                            <span className="muted">{evidence.note}</span>
+                          </>
+                        ) : (
+                          node.confidence || "—"
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
           <div className="knowledge-pager">
+            <button
+              className="button"
+              disabled={!cursor}
+              onClick={back}
+            >
+              上一页
+            </button>
             <button
               className="button"
               disabled={!data.data.next_cursor}
@@ -1924,7 +2073,24 @@ function NodePanel({
               下一页
             </button>
           </div>
-          <MetaBar meta={data.data.meta} />
+          {partition === "all" ? (
+            <MetaBar meta={data.data.meta as Meta} />
+          ) : (
+            <div className="knowledge-meta">
+              <span>共 {data.data.total} 条</span>
+              <span>
+                固定 ASG <code className="mono">{data.data.meta.versions.asg || "—"}</code>
+              </span>
+              {data.data.meta.truncated ? (
+                <span className="knowledge-warning">
+                  结果被截断
+                  {data.data.meta.truncation_reason
+                    ? `（${data.data.meta.truncation_reason}）`
+                    : ""}
+                </span>
+              ) : null}
+            </div>
+          )}
         </>
       )}
     </Panel>

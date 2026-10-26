@@ -1,6 +1,7 @@
 package plugin_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -145,6 +147,138 @@ func TestStageHostRejectsMalformedStandardOutputBeforePublishing(t *testing.T) {
 	}
 }
 
+func TestStageHostStandardOutputUsesConfiguredBudgetBeyondLegacyCap(t *testing.T) {
+	old, request, objects, index := hostFixture(t, map[string]string{"main.go": "package main\nfunc main() {}\n"})
+	if err := old.Close(); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile("../../docs/design/plugin-system-v2/templates/manifests/parse.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw = []byte(strings.Replace(string(raw), plugin.ProcessProtocolV2, plugin.FileJobProtocol, 1))
+	catalog, err := plugin.NewCatalog(t.Context(), index)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var opened atomic.Bool
+	short := []byte("invalid but deliberately opened")
+	executor := plugin.Executor{Manifest: raw, PackageDigest: strings.Repeat("e", 64), OperationID: "execute", RunOutputs: func(_ context.Context, _ plugin.Invocation, _ [][]byte) (plugin.RawResult, error) {
+		one := int64(1)
+		return plugin.RawResult{Status: "SUCCEEDED", Coverage: plugin.StageCoverage{Unit: "files", Seen: &one, Analyzed: &one}, Outputs: []plugin.RawOutput{{Port: "code", Kind: "code.facts", SchemaID: "codexploit/code-facts/v2", Bytes: 64<<20 + 1, SHA256: fmt.Sprintf("%x", sha256.Sum256(short)), MediaType: "application/json", Open: func() (io.ReadCloser, error) {
+			opened.Store(true)
+			return io.NopCloser(bytes.NewReader(short)), nil
+		}}}}, nil
+	}}
+	host, err := plugin.NewHost(plugin.Deps{Catalog: catalog, Repository: index, Scopes: index, Artifacts: objects, Executors: []plugin.Executor{executor}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = host.Close() })
+	request.PluginID = "example.parse"
+	request.PluginVersion = "0.1.0"
+	request.PackageDigest = executor.PackageDigest
+	request.ID = "standard-output-over-legacy-cap"
+	request.Budget = plugin.Budget{MaxInputBytes: 500 << 20, MaxOutputBytes: 500 << 20, MaxFiles: 16, TimeoutSeconds: 30}
+	inv, err := host.Execute(t.Context(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done, err := host.Wait(t.Context(), request.Scope, inv.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opened.Load() {
+		t.Fatal("host rejected a standard output above the legacy 64 MiB cap before applying the configured budget")
+	}
+	if done.Status != "FAILED" || done.ErrorCode == "budget_exceeded" || len(done.Outputs) != 0 {
+		t.Fatalf("the fixture must fail its content contract after opening, not its size budget: %+v", done)
+	}
+}
+
+func TestStageHostDisambiguatesCanonicalFactCollisions(t *testing.T) {
+	old, request, objects, index := hostFixture(t, map[string]string{"main.go": "package main\nfunc main() {}\n"})
+	if err := old.Close(); err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := os.ReadFile("../../docs/design/plugin-system-v2/templates/manifests/parse.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest = []byte(strings.Replace(string(manifest), plugin.ProcessProtocolV2, plugin.FileJobProtocol, 1))
+	catalog, err := plugin.NewCatalog(t.Context(), index)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := []byte(`{
+		"files":[{"file_id":"file-main","path":"main.go","language":"Go","parse_status":"parsed","reason":null}],
+		"symbols":[
+			{"id":"symbol-one","file_id":"file-main","kind":"function","name":"apply","qualified_name":"main.apply","signature":"func()","location":{"file":"main.go","start_line":10,"start_column":1,"end_line":null,"end_column":null}},
+			{"id":"symbol-two","file_id":"file-main","kind":"function","name":"apply","qualified_name":"main.apply","signature":"func()","location":{"file":"main.go","start_line":10,"start_column":1,"end_line":null,"end_column":null}}
+		],
+		"calls":[
+			{"id":"call-one","caller_ref":"symbol-one","callee_ref":null,"callee_text":"run","location":{"file":"main.go","start_line":12,"start_column":1,"end_line":null,"end_column":null},"resolution":"unresolved","evidence_refs":[]},
+			{"id":"call-two","caller_ref":"symbol-two","callee_ref":null,"callee_text":"run","location":{"file":"main.go","start_line":12,"start_column":1,"end_line":null,"end_column":null},"resolution":"unresolved","evidence_refs":[]}
+		],
+		"native_id_mappings":[]
+	}`)
+	executor := plugin.Executor{Manifest: manifest, PackageDigest: strings.Repeat("f", 64), OperationID: "execute", RunOutputs: func(_ context.Context, _ plugin.Invocation, _ [][]byte) (plugin.RawResult, error) {
+		one := int64(1)
+		return plugin.RawResult{Status: "SUCCEEDED", Coverage: plugin.StageCoverage{Unit: "files", Seen: &one, Analyzed: &one}, Outputs: []plugin.RawOutput{
+			{Port: "code", Kind: "code.facts", SchemaID: "codexploit/code-facts/v2", Bytes: int64(len(code)), SHA256: fmt.Sprintf("%x", sha256.Sum256(code)), MediaType: "application/json", Open: func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(code)), nil }},
+		}}, nil
+	}}
+	host, err := plugin.NewHost(plugin.Deps{Catalog: catalog, Repository: index, Scopes: index, Artifacts: objects, Executors: []plugin.Executor{executor}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = host.Close() })
+	request.PluginID = "example.parse"
+	request.PluginVersion = "0.1.0"
+	request.PackageDigest = executor.PackageDigest
+	request.ID = "colliding-native-facts"
+	request.Budget = plugin.Budget{MaxInputBytes: 500 << 20, MaxOutputBytes: 16 << 20, MaxFiles: 16, TimeoutSeconds: 30}
+	inv, err := host.Execute(t.Context(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done, err := host.Wait(t.Context(), request.Scope, inv.ID)
+	if err != nil || done.Status != "SUCCEEDED" {
+		t.Fatalf("colliding canonical facts were rejected: %+v %v", done, err)
+	}
+	documents, err := host.StandardResults(t.Context(), request.Scope, request.ID, 1<<20)
+	if err != nil || len(documents) != 1 {
+		t.Fatalf("standard results: %+v %v", documents, err)
+	}
+	var payload struct {
+		Symbols []struct {
+			ID string `json:"id"`
+		} `json:"symbols"`
+		Calls []struct {
+			ID     string  `json:"id"`
+			Caller *string `json:"caller_ref"`
+		} `json:"calls"`
+	}
+	if err := json.Unmarshal(documents[0].Data, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Symbols) != 2 || payload.Symbols[0].ID == payload.Symbols[1].ID {
+		t.Fatalf("symbols did not receive distinct canonical identities: %+v", payload.Symbols)
+	}
+	if len(payload.Calls) != 2 || payload.Calls[0].ID == payload.Calls[1].ID {
+		t.Fatalf("calls did not receive distinct canonical identities: %+v", payload.Calls)
+	}
+	callers := map[string]string{}
+	for _, call := range payload.Calls {
+		if call.Caller != nil {
+			callers[call.ID] = *call.Caller
+		}
+	}
+	if callers[payload.Calls[0].ID] == callers[payload.Calls[1].ID] {
+		t.Fatalf("colliding calls lost their caller associations: %+v", payload.Calls)
+	}
+}
+
 func TestFileJobDriverPublishesIndependentBinaryOutputs(t *testing.T) {
 	for _, protocol := range []string{"codexploit/file-job/v1", "codexploit/file-job/v2"} {
 		t.Run(protocol, func(t *testing.T) { fileJobDriverPublishesIndependentBinaryOutputs(t, protocol) })
@@ -165,7 +299,7 @@ import("encoding/json";"os";"path/filepath";"crypto/sha256";"fmt")
 func main(){
  var req struct{Version string ` + "`json:\"api_version\"`" + `;Inputs []struct{ArtifactID string ` + "`json:\"artifact_id\"`" + `} ` + "`json:\"inputs\"`" + `;Invocation string ` + "`json:\"invocation_id\"`" + `; Output string ` + "`json:\"output_directory\"`" + `}
  raw,e:=os.ReadFile(os.Args[2]);if e!=nil{os.Exit(2)};if json.Unmarshal(raw,&req)!=nil{os.Exit(3)}
- if req.Invocation=="bounded-failure" {raw,_=json.Marshal(map[string]any{"api_version":req.Version,"invocation_id":req.Invocation,"status":"FAILED","error_code":"selection_budget_exceeded","outputs":[]any{},"coverage":map[string]any{"unit":"files","seen":0,"analyzed":0,"skipped":0,"failed":0,"truncated":false,"reasons":[]string{}},"limitations":[]string{}});if os.WriteFile(os.Args[4],raw,0600)!=nil{os.Exit(6)};return}
+ if req.Invocation=="bounded-failure" {raw,_=json.Marshal(map[string]any{"api_version":req.Version,"invocation_id":req.Invocation,"status":"FAILED","error_code":"selection_budget_exceeded","outputs":[]any{},"coverage":map[string]any{"unit":"files","seen":7,"analyzed":2,"skipped":5,"failed":0,"truncated":false,"reasons":[]string{}},"limitations":[]string{"joern:frontend=JAVASRC;step=parse;reason=selection_budget_exceeded"}});if os.WriteFile(os.Args[4],raw,0600)!=nil{os.Exit(6)};return}
  if req.Version=="codexploit/file-job/v2" && (len(req.Inputs)!=1 || req.Inputs[0].ArtifactID==""){os.Exit(7)}
  data:=[]byte("independent binary result")
  if e=os.WriteFile(filepath.Join(filepath.Dir(os.Args[2]),req.Output,"native.bin"),data,0600);e!=nil{os.Exit(4)}
@@ -236,6 +370,9 @@ func main(){
 	failed, err = host.Wait(t.Context(), request.Scope, failed.ID)
 	if err != nil || failed.Status != "FAILED" || failed.ErrorCode != "selection_budget_exceeded" || len(failed.Outputs) != 0 {
 		t.Fatalf("file-job failure classification must survive without output publication: %+v %v", failed, err)
+	}
+	if failed.StageCoverage == nil || failed.StageCoverage.Seen == nil || *failed.StageCoverage.Seen != 7 || failed.Coverage.ParsedFiles != 2 || len(failed.Limitations) < 1 {
+		t.Fatalf("file-job failure lost measured coverage or diagnostics: %+v", failed)
 	}
 	request.ID = "native-file-job"
 	workflows := &workflow.Catalog{Repository: index}
@@ -447,6 +584,15 @@ func TestStageHostBindsNativeMappingsToPublishedArtifact(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var currentManifest struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(manifest, &currentManifest); err != nil || currentManifest.Version == "" {
+		t.Fatalf("manifest version: %v", err)
+	}
+	// This regression covers an already published archive-based release.
+	manifest = bytes.ReplaceAll(manifest, []byte(currentManifest.Version), []byte("2.1.1"))
+	manifest = bytes.ReplaceAll(manifest, []byte("codexploit/source-directory/v1"), []byte("codexploit/source-tar/v1"))
 	catalog, err := plugin.NewCatalog(t.Context(), index)
 	if err != nil {
 		t.Fatal(err)

@@ -120,6 +120,8 @@
 
 - 2026-10-26 — #51 补齐攻击面查询与仓库地图工具：新增 `list_entry_points`、`list_sinks`、`get_asg_node` 和 2,000 字节 `repo_map`，入口 / sink 目录独立于已有数据流，支持类型、边界、类别、文件与生成器过滤及稳定分页；节点详情解析源码引用并明确“控制存在不等于有效、静态候选不等于漏洞”。Memory / PostgreSQL 共用 subject-prefix 查询，路径 Agent 原生工具和主 Agent 私有 MCP 复用同一领域服务，未知参数、矛盾筛选和越界响应明确拒绝。新增 `cmd/bench-tools` 真实模型对照：5 个固定任务、每个变体重复 2 次，20/20 样本均通过事实与证据校验；现有 `deepseek-chat` 上旧图谱工具平均 3.70 轮、目录工具平均 2.70 轮，减少 1.00 轮。已通过相关包完整竞态、真实 PostgreSQL、契约、57 条前端测试 / 构建、pinned Staticcheck 与真实模型验收；`internal/app` 全量门禁仍被既有未跟踪 `example_test.go` 阻塞，未修改或计入通过。按交付流程独立提交并关闭，未 push。
 
+- 2026-10-26 — #79 Java 漏洞函数目录与全量高风险 sink 分区查询：`codexploit.joern@2.3.0` 随包固定 30 条 `java-sink-catalog@1.0.0`，覆盖进程、反序列化、表达式、JNDI、SQL / MyBatis / Hibernate、XXE、网络、文件、LDAP 与模板操作；严格解码、完整 receiver / method、危险参数、priority、证据和局限校验，规范摘要不随格式变化。语义阶段独立保存全部目录命中（含零流 sink）和去重节点数，每个 CPG / 类别 / 回退规则进入不可变 partition ledger；高风险最多 80%，其余 20% 按规则公平分配，剩余 CPG 份额滚动保留，`pending` / `truncated` 明确进入 PARTIAL 而不宣称安全。目录版本、摘要、规则和 CPG 固定进入 security facts、ASG、路径和 enhancement；`joern.static-support/v2` 只影响审查顺序。正式页面默认高风险目录并保留未分类探索，`list_sinks` / API 支持类别、规则、receiver、是否有流、文件和生成器筛选。真实封存 Joern 验证 Runtime、ObjectInputStream、XMLDecoder、SpEL、JNDI、XXE、JDBC、MyBatis、Hibernate、Freemarker、Thymeleaf 与 PreparedStatement 反例，以及 `max_flows=4` 下 3/1 分区账本；Memory / 真实 PostgreSQL 重建与并发筛选、相关包三轮竞态、PG 套件、59 条前端测试 / 构建、契约、pinned Staticcheck 与 Docker 构建通过，镜像内封存包确认包含 2.3.0 目录和分区脚本。`internal/app` 全量门禁仍被既有未跟踪 `example_test.go` 阻塞，未修改或计入通过。按交付流程独立提交并关闭，未 push。
+
 ## Agent skills
 
 ### Issue tracker

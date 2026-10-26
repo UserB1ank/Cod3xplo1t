@@ -20,11 +20,11 @@ func TestEnhancementRanksWithoutChangingPinnedPaths(t *testing.T) {
 	if out, err := exec.Command("go", "build", "-trimpath", "-o", binary, ".").CombinedOutput(); err != nil {
 		t.Fatalf("build: %v %s", err, out)
 	}
-	raw := []byte(`{"data":{"paths":[{"id":"b","basis":"hypothesis"},{"id":"a","basis":"data_flow"}],"graph_pins":{"code":"code-fixed","security":"security-fixed"},"omitted":{"count":0,"reasons":[]}}}`)
+	raw := []byte(`{"data":{"paths":[{"id":"b","basis":"hypothesis"},{"id":"a","basis":"data_flow","priority_hint":0.1},{"id":"c","basis":"data_flow","priority_hint":0.95}],"graph_pins":{"code":"code-fixed","security":"security-fixed"},"omitted":{"count":0,"reasons":[]}}}`)
 	if err := os.WriteFile(filepath.Join(root, "paths.json"), raw, 0600); err != nil {
 		t.Fatal(err)
 	}
-	req := pluginsdk.JobRequest{APIVersion: "codexploit/file-job/v2", InvocationID: "inv-enhance", PluginID: "codexploit.joern", PluginVersion: "2.1.1", OperationID: "enhance", Stage: pluginsdk.PathEnhance, OutputDirectory: "outputs", Config: json.RawMessage(`{}`), Budget: pluginsdk.Budget{TimeoutSeconds: 10, MaxInputBytes: 1 << 20, MaxOutputBytes: 1 << 20, MaxOutputFiles: 2}, Inputs: []pluginsdk.LocalInput{{ArtifactID: "paths-fixed", Port: "paths", Kind: "discovery.paths", SchemaID: "codexploit/discovery-paths/v2", Path: "paths.json", Bytes: int64(len(raw)), SHA256: fmtDigest(raw)}}}
+	req := pluginsdk.JobRequest{APIVersion: "codexploit/file-job/v2", InvocationID: "inv-enhance", PluginID: "codexploit.joern", PluginVersion: "2.3.0", OperationID: "enhance", Stage: pluginsdk.PathEnhance, OutputDirectory: "outputs", Config: json.RawMessage(`{}`), Budget: pluginsdk.Budget{TimeoutSeconds: 10, MaxInputBytes: 1 << 20, MaxOutputBytes: 1 << 20, MaxOutputFiles: 2}, Inputs: []pluginsdk.LocalInput{{ArtifactID: "paths-fixed", Port: "paths", Kind: "discovery.paths", SchemaID: "codexploit/discovery-paths/v2", Path: "paths.json", Bytes: int64(len(raw)), SHA256: fmtDigest(raw)}}}
 	request, _ := json.Marshal(req)
 	if err := os.WriteFile(filepath.Join(root, "request.json"), request, 0600); err != nil {
 		t.Fatal(err)
@@ -65,7 +65,7 @@ func TestEnhancementRanksWithoutChangingPinnedPaths(t *testing.T) {
 					Score float64 `json:"score"`
 				}
 			}
-			if json.Unmarshal(data, &got) != nil || got.Source != "paths-fixed" || len(got.Selected) != 2 || got.Selected[0].ID != "a" || got.Selected[0].Rank != 1 || got.Selected[0].Score <= got.Selected[1].Score {
+			if json.Unmarshal(data, &got) != nil || got.Source != "paths-fixed" || len(got.Selected) != 3 || got.Selected[0].ID != "c" || got.Selected[1].ID != "a" || got.Selected[0].Rank != 1 || got.Selected[0].Score <= got.Selected[1].Score {
 				t.Fatalf("selection: %s", data)
 			}
 		}

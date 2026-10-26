@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/open-mcp-ai/Codexploit/internal/asg"
+	"github.com/open-mcp-ai/Codexploit/internal/graph"
 	"github.com/open-mcp-ai/Codexploit/internal/knowledge"
 	"github.com/open-mcp-ai/Codexploit/internal/path"
 	"github.com/open-mcp-ai/Codexploit/internal/scg"
@@ -163,6 +164,21 @@ func TestKnowledgeAPIExploresAFixedSnapshot(t *testing.T) {
 	nodes.decode(t, &nodePage)
 	if len(nodePage.Nodes) == 0 || nodePage.Meta.Layer != knowledge.LayerASG {
 		t.Fatalf("asg nodes: %s", nodes.body)
+	}
+	sinks := do(t, env.ts, http.MethodGet,
+		viewBase+"/sinks?category=sql_execution&partition=unclassified&limit=5", nil, nil)
+	if sinks.status != http.StatusOK {
+		t.Fatalf("sinks: %d %s", sinks.status, sinks.body)
+	}
+	var sinkPage graph.ASGSinkListPage
+	sinks.decode(t, &sinkPage)
+	if sinkPage.Total == 0 || len(sinkPage.Sinks) == 0 ||
+		sinkPage.Sinks[0].Subject != "sink:"+asg.SinkSQL ||
+		sinkPage.Sinks[0].Detail["catalog_id"] != "" {
+		t.Fatalf("unclassified sink page: %s", sinks.body)
+	}
+	if bad := do(t, env.ts, http.MethodGet, viewBase+"/sinks?partition=unknown", nil, nil); bad.status != http.StatusBadRequest || !containsString(bad.body, "invalid_request") {
+		t.Fatalf("invalid sink partition: %d %s", bad.status, bad.body)
 	}
 
 	paths := do(t, env.ts, http.MethodGet, viewBase+"/paths?limit=5", nil, nil)

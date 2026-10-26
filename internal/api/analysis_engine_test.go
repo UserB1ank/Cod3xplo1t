@@ -37,13 +37,13 @@ func TestStageReleaseAPIRegistersDigestBoundBuilds(t *testing.T) {
 	if registered.status != 201 {
 		t.Fatalf("register: %d %s", registered.status, registered.body)
 	}
-	record, err := env.rt.PluginCatalog.Get(t.Context(), "codexploit.joern", "2.1.1")
+	record, err := env.rt.PluginCatalog.Get(t.Context(), "codexploit.joern", "2.3.0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	endpoint := "/api/v2/plugins/codexploit.joern/versions/2.1.1/releases"
+	endpoint := "/api/v2/plugins/codexploit.joern/versions/2.3.0/releases"
 	for _, digest := range []string{strings.Repeat("a", 64), strings.Repeat("b", 64)} {
-		release := plugin.Release{PluginID: "codexploit.joern", PluginVersion: "2.1.1", OS: "linux", Arch: "arm64", BuildID: digest, PackageDigest: digest, ManifestDigest: record.ManifestDigest}
+		release := plugin.Release{PluginID: "codexploit.joern", PluginVersion: "2.3.0", OS: "linux", Arch: "arm64", BuildID: digest, PackageDigest: digest, ManifestDigest: record.ManifestDigest}
 		got := do(t, env.ts, http.MethodPost, endpoint, release, nil)
 		if got.status != 201 {
 			t.Fatalf("build release: %d %s", got.status, got.body)
@@ -54,7 +54,7 @@ func TestStageReleaseAPIRegistersDigestBoundBuilds(t *testing.T) {
 			t.Fatalf("accepted mismatched build identity: %d %s", forged.status, forged.body)
 		}
 	}
-	rows, err := env.rt.PluginCatalog.Repository.(plugin.InstallationRepository).ListPluginReleases(t.Context(), "codexploit.joern", "2.1.1")
+	rows, err := env.rt.PluginCatalog.Repository.(plugin.InstallationRepository).ListPluginReleases(t.Context(), "codexploit.joern", "2.3.0")
 	if err != nil || len(rows) != 2 {
 		t.Fatalf("immutable builds missing: %+v %v", rows, err)
 	}

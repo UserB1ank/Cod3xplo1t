@@ -323,6 +323,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/knowledge/views/{viewID}/neighborhood", s.handleKnowledgeNeighborhood)
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/knowledge/views/{viewID}/asg-neighborhood", s.handleKnowledgeASGNeighborhood)
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/knowledge/views/{viewID}/nodes", s.handleKnowledgeNodes)
+	mux.HandleFunc("GET /api/v1/projects/{projectID}/knowledge/views/{viewID}/sinks", s.handleKnowledgeSinks)
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/knowledge/views/{viewID}/paths", s.handleKnowledgePaths)
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/knowledge/views/{viewID}/code-slice", s.handleKnowledgeSlice)
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/knowledge/views/{viewID}/provenance", s.handleKnowledgeProvenance)

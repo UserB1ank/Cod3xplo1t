@@ -80,7 +80,7 @@ parsing prose:
 | `list_source_files` | 冻结源码路径分页，支持 contains/offset/limit；不依赖已发布图谱。 |
 | `read_source_file` | 文件相对路径、start_line/max_lines；最多 200 行、16 KB，拒绝逃逸、链接、敏感文件和非文本，不依赖图谱。 |
 | `list_entry_points` | 按入口类型、信任边界、文件或生成器分页读取 ASG 入口；返回主体、位置、证据状态、SCG 引用和完整匹配数。 |
-| `list_sinks` | 按 SQL、反序列化、表达式 / JNDI、XXE、进程、网络、文件、LDAP、模板等类别读取全部命中 sink；未产生数据流的 sink 也保留，规则命中不表示可被利用。 |
+| `list_sinks` | 按 SQL / MyBatis / Hibernate、反序列化、表达式 / JNDI、XXE、进程、网络、文件、LDAP、模板等类别读取全部命中 sink；支持高风险目录 / 未分类分区、规则 ID、receiver 类型和是否有流筛选。未产生数据流的 sink 也保留，规则命中不表示可被利用。 |
 | `get_asg_node` | 读取一个 ASG 节点、相邻边、已解析源码证据与限定；控制存在不等于有效，静态候选不等于漏洞成立。 |
 | `repo_map` | 返回不超过 2,000 字节的仓库定向图：主要模块、入口边界、sink 类别、文件未解析率和精确覆盖分母。 |
 

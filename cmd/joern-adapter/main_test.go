@@ -24,7 +24,7 @@ func TestMissingJoernRuntimeReportsUnsupportedWithoutOutputs(t *testing.T) {
 	if out, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v %s", err, out)
 	}
-	request := pluginsdk.JobRequest{APIVersion: "codexploit/file-job/v2", InvocationID: "inv-test", PluginID: "codexploit.joern", PluginVersion: "2.1.1", OperationID: "parse", Stage: pluginsdk.Parse, OutputDirectory: "outputs", Config: json.RawMessage(`{}`), Budget: pluginsdk.Budget{TimeoutSeconds: 120, MaxInputBytes: 1 << 20, MaxOutputBytes: 16 << 20, MaxOutputFiles: 2}}
+	request := pluginsdk.JobRequest{APIVersion: "codexploit/file-job/v2", InvocationID: "inv-test", PluginID: "codexploit.joern", PluginVersion: "2.3.0", OperationID: "parse", Stage: pluginsdk.Parse, OutputDirectory: "outputs", Config: json.RawMessage(`{}`), Budget: pluginsdk.Budget{TimeoutSeconds: 120, MaxInputBytes: 1 << 20, MaxOutputBytes: 16 << 20, MaxOutputFiles: 2}}
 	var source bytes.Buffer
 	tw := tar.NewWriter(&source)
 	body := []byte("package main\nfunc main() {}\n")
@@ -102,7 +102,7 @@ func TestRealJoernGoBinaryParsesFrozenSource(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "source.tar"), source.Bytes(), 0600); err != nil {
 		t.Fatal(err)
 	}
-	request := pluginsdk.JobRequest{APIVersion: "codexploit/file-job/v2", InvocationID: "inv-real-joern", PluginID: "codexploit.joern", PluginVersion: "2.1.1", OperationID: "parse", Stage: pluginsdk.Parse, OutputDirectory: "outputs", Config: json.RawMessage(`{}`), Budget: pluginsdk.Budget{TimeoutSeconds: 180, MaxInputBytes: 1 << 20, MaxOutputBytes: 16 << 20, MaxOutputFiles: 2}, Inputs: []pluginsdk.LocalInput{{ArtifactID: "source-fixed", Port: "source", Kind: "source.snapshot", SchemaID: "codexploit/source-tar/v1", Path: "source.tar", Bytes: int64(source.Len()), SHA256: fmtDigest(source.Bytes())}}}
+	request := pluginsdk.JobRequest{APIVersion: "codexploit/file-job/v2", InvocationID: "inv-real-joern", PluginID: "codexploit.joern", PluginVersion: "2.3.0", OperationID: "parse", Stage: pluginsdk.Parse, OutputDirectory: "outputs", Config: json.RawMessage(`{}`), Budget: pluginsdk.Budget{TimeoutSeconds: 180, MaxInputBytes: 1 << 20, MaxOutputBytes: 16 << 20, MaxOutputFiles: 2}, Inputs: []pluginsdk.LocalInput{{ArtifactID: "source-fixed", Port: "source", Kind: "source.snapshot", SchemaID: "codexploit/source-tar/v1", Path: "source.tar", Bytes: int64(source.Len()), SHA256: fmtDigest(source.Bytes())}}}
 	raw, _ := json.Marshal(request)
 	if err := os.WriteFile(filepath.Join(root, "request.json"), raw, 0600); err != nil {
 		t.Fatal(err)
@@ -195,7 +195,7 @@ func TestRealJoernDoesNotPublishAnEmptyGraphForUnparseableGo(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "source.tar"), archive.Bytes(), 0600); err != nil {
 		t.Fatal(err)
 	}
-	req := pluginsdk.JobRequest{APIVersion: "codexploit/file-job/v2", InvocationID: "broken-go", PluginID: "codexploit.joern", PluginVersion: "2.1.1", OperationID: "parse", Stage: pluginsdk.Parse, OutputDirectory: "outputs", Config: json.RawMessage(`{}`), Budget: pluginsdk.Budget{TimeoutSeconds: 120, MaxInputBytes: 1 << 20, MaxOutputBytes: 16 << 20, MaxOutputFiles: 2}, Inputs: []pluginsdk.LocalInput{{ArtifactID: "source-fixed", Port: "source", Kind: "source.snapshot", SchemaID: "codexploit/source-tar/v1", Path: "source.tar", Bytes: int64(archive.Len()), SHA256: fmtDigest(archive.Bytes())}}}
+	req := pluginsdk.JobRequest{APIVersion: "codexploit/file-job/v2", InvocationID: "broken-go", PluginID: "codexploit.joern", PluginVersion: "2.3.0", OperationID: "parse", Stage: pluginsdk.Parse, OutputDirectory: "outputs", Config: json.RawMessage(`{}`), Budget: pluginsdk.Budget{TimeoutSeconds: 120, MaxInputBytes: 1 << 20, MaxOutputBytes: 16 << 20, MaxOutputFiles: 2}, Inputs: []pluginsdk.LocalInput{{ArtifactID: "source-fixed", Port: "source", Kind: "source.snapshot", SchemaID: "codexploit/source-tar/v1", Path: "source.tar", Bytes: int64(archive.Len()), SHA256: fmtDigest(archive.Bytes())}}}
 	raw, _ := json.Marshal(req)
 	if err := os.WriteFile(filepath.Join(root, "job.json"), raw, 0600); err != nil {
 		t.Fatal(err)
@@ -239,7 +239,7 @@ func TestRealJoernMixedLanguagesUsesEveryMatchingFrontend(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "source.tar"), archive.Bytes(), 0600); err != nil {
 		t.Fatal(err)
 	}
-	req := pluginsdk.JobRequest{APIVersion: "codexploit/file-job/v2", InvocationID: "mixed", PluginID: "codexploit.joern", PluginVersion: "2.1.1", OperationID: "parse", Stage: pluginsdk.Parse, OutputDirectory: "outputs", Config: json.RawMessage(`{"frontend":"AUTO"}`), Budget: pluginsdk.Budget{TimeoutSeconds: 300, MaxInputBytes: 1 << 20, MaxOutputBytes: 64 << 20, MaxOutputFiles: 10}, Inputs: []pluginsdk.LocalInput{{ArtifactID: "frozen-source", Port: "source", Kind: "source.snapshot", SchemaID: "codexploit/source-tar/v1", Path: "source.tar", Bytes: int64(archive.Len()), SHA256: fmtDigest(archive.Bytes())}}}
+	req := pluginsdk.JobRequest{APIVersion: "codexploit/file-job/v2", InvocationID: "mixed", PluginID: "codexploit.joern", PluginVersion: "2.3.0", OperationID: "parse", Stage: pluginsdk.Parse, OutputDirectory: "outputs", Config: json.RawMessage(`{"frontend":"AUTO"}`), Budget: pluginsdk.Budget{TimeoutSeconds: 300, MaxInputBytes: 1 << 20, MaxOutputBytes: 64 << 20, MaxOutputFiles: 10}, Inputs: []pluginsdk.LocalInput{{ArtifactID: "frozen-source", Port: "source", Kind: "source.snapshot", SchemaID: "codexploit/source-tar/v1", Path: "source.tar", Bytes: int64(archive.Len()), SHA256: fmtDigest(archive.Bytes())}}}
 	raw, _ := json.Marshal(req)
 	if err := os.WriteFile(filepath.Join(root, "job.json"), raw, 0600); err != nil {
 		t.Fatal(err)
@@ -290,7 +290,7 @@ func TestRealJoernTaintAndPinnedPaths(t *testing.T) {
 			source := bind("source", "source.snapshot", "codexploit/source-tar/v1", "source-fixed", archive.Bytes())
 			invoke := func(op string, stage pluginsdk.Stage, config string, inputs []pluginsdk.LocalInput) (pluginsdk.JobResult, map[string][]byte) {
 				t.Helper()
-				req := pluginsdk.JobRequest{APIVersion: "codexploit/file-job/v2", InvocationID: op, PluginID: "codexploit.joern", PluginVersion: "2.1.1", OperationID: op, Stage: stage, OutputDirectory: op + "-outputs", Config: json.RawMessage(config), Inputs: inputs, Budget: pluginsdk.Budget{TimeoutSeconds: 180, MaxInputBytes: 64 << 20, MaxOutputBytes: 64 << 20, MaxOutputFiles: 16}}
+				req := pluginsdk.JobRequest{APIVersion: "codexploit/file-job/v2", InvocationID: op, PluginID: "codexploit.joern", PluginVersion: "2.3.0", OperationID: op, Stage: stage, OutputDirectory: op + "-outputs", Config: json.RawMessage(config), Inputs: inputs, Budget: pluginsdk.Budget{TimeoutSeconds: 180, MaxInputBytes: 64 << 20, MaxOutputBytes: 64 << 20, MaxOutputFiles: 16}}
 				raw, _ := json.Marshal(req)
 				_ = os.WriteFile(filepath.Join(root, "job.json"), raw, 0600)
 				out, e := exec.Command(filepath.Join(packageRoot, "bin/joern-adapter"), "--request", filepath.Join(root, "job.json"), "--response", filepath.Join(root, "result.json")).CombinedOutput()
@@ -332,6 +332,43 @@ func TestRealJoernTaintAndPinnedPaths(t *testing.T) {
 			}
 			if json.Unmarshal(flowValues["flows"], &report) != nil || len(report.Flows) != 1 || report.SourceCount < 1 || report.SinkCount != 2 {
 				t.Fatalf("tainted flow only, with matched sink count: %s", flowValues["flows"])
+			}
+
+			if fixture.name == "sample.c" {
+				var payload map[string]any
+				if e := json.Unmarshal(code, &payload); e != nil {
+					t.Fatal(e)
+				}
+				mappings := payload["native_id_mappings"].([]any)
+				original := append([]any{}, mappings...)
+				for _, row := range original {
+					data, _ := json.Marshal(row)
+					var copy map[string]any
+					json.Unmarshal(data, &copy)
+					copy["native_artifact_ref"] = "cpg-broken"
+					mappings = append(mappings, copy)
+				}
+				payload["native_id_mappings"] = mappings
+				mixedCode, _ := json.Marshal(map[string]any{"data": payload})
+				mixedInput := bind("code", "code.facts", "codexploit/code-facts/v2", "code-mixed", mixedCode)
+				broken := bind("cpg", "tool.native", "joern/cpg/v1", "cpg-broken", []byte("invalid CPG; must never produce facts"))
+				partial, partialValues := invoke("taint", pluginsdk.Semantic, config, []pluginsdk.LocalInput{source, mixedInput, cpgInput, broken})
+				if partial.Status != "PARTIAL" || partial.Coverage.Analyzed == nil || *partial.Coverage.Analyzed != 1 || partial.Coverage.Failed == nil || *partial.Coverage.Failed != 1 {
+					t.Fatalf("one bad language discarded real data flow: %+v", partial)
+				}
+				var incomplete struct {
+					Flows           []json.RawMessage `json:"flows"`
+					Failed          []string          `json:"failed_cpgs"`
+					FailedFrontends []string          `json:"failed_frontends"`
+					Truncated       bool              `json:"truncated"`
+				}
+				if e := json.Unmarshal(partialValues["flows"], &incomplete); e != nil || len(incomplete.Flows) != 1 || len(incomplete.Failed) != 1 || len(incomplete.FailedFrontends) != 1 || incomplete.FailedFrontends[0] != "C" || !incomplete.Truncated {
+					t.Fatalf("missing retained flow or explicit gap: %s", partialValues["flows"])
+				}
+				allFailed, _ := invoke("taint", pluginsdk.Semantic, config, []pluginsdk.LocalInput{source, mixedInput, broken})
+				if allFailed.Status != "FAILED" || len(allFailed.Outputs) != 0 {
+					t.Fatalf("all failed CPGs must not become success: %+v", allFailed)
+				}
 			}
 			for _, n := range report.Flows[0].Nodes {
 				if bytes.Contains([]byte(n.Code), []byte("constant")) {

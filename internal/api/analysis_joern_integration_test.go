@@ -34,7 +34,7 @@ func realJoernDefaultAnalysis(t *testing.T, cfg app.Config) {
 	// Hard links preserve the sealed content without copying three GiB for each
 	// test. Jobs themselves still verify and copy the full package privately.
 	cfg.PluginPackages = t.TempDir()
-	target := filepath.Join(cfg.PluginPackages, "codexploit.joern@2.1.1")
+	target := filepath.Join(cfg.PluginPackages, "codexploit.joern@2.3.0")
 	if err := filepath.WalkDir(pkg, func(name string, entry os.DirEntry, err error) error {
 		if err != nil {
 			return err
