@@ -122,6 +122,8 @@
 
 - 2026-10-26 — #79 Java 漏洞函数目录与全量高风险 sink 分区查询：`codexploit.joern@2.3.0` 随包固定 30 条 `java-sink-catalog@1.0.0`，覆盖进程、反序列化、表达式、JNDI、SQL / MyBatis / Hibernate、XXE、网络、文件、LDAP 与模板操作；严格解码、完整 receiver / method、危险参数、priority、证据和局限校验，规范摘要不随格式变化。语义阶段独立保存全部目录命中（含零流 sink）和去重节点数，每个 CPG / 类别 / 回退规则进入不可变 partition ledger；高风险最多 80%，其余 20% 按规则公平分配，剩余 CPG 份额滚动保留，`pending` / `truncated` 明确进入 PARTIAL 而不宣称安全。目录版本、摘要、规则和 CPG 固定进入 security facts、ASG、路径和 enhancement；`joern.static-support/v2` 只影响审查顺序。正式页面默认高风险目录并保留未分类探索，`list_sinks` / API 支持类别、规则、receiver、是否有流、文件和生成器筛选。真实封存 Joern 验证 Runtime、ObjectInputStream、XMLDecoder、SpEL、JNDI、XXE、JDBC、MyBatis、Hibernate、Freemarker、Thymeleaf 与 PreparedStatement 反例，以及 `max_flows=4` 下 3/1 分区账本；Memory / 真实 PostgreSQL 重建与并发筛选、相关包三轮竞态、PG 套件、59 条前端测试 / 构建、契约、pinned Staticcheck 与 Docker 构建通过，镜像内封存包确认包含 2.3.0 目录和分区脚本。`internal/app` 全量门禁仍被既有未跟踪 `example_test.go` 阻塞，未修改或计入通过。按交付流程独立提交并关闭，未 push。
 
+- 2026-10-26 — 用户指定改为只读源码目录的一次审计：新项目导入后直接保存只读目录，不再为新项目计算源码内容摘要、生成源码 TAR 或逐文件完整性清单；旧项目与旧适配路径保持可读。源码文件默认设为只读，Joern / file-job 通过宿主绑定的绝对目录直接分析，未报告的 Java 文件逐项记为 `file_not_in_cpg`。图谱启动预算默认 500 MiB，部署上限 8 GiB；超过 500 MiB 时先返回 `source_size_confirmation_required` 和实际 `source_bytes`，页面确认后才提交 `confirm_source_bytes` 并创建分析。截图对应的 Spring Framework 源码 11,342 文件 / 约 60.6 MiB 已在真实 Joern 4 GiB 堆内成功返回代码与 CPG 产物，`seen=11342`、`analyzed=5286`、`failed=3947`、`skipped=2109`，保持 PARTIAL 和真实缺口，不再出现输入未被消费的 `normalization_failed`。已通过公开 API / 前端确认边界、隔离检出完整 `go test ./... -race -shuffle`、真实 PostgreSQL、三轮竞态压力、`make lint`、前端测试 / 构建、真实 Joern 小样本与 Spring 源码、Docker 镜像构建；提交 `7fc42aa`，未 push。
+
 ## Agent skills
 
 ### Issue tracker
