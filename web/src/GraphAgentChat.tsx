@@ -10,6 +10,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ApiClient } from "./api";
 import { projectAgentConversation } from "./agent-conversation";
+import { AgentConversationFeed } from "./AgentConversationFeed";
 import { AgentToolActivity } from "./AgentToolActivity";
 import { composerAction, insertComposerNewline } from "./assistant-composer";
 import { Markdown } from "./Markdown";
@@ -285,7 +286,12 @@ export function GraphAgentChat({
         )}
       </div>
 
-      <div className="graph-agent-feed" ref={feed} aria-live="polite">
+      <AgentConversationFeed
+        className="graph-agent-feed"
+        label="图谱 Agent 对话历史"
+        busy={loading || busy || !!activeRun}
+        ref={feed}
+      >
         {loading ? (
           <div className="graph-agent-loading">
             <Loader2 size={16} className="spin" /> 读取会话…
@@ -364,15 +370,20 @@ export function GraphAgentChat({
             <Loader2 size={14} className="spin" /> 正在查询当前项目…
           </div>
         )}
-      </div>
+      </AgentConversationFeed>
 
-      {error && <p className="graph-agent-error">{error}</p>}
+      {error && (
+        <p className="graph-agent-error" role="alert">
+          {error}
+        </p>
+      )}
 
       <div className="graph-agent-composer">
         <textarea
           ref={composer}
           rows={3}
           aria-label="与图谱 Agent 快速对话"
+          aria-describedby="graph-agent-composer-help"
           placeholder="询问入口、路径、覆盖或源码事实…"
           value={draft}
           disabled={!canWrite || !available || !session || loading}
@@ -404,7 +415,9 @@ export function GraphAgentChat({
           }}
         />
         <div>
-          <small>回车发送 · Ctrl+回车换行</small>
+          <small id="graph-agent-composer-help">
+            回车发送 · Ctrl+回车换行
+          </small>
           {activeRun ? (
             <button
               type="button"

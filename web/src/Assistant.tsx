@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import type { ApiClient } from "./api";
 import { projectAgentConversation } from "./agent-conversation";
+import { AgentConversationFeed } from "./AgentConversationFeed";
 import { AgentToolActivity } from "./AgentToolActivity";
 import { Badge, EmptyState, Failure, Hint, Panel } from "./components";
 import type {
@@ -573,8 +574,10 @@ export function Assistant({
               </button>
             </div>
 
-            <div
+            <AgentConversationFeed
               className="supervisor-messages"
+              label="主 Agent 对话历史"
+              busy={loading || busy || !!activeRun}
               ref={feed}
               onScroll={() => {
                 const el = feed.current;
@@ -583,7 +586,6 @@ export function Assistant({
                 following.current = near;
                 setShowJump(!near);
               }}
-              aria-live="polite"
             >
               {loading ? (
                 <div className="supervisor-loading">
@@ -668,13 +670,14 @@ export function Assistant({
                   )}
                 </>
               )}
-            </div>
+            </AgentConversationFeed>
 
             {error && <Failure message={error} />}
             <div className="supervisor-composer">
               <textarea
                 ref={composer}
                 aria-label="与主 Agent 对话"
+                aria-describedby="assistant-composer-help"
                 aria-busy={busy}
                 disabled={!canWrite || !available || !session || loading}
                 rows={3}
@@ -698,7 +701,7 @@ export function Assistant({
                 }}
               />
               <div className="supervisor-composer-actions">
-                <small className="muted">
+                <small id="assistant-composer-help" className="muted">
                   回车发送 · Ctrl+回车换行
                 </small>
                 {showJump && (

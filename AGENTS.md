@@ -126,6 +126,8 @@
 
 - 2026-10-27 — #96 Agent 对话不再把历史工具轮次伪装为持续加载：新增前端共享投影 `projectAgentConversation`，区分普通消息、工具结果、聚合工具活动和空答案；同一运行内被工具结果分隔的连续纯工具助手轮次合并为一个“工具活动”，空正文无调用明确显示“本轮未返回可显示文本”。完整 Agent 工作台与图谱侧栏复用同一投影和 `AgentToolActivity`，图谱侧栏不再把 19 条历史工具轮次渲染成 19 份“正在读取当前项目的图谱事实…”。已通过 4 条公开 seam TDD red/green、完整前端 65 项测试与构建；真实 PostgreSQL 认证会话验收显示两处界面均为 1 个“本轮工具活动 / 30 次调用”、加载误导文案 0 份，失败状态保持可见。`make lint` 已执行但被工作区既有的未跟踪 `internal/app/example_test.go` 引用不存在的 `Runtime.EnsureExample` 阻断，与本 Issue 无关，未删除该 WIP；本 Issue 为纯前端修复，未新增文件系统或生命周期路径。按交付流程提交并关闭；未 push。
 
+- 2026-10-27 — #97 Agent 对话流与状态播报具备可访问性语义：新增共享 `AgentConversationFeed`，完整工作台与图谱侧栏的消息历史统一使用有名 `role="log"`、`aria-live="polite"`、`aria-relevant="additions"` 和基于加载 / 发送 / 活动运行的 `aria-busy`；图谱错误提供 `role="alert"`，两个输入框通过稳定 `aria-describedby` 关联各自回车 / 换行说明。已按确认的渲染 seam 完成 `react-dom/server` TDD red/green，完整前端 66 项测试、构建和设计检测通过；真实 PostgreSQL 认证会话确认两处 log 名称、polite/addition 策略、busy 状态及 described-by 指向正确。`make lint` 仍被既有未跟踪 `internal/app/example_test.go` 引用不存在的 `Runtime.EnsureExample` 阻断，与本 Issue 无关；纯前端修复未运行 stress。按交付流程提交并关闭；未 push。
+
 ## Agent skills
 
 ### Issue tracker
