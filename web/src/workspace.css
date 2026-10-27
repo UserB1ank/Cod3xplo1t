@@ -2204,6 +2204,68 @@ textarea::placeholder {
 .supervisor-composer-actions small {
   font-size: 12px;
 }
+.agent-tool-activity {
+  border: 1px solid var(--border);
+  border-left: 3px solid #b9cfc0;
+  border-radius: 6px;
+  background: #f7faf8;
+  color: var(--text);
+}
+.agent-tool-activity > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 8px 12px;
+  cursor: pointer;
+  list-style: none;
+}
+.agent-tool-activity > summary::-webkit-details-marker {
+  display: none;
+}
+.agent-tool-activity > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.agent-tool-activity > summary strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+.agent-tool-activity > summary span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.agent-tool-activity-calls {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--border);
+}
+.agent-tool-activity-calls code {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.agent-tool-activity.compact {
+  border-left-width: 2px;
+}
+.agent-tool-activity.compact > summary {
+  min-height: 34px;
+  padding: 7px 9px;
+}
+.agent-tool-activity.compact > summary strong {
+  font-size: 12px;
+}
+.agent-tool-activity.compact > summary span {
+  font-size: 11px;
+}
+.agent-tool-activity.compact .agent-tool-activity-calls {
+  padding: 8px 9px 9px;
+}
+.agent-tool-activity.compact .agent-tool-activity-calls code {
+  font-size: 11px;
+}
 .workbench-task-list strong {
   font-size: 14px;
 }

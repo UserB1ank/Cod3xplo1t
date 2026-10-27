@@ -124,6 +124,8 @@
 
 - 2026-10-26 — 用户指定改为只读源码目录的一次审计：新项目导入后直接保存只读目录，不再为新项目计算源码内容摘要、生成源码 TAR 或逐文件完整性清单；旧项目与旧适配路径保持可读。源码文件默认设为只读，Joern / file-job 通过宿主绑定的绝对目录直接分析，未报告的 Java 文件逐项记为 `file_not_in_cpg`。图谱启动预算默认 500 MiB，部署上限 8 GiB；超过 500 MiB 时先返回 `source_size_confirmation_required` 和实际 `source_bytes`，页面确认后才提交 `confirm_source_bytes` 并创建分析。截图对应的 Spring Framework 源码 11,342 文件 / 约 60.6 MiB 已在真实 Joern 4 GiB 堆内成功返回代码与 CPG 产物，`seen=11342`、`analyzed=5286`、`failed=3947`、`skipped=2109`，保持 PARTIAL 和真实缺口，不再出现输入未被消费的 `normalization_failed`。已通过公开 API / 前端确认边界、隔离检出完整 `go test ./... -race -shuffle`、真实 PostgreSQL、三轮竞态压力、`make lint`、前端测试 / 构建、真实 Joern 小样本与 Spring 源码、Docker 镜像构建；提交 `7fc42aa`，未 push。
 
+- 2026-10-27 — #96 Agent 对话不再把历史工具轮次伪装为持续加载：新增前端共享投影 `projectAgentConversation`，区分普通消息、工具结果、聚合工具活动和空答案；同一运行内被工具结果分隔的连续纯工具助手轮次合并为一个“工具活动”，空正文无调用明确显示“本轮未返回可显示文本”。完整 Agent 工作台与图谱侧栏复用同一投影和 `AgentToolActivity`，图谱侧栏不再把 19 条历史工具轮次渲染成 19 份“正在读取当前项目的图谱事实…”。已通过 4 条公开 seam TDD red/green、完整前端 65 项测试与构建；真实 PostgreSQL 认证会话验收显示两处界面均为 1 个“本轮工具活动 / 30 次调用”、加载误导文案 0 份，失败状态保持可见。`make lint` 已执行但被工作区既有的未跟踪 `internal/app/example_test.go` 引用不存在的 `Runtime.EnsureExample` 阻断，与本 Issue 无关，未删除该 WIP；本 Issue 为纯前端修复，未新增文件系统或生命周期路径。按交付流程提交并关闭；未 push。
+
 ## Agent skills
 
 ### Issue tracker

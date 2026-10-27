@@ -14,8 +14,11 @@ import {
   ArrowRight,
   ChevronRight,
   Pause,
+  Plus,
 } from "lucide-react";
 import type { ApiClient } from "./api";
+import { projectAgentConversation } from "./agent-conversation";
+import { AgentToolActivity } from "./AgentToolActivity";
 import { Badge, EmptyState, Failure, Hint, Panel } from "./components";
 import type {
   SupervisorMessage,
@@ -247,7 +250,8 @@ export function Assistant({
           (item) => item.session_id === selectedSession.current,
         ) || page.sessions[0];
       if (!current && page.available && canWrite) {
-        current = (await api.createSupervisorSession(projectID)).session;
+        current = (await api.createSupervisorSession(projectID, "", true))
+          .session;
         setSessions([current]);
       }
       if (current) {
@@ -265,6 +269,32 @@ export function Assistant({
     },
     [api, projectID, canWrite],
   );
+
+  const createSession = async () => {
+    if (!canWrite || !available || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const created = (
+        await api.createSupervisorSession(
+          projectID,
+          `会话 ${sessions.length + 1}`,
+        )
+      ).session;
+      selectedSession.current = created.session_id;
+      setSessions((current) => [
+        created,
+        ...current.filter((item) => item.session_id !== created.session_id),
+      ]);
+      setSession(created);
+      setDraft("");
+      composer.current?.focus();
+    } catch (value) {
+      setError(value instanceof Error ? value.message : "新建会话失败");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   useEffect(() => {
     const controller = new AbortController();
@@ -332,6 +362,7 @@ export function Assistant({
       feed.current.scrollTop = feed.current.scrollHeight;
   }, [session?.messages.length, activeRun?.run_id]);
   const latestRun = session?.runs[session.runs.length - 1];
+  const conversation = session ? projectAgentConversation(session) : [];
   const callInfo = new Map<
     string,
     { name: string; arguments: string; messageID: string }
@@ -531,6 +562,15 @@ export function Assistant({
               >
                 <RefreshCw size={14} />
               </button>
+              <button
+                className="icon-button"
+                aria-label="新建主 Agent 会话"
+                title="新建会话"
+                disabled={!canWrite || !available || busy || loading}
+                onClick={() => void createSession()}
+              >
+                <Plus size={14} />
+              </button>
             </div>
 
             <div
@@ -576,15 +616,44 @@ export function Assistant({
                       </p>
                     </div>
                   ) : (
-                    session.messages.map((message) => (
-                      <MessageRow
-                        key={message.message_id}
-                        message={message}
-                        latestRunID={latestRun?.run_id || ""}
-                        callInfo={callInfo}
-                        toolEvents={toolEvents}
-                      />
-                    ))
+                    conversation.map((entry) => {
+                      if (entry.kind === "tool-activity") {
+                        return (
+                          <AgentToolActivity
+                            key={entry.messageID}
+                            calls={entry.calls}
+                            current={
+                              !!entry.runID &&
+                              entry.runID === latestRun?.run_id
+                            }
+                          />
+                        );
+                      }
+                      if (entry.kind === "empty-message") {
+                        return (
+                          <article
+                            className="supervisor-message assistant"
+                            key={entry.message.message_id}
+                          >
+                            <span className="supervisor-role">
+                              {entry.message.run_id === latestRun?.run_id
+                                ? "主 Agent · 本轮"
+                                : "主 Agent"}
+                            </span>
+                            <p>本轮未返回可显示文本。</p>
+                          </article>
+                        );
+                      }
+                      return (
+                        <MessageRow
+                          key={entry.message.message_id}
+                          message={entry.message}
+                          latestRunID={latestRun?.run_id || ""}
+                          callInfo={callInfo}
+                          toolEvents={toolEvents}
+                        />
+                      );
+                    })
                   )}
                   {activeRun && (
                     <div className="supervisor-thinking">
