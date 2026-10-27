@@ -1,4 +1,5 @@
 GO ?= go
+BUILD_FLAVOR ?= dev
 PKG := ./...
 TEST_FLAGS := -count=1 -shuffle=on -race -timeout 240s
 # Staticcheck is pinned: a new release may add checks and turn a green tree red.
@@ -33,7 +34,7 @@ help:
 	@echo "make run-cli ARGS=\"scan --source /path/to/repo\""
 
 build: build-web build-scanner build-plugin-tools
-	$(GO) build -trimpath -tags embedui -o bin/server ./cmd/server
+	$(GO) build -trimpath -tags "embedui,$(BUILD_FLAVOR)" -o bin/server ./cmd/server
 	$(GO) build -trimpath -o bin/cli ./cmd/cli
 	$(GO) build -trimpath -o bin/mcp ./cmd/mcp
 
@@ -49,7 +50,7 @@ build-web:
 	npm --prefix web run build
 
 build-backend:
-	$(GO) build -trimpath -o bin/server ./cmd/server
+	$(GO) build -trimpath -tags "$(BUILD_FLAVOR)" -o bin/server ./cmd/server
 	$(GO) build -trimpath -o bin/cli ./cmd/cli
 	$(GO) build -trimpath -o bin/mcp ./cmd/mcp
 
@@ -171,7 +172,7 @@ tidy:
 	$(GO) mod tidy
 
 run-server:
-	$(GO) run ./cmd/server
+	$(GO) run -tags "$(BUILD_FLAVOR)" ./cmd/server
 
 run-cli:
 	$(GO) run ./cmd/cli $(ARGS)

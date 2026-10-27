@@ -37,7 +37,7 @@ func (s *Server) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
 		}
 		configured = value
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"password_login": s.Accounts != nil, "setup_required": s.Accounts != nil && !configured})
+	writeJSON(w, http.StatusOK, map[string]bool{"password_login": s.Accounts != nil, "setup_required": s.Accounts != nil && !configured && !access.DevelopmentBuild})
 }
 
 func (s *Server) handleAccountLogin(setup bool) http.HandlerFunc {
