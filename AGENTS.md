@@ -128,6 +128,8 @@
 
 - 2026-10-27 — #97 Agent 对话流与状态播报具备可访问性语义：新增共享 `AgentConversationFeed`，完整工作台与图谱侧栏的消息历史统一使用有名 `role="log"`、`aria-live="polite"`、`aria-relevant="additions"` 和基于加载 / 发送 / 活动运行的 `aria-busy`；图谱错误提供 `role="alert"`，两个输入框通过稳定 `aria-describedby` 关联各自回车 / 换行说明。已按确认的渲染 seam 完成 `react-dom/server` TDD red/green，完整前端 66 项测试、构建和设计检测通过；真实 PostgreSQL 认证会话确认两处 log 名称、polite/addition 策略、busy 状态及 described-by 指向正确。`make lint` 仍被既有未跟踪 `internal/app/example_test.go` 引用不存在的 `Runtime.EnsureExample` 阻断，与本 Issue 无关；纯前端修复未运行 stress。按交付流程提交并关闭；未 push。
 
+- 2026-10-27 — #89 Agent 长总结不再撑宽中央会话：消息日志建立 `minmax(0, 1fr)` 单列轨道并对所有直接子项执行 `min-width: 0` / `max-width: 100%`；普通助手消息限制为可用列宽与 72ch 阅读宽度，用户气泡保留右对齐但不再由长 ID 撑宽；Markdown 正文、表格容器同步收缩，表格与代码块继续各自局部横滚。真实 PostgreSQL 长总结会话在 1104 / 1024 / 768 / 390 视口复验：正文 article、消息日志与页面均无横向溢出，表格和代码块分别保留局部滚动，输入框与“回到最新”仍可见。已通过完整前端 66 项测试、构建和设计检测；`make lint` 仍被既有未跟踪 `internal/app/example_test.go` 引用不存在的 `Runtime.EnsureExample` 阻断，与本 Issue 无关；纯前端布局修复未运行 stress。按交付流程提交并关闭；未 push。
+
 ## Agent skills
 
 ### Issue tracker
