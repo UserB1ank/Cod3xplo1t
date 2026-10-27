@@ -1,4 +1,5 @@
 import {
+  ArrowDown,
   Bot,
   ExternalLink,
   Loader2,
@@ -11,6 +12,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ApiClient } from "./api";
 import { projectAgentConversation } from "./agent-conversation";
 import { AgentConversationFeed } from "./AgentConversationFeed";
+import { isFollowingLatest } from "./agent-scroll";
 import { AgentToolActivity } from "./AgentToolActivity";
 import { composerAction, insertComposerNewline } from "./assistant-composer";
 import { Markdown } from "./Markdown";
@@ -61,6 +63,8 @@ export function GraphAgentChat({
   const selectedSession = useRef("");
   const composer = useRef<HTMLTextAreaElement>(null);
   const feed = useRef<HTMLDivElement>(null);
+  const following = useRef(true);
+  const [showJump, setShowJump] = useState(false);
   const sessionID = session?.session_id || "";
   const activeRun = session?.runs.find((run) => run.status === "RUNNING");
   const latestRun = session?.runs.at(-1);
@@ -140,7 +144,9 @@ export function GraphAgentChat({
   }, [activeRun?.run_id, api, projectID, sessionID]);
 
   useEffect(() => {
-    if (feed.current) feed.current.scrollTop = feed.current.scrollHeight;
+    if (following.current && feed.current) {
+      feed.current.scrollTop = feed.current.scrollHeight;
+    }
   }, [session?.messages.length, activeRun?.run_id]);
 
   const createSession = async () => {
@@ -160,6 +166,8 @@ export function GraphAgentChat({
         ...current.filter((item) => item.session_id !== created.session_id),
       ]);
       setSession(created);
+      following.current = true;
+      setShowJump(false);
       setDraft("");
       composer.current?.focus();
     } catch (value) {
@@ -171,6 +179,8 @@ export function GraphAgentChat({
 
   const switchSession = async (id: string) => {
     selectedSession.current = id;
+    following.current = true;
+    setShowJump(false);
     setLoading(true);
     setError("");
     try {
@@ -195,6 +205,8 @@ export function GraphAgentChat({
       return;
     setBusy(true);
     setError("");
+    following.current = true;
+    setShowJump(false);
     try {
       await api.sendSupervisorMessage(
         projectID,
@@ -291,6 +303,13 @@ export function GraphAgentChat({
         label="图谱 Agent 对话历史"
         busy={loading || busy || !!activeRun}
         ref={feed}
+        onScroll={() => {
+          const element = feed.current;
+          if (!element) return;
+          const near = isFollowingLatest(element);
+          following.current = near;
+          setShowJump(!near);
+        }}
       >
         {loading ? (
           <div className="graph-agent-loading">
@@ -418,6 +437,20 @@ export function GraphAgentChat({
           <small id="graph-agent-composer-help">
             回车发送 · Ctrl+回车换行
           </small>
+          {showJump && (
+            <button
+              type="button"
+              className="button secondary"
+              onClick={() => {
+                const element = feed.current;
+                if (element) element.scrollTop = element.scrollHeight;
+                following.current = true;
+                setShowJump(false);
+              }}
+            >
+              回到最新 <ArrowDown size={12} />
+            </button>
+          )}
           {activeRun ? (
             <button
               type="button"

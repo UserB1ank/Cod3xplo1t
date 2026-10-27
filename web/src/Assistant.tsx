@@ -19,6 +19,7 @@ import {
 import type { ApiClient } from "./api";
 import { projectAgentConversation } from "./agent-conversation";
 import { AgentConversationFeed } from "./AgentConversationFeed";
+import { isFollowingLatest } from "./agent-scroll";
 import { AgentToolActivity } from "./AgentToolActivity";
 import { Badge, EmptyState, Failure, Hint, Panel } from "./components";
 import type {
@@ -582,7 +583,7 @@ export function Assistant({
               onScroll={() => {
                 const el = feed.current;
                 if (!el) return;
-                const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+                const near = isFollowingLatest(el);
                 following.current = near;
                 setShowJump(!near);
               }}

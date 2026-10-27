@@ -130,6 +130,8 @@
 
 - 2026-10-27 — #89 Agent 长总结不再撑宽中央会话：消息日志建立 `minmax(0, 1fr)` 单列轨道并对所有直接子项执行 `min-width: 0` / `max-width: 100%`；普通助手消息限制为可用列宽与 72ch 阅读宽度，用户气泡保留右对齐但不再由长 ID 撑宽；Markdown 正文、表格容器同步收缩，表格与代码块继续各自局部横滚。真实 PostgreSQL 长总结会话在 1104 / 1024 / 768 / 390 视口复验：正文 article、消息日志与页面均无横向溢出，表格和代码块分别保留局部滚动，输入框与“回到最新”仍可见。已通过完整前端 66 项测试、构建和设计检测；`make lint` 仍被既有未跟踪 `internal/app/example_test.go` 引用不存在的 `Runtime.EnsureExample` 阻断，与本 Issue 无关；纯前端布局修复未运行 stress。按交付流程提交并关闭；未 push。
 
+- 2026-10-27 — #98 图谱 Agent 对话不再抢占向上阅读位置：新增共享 `agent-scroll` 阈值模块，完整工作台与图谱侧栏统一把距底部 80px 以内或内容不足一屏视为跟随最新；图谱侧栏上滚后新消息 / 运行更新不再强制滚到底部，发送时恢复跟随，并提供“回到最新”按钮。已通过公开 seam TDD red/green、完整前端 67 项测试、构建和设计检测；真实 PostgreSQL 历史会话展开 30 次工具活动后，上滚至 120px 出现“回到最新”，点击后恢复至 540px 底部并隐藏按钮。`make lint` 仍被既有未跟踪 `internal/app/example_test.go` 引用不存在的 `Runtime.EnsureExample` 阻断，与本 Issue 无关；纯前端交互修复未运行 stress。按交付流程提交并关闭；未 push。
+
 ## Agent skills
 
 ### Issue tracker
