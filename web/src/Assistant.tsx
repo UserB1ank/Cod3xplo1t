@@ -21,6 +21,7 @@ import { projectAgentConversation } from "./agent-conversation";
 import { AgentConversationFeed } from "./AgentConversationFeed";
 import { isFollowingLatest } from "./agent-scroll";
 import { AgentToolActivity } from "./AgentToolActivity";
+import { toolDisplayName as toolLabel } from "./agent-tool-label";
 import { Badge, EmptyState, Failure, Hint, Panel } from "./components";
 import type {
   SupervisorMessage,
@@ -35,27 +36,6 @@ import { shortId, clock, eventNames } from "./domain";
 import { taskState, type Task } from "./workbench";
 import { composerAction, insertComposerNewline } from "./assistant-composer";
 import { Markdown } from "./Markdown";
-
-const toolLabels: Record<string, string> = {
-  list_project_operations: "查看项目可用操作",
-  project_api: "执行项目操作",
-  inspect_project: "查看项目记录",
-  list_source_files: "列出源码文件",
-  read_source_file: "读取源码窗口",
-  graph_summary: "读取图谱摘要",
-  list_modules: "列出模块",
-  list_symbols: "检索符号",
-  get_symbol: "读取符号",
-  get_callers: "查询调用方",
-  get_callees: "查询被调用方",
-  find_call_paths: "查找调用路径",
-  get_code_slice: "读取源码片段",
-  list_unresolved_calls: "查看未解析调用",
-};
-
-function toolLabel(name?: string) {
-  return (name && toolLabels[name]) || name || "工具调用";
-}
 
 function objectSummary(args?: string) {
   if (!args) return "";

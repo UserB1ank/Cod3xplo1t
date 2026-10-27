@@ -134,6 +134,8 @@
 
 - 2026-10-27 — #99 图谱 Agent 快速对话阻止并发重复发送并复用失败重试幂等键：新增 `AgentMessageSendState`，同步门闩保证同一时刻只有一个消息发送；相同正文失败重试保留原 `client_message_id`，正文变化生成新键，成功后清理 pending 状态。已通过公开 seam TDD red/green、完整前端 68 项测试、构建和设计检测；使用本地受控代理只拦截 `/messages` 并返回 503，浏览器实际输入后连续重试两次，代理观察到两次请求使用同一 `client_message_id=4a080652-a1f6-4d64-bade-b1660b21cd63`，内容一致且未触达真实模型。`make lint` 仍被既有未跟踪 `internal/app/example_test.go` 引用不存在的 `Runtime.EnsureExample` 阻断，与本 Issue 无关；纯前端交互修复未运行 stress。按交付流程提交并关闭；未 push。
 
+- 2026-10-27 — #100 Agent 工具目录统一中文显示名称：新增 `toolDisplayName` 单一映射并覆盖当前项目 MCP 工具；完整工作台、图谱侧栏、工具结果摘要与聚合工具活动共用该 seam。默认折叠 UI 只显示中文动作名，展开工具活动后同时显示中文名称与原始 RPC 名，未知工具原样保留以便诊断。已通过公开 seam TDD red/green、完整前端 69 项测试、构建和设计检测；真实 PostgreSQL 长会话确认 `repo_map`、`list_entry_points`、`list_sinks`、`get_asg_node`、`open_knowledge_view`、`query_investigation_knowledge` 等均显示中文，展开活动仍可追溯内部名称。`make lint` 仍被既有未跟踪 `internal/app/example_test.go` 引用不存在的 `Runtime.EnsureExample` 阻断，与本 Issue 无关；纯前端文案与映射修复未运行 stress。按交付流程提交并关闭；未 push。
+
 ## Agent skills
 
 ### Issue tracker

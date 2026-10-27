@@ -2258,11 +2258,25 @@ textarea::placeholder {
   padding: 10px 12px 12px;
   border-top: 1px solid var(--border);
 }
+.agent-tool-activity-calls > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
 .agent-tool-activity-calls code {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.5;
   overflow-wrap: anywhere;
+}
+.agent-tool-activity-calls small {
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  text-align: right;
 }
 .agent-tool-activity.compact {
   border-left-width: 2px;

@@ -1,5 +1,6 @@
 import { Wrench } from "lucide-react";
 import type { SupervisorCall } from "./types.ts";
+import { toolDisplayName } from "./agent-tool-label.ts";
 
 export function AgentToolActivity({
   calls,
@@ -21,7 +22,10 @@ export function AgentToolActivity({
       </summary>
       <div className="agent-tool-activity-calls">
         {calls.map((call) => (
-          <code key={call.call_id}>{call.name}</code>
+          <div key={call.call_id}>
+            <code>{toolDisplayName(call.name)}</code>
+            <small>{call.name}</small>
+          </div>
         ))}
       </div>
     </details>
