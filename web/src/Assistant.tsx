@@ -605,11 +605,22 @@ export function Assistant({
                           <AgentToolActivity
                             key={entry.messageID}
                             calls={entry.calls}
+                            resultCount={entry.results.length}
                             current={
                               !!entry.runID &&
                               entry.runID === latestRun?.run_id
                             }
-                          />
+                          >
+                            {entry.results.map((message) => (
+                              <MessageRow
+                                key={message.message_id}
+                                message={message}
+                                latestRunID={latestRun?.run_id || ""}
+                                callInfo={callInfo}
+                                toolEvents={toolEvents}
+                              />
+                            ))}
+                          </AgentToolActivity>
                         );
                       }
                       if (entry.kind === "empty-message") {

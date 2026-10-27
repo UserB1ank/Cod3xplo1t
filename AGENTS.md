@@ -136,6 +136,8 @@
 
 - 2026-10-27 — #100 Agent 工具目录统一中文显示名称：新增 `toolDisplayName` 单一映射并覆盖当前项目 MCP 工具；完整工作台、图谱侧栏、工具结果摘要与聚合工具活动共用该 seam。默认折叠 UI 只显示中文动作名，展开工具活动后同时显示中文名称与原始 RPC 名，未知工具原样保留以便诊断。已通过公开 seam TDD red/green、完整前端 69 项测试、构建和设计检测；真实 PostgreSQL 长会话确认 `repo_map`、`list_entry_points`、`list_sinks`、`get_asg_node`、`open_knowledge_view`、`query_investigation_knowledge` 等均显示中文，展开活动仍可追溯内部名称。`make lint` 仍被既有未跟踪 `internal/app/example_test.go` 引用不存在的 `Runtime.EnsureExample` 阻断，与本 Issue 无关；纯前端文案与映射修复未运行 stress。按交付流程提交并关闭；未 push。
 
+- 2026-10-27 — #101 Agent 长会话聚合全部工具结果并扩大中央阅读区：`projectAgentConversation` 把同一运行的工具调用和结果收进单个 `tool-activity`，带自然语言正文的工具轮次同时保留正文和紧随的活动组，孤立结果仍独立回退；完整工作台仅显示默认折叠的聚合组，展开后可逐项查看工具结果，图谱侧栏仍只显示调用摘要。三栏宽度调整为 190 / 1fr / 210，并在 1400px 以下将右侧上下文栏移到会话下方、保证主会话至少 620px 高。已通过公开 seam TDD red/green、完整前端 70 项测试、构建和设计检测；真实 PostgreSQL 长会话在 1104 / 1280 下正文列分别为 646px / 822px，59 条工具结果全部位于 3 个默认折叠组内，组外工具卡片为 0，页面无横向溢出。`make lint` 仍被既有未跟踪 `internal/app/example_test.go` 引用不存在的 `Runtime.EnsureExample` 阻断，与本 Issue 无关；纯前端布局修复未运行 stress。按交付流程提交并关闭；未 push。
+
 ## Agent skills
 
 ### Issue tracker

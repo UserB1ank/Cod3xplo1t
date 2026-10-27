@@ -156,10 +156,8 @@ test("a run groups repeated tool-only assistant turns into one activity", () => 
 
   assert.equal(activities.length, 1);
   assert.equal(activities[0].calls.length, 2);
-  assert.deepEqual(
-    conversation.map((entry) => entry.kind),
-    ["tool-activity", "tool-result", "tool-result"],
-  );
+  assert.equal(activities[0].results.length, 2);
+  assert.deepEqual(conversation.map((entry) => entry.kind), ["tool-activity"]);
 });
 
 test("an empty assistant answer stays an empty result instead of loading copy", () => {
@@ -182,4 +180,49 @@ test("an empty assistant answer stays an empty result instead of loading copy", 
   assert.equal(conversation.length, 1);
   assert.equal(conversation[0].kind, "empty-message");
   assert.doesNotMatch(JSON.stringify(conversation), /正在读取/);
+});
+
+test("tool calls alongside assistant prose keep both the message and grouped results", () => {
+  const session = sessionWith([
+    {
+      message_id: "assistant-prose",
+      session_id: "session-one",
+      project_id: "project-one",
+      role: "assistant",
+      content: "I will attach the evidence.",
+      calls: [
+        {
+          call_id: "call-attach",
+          name: "attach_evidence",
+          arguments: "{}",
+        },
+      ],
+      run_id: "run-one",
+      status: "complete",
+      seq: 1,
+      created_at: "2026-01-01T00:00:01Z",
+    },
+    {
+      message_id: "tool-attach",
+      session_id: "session-one",
+      project_id: "project-one",
+      role: "tool",
+      content: '{"ok":false,"error":"missing claim"}',
+      tool_call_id: "call-attach",
+      run_id: "run-one",
+      status: "complete",
+      seq: 2,
+      created_at: "2026-01-01T00:00:02Z",
+    },
+  ]);
+
+  const conversation = projectAgentConversation(session);
+  const activity = conversation.find((entry) => entry.kind === "tool-activity");
+
+  assert.deepEqual(
+    conversation.map((entry) => entry.kind),
+    ["message", "tool-activity"],
+  );
+  assert.equal(activity?.calls.length, 1);
+  assert.equal(activity?.results.length, 1);
 });
