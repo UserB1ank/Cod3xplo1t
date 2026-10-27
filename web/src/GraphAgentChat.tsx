@@ -13,6 +13,7 @@ import type { ApiClient } from "./api";
 import { projectAgentConversation } from "./agent-conversation";
 import { AgentConversationFeed } from "./AgentConversationFeed";
 import { isFollowingLatest } from "./agent-scroll";
+import { AgentMessageSendState } from "./agent-send-state";
 import { AgentToolActivity } from "./AgentToolActivity";
 import { composerAction, insertComposerNewline } from "./assistant-composer";
 import { Markdown } from "./Markdown";
@@ -64,6 +65,7 @@ export function GraphAgentChat({
   const composer = useRef<HTMLTextAreaElement>(null);
   const feed = useRef<HTMLDivElement>(null);
   const following = useRef(true);
+  const sendState = useRef(new AgentMessageSendState());
   const [showJump, setShowJump] = useState(false);
   const sessionID = session?.session_id || "";
   const activeRun = session?.runs.find((run) => run.status === "RUNNING");
@@ -203,6 +205,8 @@ export function GraphAgentChat({
       !available
     )
       return;
+    const clientID = sendState.current.begin(text, clientMessageID);
+    if (!clientID) return;
     setBusy(true);
     setError("");
     following.current = true;
@@ -212,13 +216,15 @@ export function GraphAgentChat({
         projectID,
         sessionID,
         text,
-        clientMessageID(),
+        clientID,
       );
       if (content === draft) setDraft("");
       const fresh = await api.supervisorSession(projectID, sessionID);
       setSession(fresh.session);
+      sendState.current.complete(true);
       composer.current?.focus();
     } catch (value) {
+      sendState.current.complete(false);
       setError(value instanceof Error ? value.message : "发送失败");
     } finally {
       setBusy(false);

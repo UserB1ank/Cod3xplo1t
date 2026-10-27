@@ -132,6 +132,8 @@
 
 - 2026-10-27 — #98 图谱 Agent 对话不再抢占向上阅读位置：新增共享 `agent-scroll` 阈值模块，完整工作台与图谱侧栏统一把距底部 80px 以内或内容不足一屏视为跟随最新；图谱侧栏上滚后新消息 / 运行更新不再强制滚到底部，发送时恢复跟随，并提供“回到最新”按钮。已通过公开 seam TDD red/green、完整前端 67 项测试、构建和设计检测；真实 PostgreSQL 历史会话展开 30 次工具活动后，上滚至 120px 出现“回到最新”，点击后恢复至 540px 底部并隐藏按钮。`make lint` 仍被既有未跟踪 `internal/app/example_test.go` 引用不存在的 `Runtime.EnsureExample` 阻断，与本 Issue 无关；纯前端交互修复未运行 stress。按交付流程提交并关闭；未 push。
 
+- 2026-10-27 — #99 图谱 Agent 快速对话阻止并发重复发送并复用失败重试幂等键：新增 `AgentMessageSendState`，同步门闩保证同一时刻只有一个消息发送；相同正文失败重试保留原 `client_message_id`，正文变化生成新键，成功后清理 pending 状态。已通过公开 seam TDD red/green、完整前端 68 项测试、构建和设计检测；使用本地受控代理只拦截 `/messages` 并返回 503，浏览器实际输入后连续重试两次，代理观察到两次请求使用同一 `client_message_id=4a080652-a1f6-4d64-bade-b1660b21cd63`，内容一致且未触达真实模型。`make lint` 仍被既有未跟踪 `internal/app/example_test.go` 引用不存在的 `Runtime.EnsureExample` 阻断，与本 Issue 无关；纯前端交互修复未运行 stress。按交付流程提交并关闭；未 push。
+
 ## Agent skills
 
 ### Issue tracker
