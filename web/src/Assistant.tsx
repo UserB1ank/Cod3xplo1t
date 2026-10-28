@@ -14,6 +14,8 @@ import {
   ArrowRight,
   ChevronRight,
   Pause,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
 } from "lucide-react";
 import type { ApiClient } from "./api";
@@ -173,6 +175,15 @@ export function Assistant({
   const composer = useRef<HTMLTextAreaElement>(null);
   const following = useRef(true);
   const [showJump, setShowJump] = useState(false);
+  const focusStorageKey = `codexploit:agent-focus:${projectID}`;
+  const [focusReading, setFocusReading] = useState(() => {
+    const saved = window.sessionStorage.getItem(focusStorageKey);
+    return saved === null ? true : saved === "true";
+  });
+
+  useEffect(() => {
+    window.sessionStorage.setItem(focusStorageKey, String(focusReading));
+  }, [focusReading, focusStorageKey]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -398,7 +409,9 @@ export function Assistant({
           </p>
         </details>
       </div>
-      <div className="supervisor-layout command-workspace">
+      <div
+        className={`supervisor-layout command-workspace ${focusReading ? "focus-reading" : ""}`.trim()}
+      >
         <aside className="supervisor-tasks">
           <div className="workbench-section-heading">
             <h2>指挥与任务</h2>
@@ -552,6 +565,23 @@ export function Assistant({
                 onClick={() => void createSession()}
               >
                 <Plus size={14} />
+              </button>
+              <button
+                className="focus-reading-toggle"
+                aria-label={
+                  focusReading ? "显示任务与上下文侧栏" : "切换到专注阅读"
+                }
+                title={
+                  focusReading ? "显示任务与上下文侧栏" : "切换到专注阅读"
+                }
+                onClick={() => setFocusReading((current) => !current)}
+              >
+                {focusReading ? (
+                  <PanelLeftOpen size={14} />
+                ) : (
+                  <PanelLeftClose size={14} />
+                )}
+                {focusReading ? "显示侧栏" : "专注阅读"}
               </button>
             </div>
 

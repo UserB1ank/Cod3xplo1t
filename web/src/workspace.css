@@ -1093,6 +1093,25 @@ textarea::placeholder {
   border-radius: 4px;
   border: 1px solid var(--border);
 }
+.focus-reading-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: white;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.focus-reading-toggle:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
 .supervisor-messages {
   border: 0;
   border-radius: 0;
@@ -2356,6 +2375,23 @@ textarea::placeholder {
     border-left: 0;
     border-top: 1px solid var(--border);
   }
+}
+.supervisor-layout.command-workspace.focus-reading {
+  height: clamp(620px, calc(100dvh - 250px), 920px);
+  grid-template-columns: minmax(0, 1fr);
+}
+.supervisor-layout.command-workspace.focus-reading > .supervisor-tasks,
+.supervisor-layout.command-workspace.focus-reading > .supervisor-side {
+  display: none;
+}
+.supervisor-layout.command-workspace.focus-reading .supervisor-main {
+  min-height: 0;
+}
+.supervisor-layout.command-workspace.focus-reading .supervisor-message {
+  max-width: 100%;
+}
+.supervisor-layout.command-workspace.focus-reading .supervisor-message.user {
+  max-width: min(80%, 72ch);
 }
 
 /* Child review: answer first, protocol log on demand. */

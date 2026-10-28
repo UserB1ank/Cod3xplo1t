@@ -138,6 +138,8 @@
 
 - 2026-10-27 — #101 Agent 长会话聚合全部工具结果并扩大中央阅读区：`projectAgentConversation` 把同一运行的工具调用和结果收进单个 `tool-activity`，带自然语言正文的工具轮次同时保留正文和紧随的活动组，孤立结果仍独立回退；完整工作台仅显示默认折叠的聚合组，展开后可逐项查看工具结果，图谱侧栏仍只显示调用摘要。三栏宽度调整为 190 / 1fr / 210，并在 1400px 以下将右侧上下文栏移到会话下方、保证主会话至少 620px 高。已通过公开 seam TDD red/green、完整前端 70 项测试、构建和设计检测；真实 PostgreSQL 长会话在 1104 / 1280 下正文列分别为 646px / 822px，59 条工具结果全部位于 3 个默认折叠组内，组外工具卡片为 0，页面无横向溢出。`make lint` 仍被既有未跟踪 `internal/app/example_test.go` 引用不存在的 `Runtime.EnsureExample` 阻断，与本 Issue 无关；纯前端布局修复未运行 stress。按交付流程提交并关闭；未 push。
 
+- 2026-10-28 — #102 Agent 工作台默认专注阅读并允许恢复侧栏：左右任务/上下文栏默认隐藏，会话正文不再受 72ch 上限，输入区与正文占满可用工作区；标题栏新增“显示侧栏/专注阅读”切换，选择写入项目级 sessionStorage 并在刷新后保持。已通过完整前端 70 项测试、构建和设计检测；真实 PostgreSQL 长会话在 1024 / 1280 下正文列分别为 736px / 992px、消息正文 688px / 944px，侧栏隐藏且无横向溢出；恢复侧栏后任务、上下文和切换按钮均可操作。`make lint` 仍被既有未跟踪 `internal/app/example_test.go` 引用不存在的 `Runtime.EnsureExample` 阻断，与本 Issue 无关；纯前端布局修复未运行 stress。按交付流程提交并关闭；未 push。
+
 ## Agent skills
 
 ### Issue tracker
