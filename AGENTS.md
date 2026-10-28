@@ -140,6 +140,8 @@
 
 - 2026-10-28 — #102 Agent 工作台默认专注阅读并允许恢复侧栏：左右任务/上下文栏默认隐藏，会话正文不再受 72ch 上限，输入区与正文占满可用工作区；标题栏新增“显示侧栏/专注阅读”切换，选择写入项目级 sessionStorage 并在刷新后保持。已通过完整前端 70 项测试、构建和设计检测；真实 PostgreSQL 长会话在 1024 / 1280 下正文列分别为 736px / 992px、消息正文 688px / 944px，侧栏隐藏且无横向溢出；恢复侧栏后任务、上下文和切换按钮均可操作。`make lint` 仍被既有未跟踪 `internal/app/example_test.go` 引用不存在的 `Runtime.EnsureExample` 阻断，与本 Issue 无关；纯前端布局修复未运行 stress。按交付流程提交并关闭；未 push。
 
+- 2026-10-28 — #103 Agent 专注阅读会话语义字号收紧并支持加高/缩放：对话与 Markdown 正文从 16px 调整为 14px，标题、行内代码、代码块和表格同步收紧，输入框为 15px；专注容器取消 920px 上限，改为 `max(720px, calc(100dvh - 180px))`，桌面端启用 `resize: vertical`，用户可继续手动加高。已通过完整前端 70 项测试、构建和设计检测；1024×800 与 1280×900 实测布局高度 720px、正文 14px、可纵向缩放，页面无横向溢出，侧栏隐藏和切换保持正常。`make lint` 仍被既有未跟踪 `internal/app/example_test.go` 引用不存在的 `Runtime.EnsureExample` 阻断，与本 Issue 无关；纯前端样式修复未运行 stress。按交付流程提交并关闭；未 push。
+
 ## Agent skills
 
 ### Issue tracker

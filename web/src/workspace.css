@@ -1132,7 +1132,7 @@ textarea::placeholder {
   height: 30px;
 }
 .supervisor-empty strong {
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 550;
 }
 .supervisor-empty p {
@@ -1972,16 +1972,16 @@ textarea::placeholder {
   width: 100%;
   min-width: 0;
   max-width: 72ch;
-  font-size: 16px;
-  line-height: 1.8;
+  font-size: 14px;
+  line-height: 1.7;
   justify-self: start;
   overflow-wrap: anywhere;
 }
 .supervisor-message.user {
   width: auto;
   max-width: min(90%, 72ch);
-  font-size: 15px;
-  line-height: 1.75;
+  font-size: 14px;
+  line-height: 1.7;
   justify-self: end;
 }
 .supervisor-message p {
@@ -1991,14 +1991,14 @@ textarea::placeholder {
   margin-bottom: 0;
 }
 .supervisor-role {
-  font-size: 12px;
+  font-size: 11px;
   margin-bottom: 8px;
 }
 .supervisor-heading p {
-  font-size: 13px;
+  font-size: 12px;
 }
 .supervisor-heading h2 {
-  font-size: 16px;
+  font-size: 15px;
 }
 .supervisor-heading select {
   font-size: 12px;
@@ -2025,8 +2025,8 @@ textarea::placeholder {
 .markdown-body {
   min-width: 0;
   max-width: 100%;
-  font-size: 16px;
-  line-height: 1.8;
+  font-size: 14px;
+  line-height: 1.72;
   color: var(--text);
   overflow-wrap: anywhere;
 }
@@ -2049,10 +2049,10 @@ textarea::placeholder {
   font-weight: 600;
 }
 .markdown-body h3 {
-  font-size: 19px;
+  font-size: 18px;
 }
 .markdown-body h4 {
-  font-size: 17px;
+  font-size: 16px;
 }
 .markdown-body ul,
 .markdown-body ol {
@@ -2063,7 +2063,7 @@ textarea::placeholder {
   margin: 4px 0;
 }
 .markdown-body code {
-  font-size: 14px;
+  font-size: 13px;
   background: #eef3ef;
   border-radius: 4px;
   padding: 1px 5px;
@@ -2081,8 +2081,8 @@ textarea::placeholder {
 .markdown-body pre.markdown-code code {
   background: transparent;
   padding: 0;
-  font-size: 14px;
-  line-height: 1.7;
+  font-size: 13px;
+  line-height: 1.65;
   white-space: pre;
 }
 .markdown-body blockquote {
@@ -2119,8 +2119,8 @@ textarea::placeholder {
   vertical-align: top;
   padding: 9px 12px;
   border-bottom: 1px solid var(--border);
-  font-size: 14px;
-  line-height: 1.65;
+  font-size: 13px;
+  line-height: 1.6;
 }
 .markdown-table th {
   background: #f6f9f7;
@@ -2225,7 +2225,7 @@ textarea::placeholder {
   line-height: 1.6;
 }
 .supervisor-composer textarea {
-  font-size: 16px;
+  font-size: 15px;
   line-height: 1.7;
   min-height: 96px;
 }
@@ -2376,8 +2376,17 @@ textarea::placeholder {
     border-top: 1px solid var(--border);
   }
 }
+@media (min-width: 851px) {
+  .supervisor-layout.command-workspace {
+    resize: vertical;
+    overflow: hidden;
+  }
+}
 .supervisor-layout.command-workspace.focus-reading {
-  height: clamp(620px, calc(100dvh - 250px), 920px);
+  height: max(720px, calc(100dvh - 180px));
+  max-height: none;
+  overflow: auto;
+  resize: vertical;
   grid-template-columns: minmax(0, 1fr);
 }
 .supervisor-layout.command-workspace.focus-reading > .supervisor-tasks,
