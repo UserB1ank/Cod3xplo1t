@@ -2402,6 +2402,43 @@ textarea::placeholder {
 .supervisor-layout.command-workspace.focus-reading .supervisor-message.user {
   max-width: min(80%, 72ch);
 }
+main#workspace-content:has(.supervisor-layout.command-workspace.focus-reading) {
+  padding-top: 20px;
+}
+main#workspace-content:has(.supervisor-layout.command-workspace.focus-reading)
+  .page-heading {
+  min-height: 42px;
+  margin-bottom: 8px;
+  gap: 16px;
+  align-items: center;
+}
+main#workspace-content:has(.supervisor-layout.command-workspace.focus-reading)
+  .page-heading
+  .eyebrow,
+main#workspace-content:has(.supervisor-layout.command-workspace.focus-reading)
+  .page-heading
+  > div
+  > p {
+  display: none;
+}
+main#workspace-content:has(.supervisor-layout.command-workspace.focus-reading)
+  .page-heading
+  h1 {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.15;
+}
+main#workspace-content:has(.supervisor-layout.command-workspace.focus-reading)
+  .page-heading
+  .heading-actions {
+  padding-top: 0;
+}
+main#workspace-content:has(.supervisor-layout.command-workspace.focus-reading)
+  .agent-workspace-summary {
+  min-height: 28px;
+  margin: 0 0 8px;
+  gap: 16px;
+}
 
 /* Child review: answer first, protocol log on demand. */
 .child-review-main {
