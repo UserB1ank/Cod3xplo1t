@@ -33,6 +33,7 @@ type SupervisorRun struct {
 	ID               string                `json:"run_id"`
 	SessionID        string                `json:"session_id"`
 	ProjectID        string                `json:"project_id"`
+	AuditID          string                `json:"audit_id,omitempty"`
 	Status           string                `json:"status"`
 	Runtime          string                `json:"runtime"`
 	Model            string                `json:"model"`
@@ -99,6 +100,7 @@ type SupervisorSession struct {
 	ID         string              `json:"session_id"`
 	ProjectID  string              `json:"project_id"`
 	SnapshotID string              `json:"snapshot_id"`
+	AuditID    string              `json:"audit_id,omitempty"`
 	Title      string              `json:"title"`
 	State      string              `json:"state"`
 	Messages   []SupervisorMessage `json:"messages"`

@@ -6,6 +6,8 @@
 
 暂停运行保存 Checkpoint，并可从最新 `PAUSED/PARTIAL` Segment 创建 Continue；新 Segment 复用原用户消息、保存 `resume_of` / `root_run_id`，不重置预算。重复的相同失败工具调用在两次后熔断，72/81/86 轮软阈值各提示一次。执行 owner、heartbeat 和 lease 随会话保存；过期租约在下一次读取时恢复为 `PAUSED(recovery)`。
 
+主 Agent 与路径 Agent 共用审计级 token 账本。每次模型请求前先原子预留输入上界和输出上限，预算不足时请求不会发出，运行以 `PAUSED(global_budget)` 保存检查点；审批 grant / reject 需要 writer 和当前账本版本。持久化对话完整保留，送到模型的视图按 256 KiB / 30k token 上限整轮裁剪，不会发送截断 JSON 或孤立 tool result。
+
 2026-10-26 新增调查知识工具：`propose_claim`、`open_question`、`attach_evidence`、`query_investigation_knowledge`，通过正式领域接口保存猜想、待解问题和支持/反对证据，并在调查前复用已有知识。主会话运行来源由宿主绑定，取消后的迟到写入拒绝。它们不启动后台调查、不自动解决问题，也不提升验证裁定。合同见[调查知识](investigation-knowledge.md)。
 
 主 Agent 可以读取当前项目全部业务记录，并通过与页面相同的正式接口操作项目：分析、任务、路径、Agent 运行、工作流、插件调用、知识发布、发现分级、报告、产物及项目管理。后台保存发送者的认证身份上下文；接口的角色要求、CAS、幂等、生命周期、预算和验证审批保持有效。管理员通过页面发起的主 Agent 对话具有当前项目的完整应用权限。此范围依据维护者确认扩展了早期只读会话设计。

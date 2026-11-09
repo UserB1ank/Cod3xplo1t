@@ -71,6 +71,7 @@ export function terminalRunFallback(
       time_limit: "运行时间上限",
       stuck: "重复无进展工具调用",
       recovery: "执行宿主已中断",
+      global_budget: "审计级 token 预算耗尽",
       user_cancelled: "用户取消",
       model_error: "模型调用失败",
       internal_error: "内部错误",

@@ -35,6 +35,7 @@ import type {
   SupervisorMessage,
   SupervisorRun,
   SupervisorSession,
+  SupervisorBudgetView,
   PathSubtask,
   AuditPath,
   AuditEvent,
@@ -44,6 +45,7 @@ import { shortId, clock, eventNames } from "./domain";
 import { taskState, type Task } from "./workbench";
 import { composerAction, insertComposerNewline } from "./assistant-composer";
 import { Markdown } from "./Markdown";
+import { supervisorBudgetRecovery, supervisorBudgetSummary } from "./supervisor-budget";
 
 function objectSummary(args?: string) {
   if (!args) return "";
@@ -179,6 +181,9 @@ export function Assistant({
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [budget, setBudget] = useState<SupervisorBudgetView>();
+  const [budgetBusy, setBudgetBusy] = useState(false);
+  const [budgetError, setBudgetError] = useState("");
   const sessionID = session?.session_id || "";
   const activeRun = session?.runs.find(
     (run) => run.status === "RUNNING" || run.status === "FINALIZING",
@@ -200,6 +205,24 @@ export function Assistant({
   useEffect(() => {
     window.sessionStorage.setItem(focusStorageKey, String(focusReading));
   }, [focusReading, focusStorageKey]);
+
+  useEffect(() => {
+    if (!sessionID) {
+      setBudget(undefined);
+      return;
+    }
+    const controller = new AbortController();
+    setBudgetError("");
+    api
+      .supervisorBudget(projectID, sessionID, controller.signal)
+      .then(setBudget)
+      .catch((value) => {
+        if (!controller.signal.aborted) {
+          setBudgetError(value instanceof Error ? value.message : "读取审计预算失败");
+        }
+      });
+    return () => controller.abort();
+  }, [api, projectID, sessionID, revision]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -921,6 +944,84 @@ export function Assistant({
                   </dd>
                 </div>
                 <div>
+                  <dt>审计额度</dt>
+                  <dd>
+                    {budget
+                      ? supervisorBudgetSummary(budget.budget)
+                      : budgetError || "读取中…"}
+                  </dd>
+                </div>
+                {budget && (latestRun.status === "PAUSED" || latestRun.status === "PARTIAL") && (
+                  <div>
+                    <dt>恢复动作</dt>
+                    <dd>
+                      {supervisorBudgetRecovery(latestRun)}
+                      {canWrite ? (
+                        <span className="supervisor-budget-actions">
+                          <button
+                            className="button secondary"
+                            disabled={budgetBusy}
+                            onClick={() => {
+                              setBudgetBusy(true);
+                              setBudgetError("");
+                              api
+                                .grantSupervisorBudget(
+                                  projectID,
+                                  sessionID,
+                                  5000,
+                                  "approved",
+                                  "WebUI 审批追加 5000 tokens",
+                                  budget.budget.version,
+                                )
+                                .then(setBudget)
+                                .catch((value) =>
+                                  setBudgetError(
+                                    value instanceof Error ? value.message : "预算审批失败",
+                                  ),
+                                )
+                                .finally(() => setBudgetBusy(false));
+                            }}
+                          >
+                            <Plus size={12} /> 追加 5000
+                          </button>
+                          <button
+                            className="button secondary"
+                            disabled={budgetBusy}
+                            onClick={() => {
+                              setBudgetBusy(true);
+                              setBudgetError("");
+                              api
+                                .grantSupervisorBudget(
+                                  projectID,
+                                  sessionID,
+                                  5000,
+                                  "rejected",
+                                  "WebUI 拒绝追加预算",
+                                  budget.budget.version,
+                                )
+                                .then(setBudget)
+                                .catch((value) =>
+                                  setBudgetError(
+                                    value instanceof Error ? value.message : "预算审批失败",
+                                  ),
+                                )
+                                .finally(() => setBudgetBusy(false));
+                            }}
+                          >
+                            拒绝申请
+                          </button>
+                        </span>
+                      ) : null}
+                    </dd>
+                  </div>
+                )}
+                {budgetError && (
+                  <div>
+                    <dt>审计额度错误</dt>
+                    <dd>{budgetError}</dd>
+                  </div>
+                )}
+                <div>
                   <dt>运行预算</dt>
                   <dd>
                     {latestRun.model_turns ?? "未记录"} /{" "}
@@ -1095,6 +1196,7 @@ function stopReasonLabel(reason?: string) {
         time_limit: "运行时间上限",
         stuck: "无进展熔断",
         recovery: "执行宿主已中断",
+        global_budget: "审计级 token 预算耗尽",
         budget_exhausted: "审计预算耗尽",
         budget_paused: "预算暂停，已保存检查点",
         invalid_output: "输出校验失败",

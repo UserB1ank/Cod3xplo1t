@@ -4,12 +4,45 @@ import (
 	"context"
 	"errors"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/open-mcp-ai/Codexploit/internal/testpostgres"
 	"github.com/open-mcp-ai/Codexploit/migrations"
 )
+
+func TestPostgresSupervisorAuditBudgetCannotOversellAcrossInstances(t *testing.T) {
+	a, b := postgresKnowledgeStores(t)
+	var group sync.WaitGroup
+	results := make(chan error, 2)
+	for _, store := range []*SQL{a, b} {
+		group.Add(1)
+		go func(store *SQL) {
+			defer group.Done()
+			_, err := store.ReserveAuditTokens("supervisor-budget-shared", 40000)
+			results <- err
+		}(store)
+	}
+	group.Wait()
+	close(results)
+	success := 0
+	for err := range results {
+		if err == nil {
+			success++
+		}
+	}
+	if success != 1 {
+		t.Fatalf("concurrent cross-instance reservations succeeded %d times, want 1", success)
+	}
+	budget, err := a.GetAuditBudget("supervisor-budget-shared")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if budget.ReservedTokens != 40000 || budget.UsedTokens != 0 {
+		t.Fatalf("shared budget = %+v", budget)
+	}
+}
 
 func TestPostgresSupervisorRunFenceRejectsThePreviousOwner(t *testing.T) {
 	a, b := postgresKnowledgeStores(t)

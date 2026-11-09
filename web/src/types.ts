@@ -44,7 +44,7 @@ export interface SupervisorMessage {
   status: string; seq: number; created_at: string;
 }
 export interface SupervisorRun {
-  run_id: string; session_id: string; project_id: string; status: string; runtime: string;
+  run_id: string; session_id: string; project_id: string; audit_id?: string; status: string; runtime: string;
   model: string; config_version: string; prompt_version: string; tool_digest: string;
   stop_reason?: string; model_turns?: number; tool_calls?: number;
   tool_errors?: number; blocked_tool_calls?: number;
@@ -67,7 +67,7 @@ export interface SupervisorEvent {
   summary?: string; detail?: Record<string, string>; created_at: string;
 }
 export interface SupervisorSession {
-  session_id: string; project_id: string; snapshot_id: string; title: string; state: string;
+  session_id: string; project_id: string; snapshot_id: string; audit_id?: string; title: string; state: string;
   messages: SupervisorMessage[]; runs: SupervisorRun[]; events: SupervisorEvent[];
   created_at: string; updated_at: string; version: number;
 }
@@ -181,6 +181,13 @@ export interface AuditBudget {
   used_tokens: number;
   version: number;
   updated_at?: string;
+}
+
+export interface SupervisorBudgetView {
+  api_version: 'codexploit/v1';
+  session_id: string;
+  budget: AuditBudget;
+  grants: BudgetGrant[];
 }
 
 export interface BudgetGrant {

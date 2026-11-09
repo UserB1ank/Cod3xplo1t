@@ -51,10 +51,29 @@ func (s *Service) finalizeBoundary(
 	}
 	finalizerCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
 	defer cancel()
-	completion, err := llm.Complete(finalizerCtx, cfg, []llm.Message{
+	messages := []llm.Message{
 		{Role: "system", Content: finalizerPrompt},
 		{Role: "user", Content: string(raw)},
-	}, nil, "")
+	}
+	budgetStore, err := s.budgetStore()
+	if err != nil {
+		return pauseTemplate(stopReason, rounds, tools), "template", 0, 0
+	}
+	reserve := estimateSupervisorTokens(messages, nil) + cfg.MaxOutputTokens
+	if _, err := budgetStore.ReserveAuditTokens(run.AuditID, reserve); err != nil {
+		return pauseTemplate(stopReason, rounds, tools), "template", 0, 0
+	}
+	completion, err := llm.Complete(finalizerCtx, cfg, messages, nil, "")
+	used := 0
+	if err == nil {
+		used = completion.InputTokens + completion.OutputTokens
+		if !completion.UsageReported {
+			used = reserve
+		}
+	}
+	if settleErr := budgetStore.SettleAuditTokens(run.AuditID, reserve, used); settleErr != nil {
+		return pauseTemplate(stopReason, rounds, tools), "template", 0, 0
+	}
 	if err != nil {
 		return pauseTemplate(stopReason, rounds, tools), "template", 0, 0
 	}
@@ -98,6 +117,41 @@ func (s *Service) pauseAtBoundary(
 		input: input + finalizerInput, output: output + finalizerOutput,
 		rounds: rounds, tools: tools,
 	})
+}
+
+func (s *Service) pauseGlobalBudget(ctx context.Context, session storage.SupervisorSession, run storage.SupervisorRun, rounds, tools, input, output int, budgetErr error) {
+	if latest, err := s.Store.GetSupervisorSession(ctx, session.ProjectID, session.ID); err == nil {
+		session = latest
+		for _, value := range session.Runs {
+			if value.ID == run.ID {
+				run = value
+				break
+			}
+		}
+	}
+	detail := "audit token budget cannot permit the next model request"
+	if budgetErr != nil {
+		detail += ": " + budgetErr.Error()
+	}
+	checkpoint := buildCheckpoint(session, run, StopGlobalBudget, rounds, tools, input, output, detail)
+	_ = s.updateRun(ctx, session.ProjectID, session.ID, run, func(value *storage.SupervisorRun) {
+		value.Status = RunFinalizing
+		value.StopReason = StopGlobalBudget
+		value.Checkpoint = checkpoint
+		value.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+		value.Version++
+	})
+	s.finishRun(finishOptions{
+		projectID: session.ProjectID, sessionID: session.ID, runID: run.ID,
+		owner: run.ExecutionOwner, epoch: run.LeaseEpoch,
+		status: RunPaused, code: StopGlobalBudget, stopReason: StopGlobalBudget,
+		message: detail, terminalText: globalBudgetTemplate(), messageKind: "paused", finalizerSource: "template",
+		input: input, output: output, rounds: rounds, tools: tools,
+	})
+}
+
+func globalBudgetTemplate() string {
+	return "本次运行已到达审计级 token 预算上界，宿主在发送下一次模型请求前停止并用模板保存了可恢复暂停。已有消息、工具结果、用量和检查点均已保留；需要审批追加预算后继续新的 Run Segment。"
 }
 
 func pauseTemplate(stopReason string, rounds, tools int) string {

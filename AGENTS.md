@@ -154,6 +154,8 @@
 
 - 2026-11-09 — #115 为主 Agent Run 增加 owner/epoch 写入栅栏：Supervisor session 新增带锁的 fenced save，所有模型响应、tool result、event、checkpoint、pause/finalize 与 investigation claim 都同时核对 execution owner 和单调 lease epoch；过期 `RUNNING/FINALIZING` 仅允许新 owner 以更高 epoch 原子接管并恢复为 `PAUSED(recovery)`。旧 owner 的迟到 message、tool result、checkpoint、终态和 in-run cancel 不进入历史；Continue 只从最新 `PAUSED/PARTIAL` 创建新 Segment，旧 Segment 不能复活。正式工作台与图谱侧栏区分 RUNNING、FINALIZING、PAUSED、PARTIAL、FAILED、CANCELLED，并显示可继续状态。覆盖 Memory / 真实 PostgreSQL 双连接 fencing、恢复 epoch、旧 owner 拒绝、重启与单所有者事件序列；隔离提交树通过 1,473 项全量测试、相关四包竞态、三轮完整 `make test-stress`、真实 PostgreSQL、合约、前端测试/构建、gofmt、vet 与 pinned Staticcheck。主工作区 `make lint` 仍被既有未跟踪 `internal/app/example_test.go` 阻断，与本 Issue 无关。按交付流程提交并关闭；未 push。
 
+- 2026-11-09 — #116 主 Agent 请求前 token 许可与上下文硬预算：Supervisor session/run 固化审计预算 ID，每次真实模型请求（含 Finalizer）在发出前通过现有审计级 token 账本原子预留“保守输入估算 + 输出上限”，响应后结算实际使用；并发跨实例预留不能超卖。额度不足时 provider 未被调用，运行以 `PAUSED(global_budget)` 保存检查点、用量和可见终态；Continue 复用同一累计账本，不重置额度。模型视图按 256 KiB / 30k token 估算上限整轮裁剪，完整持久化历史保留，tool call/result 仅按完整配对进入上下文，并记录 `context_history_trimmed`。新增 writer + ledger version CAS 的预算 grant/reject API 与页面，显示已用、预留、剩余、上限和恢复动作。隔离提交树通过 1,476 项全量测试、相关四包竞态、三轮完整 `make test-stress`、真实 PostgreSQL 双实例并发预留、合约、前端测试/构建、gofmt、vet 与 pinned Staticcheck。主工作区 `make lint` 仍被既有未跟踪 `internal/app/example_test.go` 阻断，与本 Issue 无关。按交付流程提交并关闭；未 push。
+
 ## Agent skills
 
 ### Issue tracker

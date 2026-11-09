@@ -4,6 +4,7 @@
     "session_id": "ss-example",
     "project_id": "proj-example",
     "snapshot_id": "snap-example",
+    "audit_id": "audit-example",
     "title": "默认会话",
     "state": "ACTIVE",
     "messages": [
@@ -37,6 +38,7 @@
         "run_id": "srun-example",
         "session_id": "ss-example",
         "project_id": "proj-example",
+        "audit_id": "audit-example",
         "status": "SUCCEEDED",
         "runtime": "llm",
         "model": "example-model",

@@ -2064,6 +2064,12 @@ textarea::placeholder {
 .supervisor-pin dd {
   font-size: 12px;
 }
+.supervisor-budget-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
 .supervisor-boundary {
   font-size: 11px;
 }

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/open-mcp-ai/Codexploit/internal/agent"
 	"github.com/open-mcp-ai/Codexploit/internal/llm"
 	"github.com/open-mcp-ai/Codexploit/internal/storage"
 	"github.com/open-mcp-ai/Codexploit/internal/supervisor"
@@ -117,6 +118,10 @@ func TestProjectSupervisorSessionAndConversation(t *testing.T) {
 		run.VisibleMessageID == "" || run.ExecutionOwner == "" || run.LeaseEpoch <= 0 {
 		t.Fatalf("successful run facts = %+v", run)
 	}
+	budget, err := env.rt.Store.GetAuditBudget(session.AuditID)
+	if err != nil || budget.UsedTokens != run.InputTokens+run.OutputTokens || budget.ReservedTokens != 0 {
+		t.Fatalf("settled supervisor budget = %+v err=%v", budget, err)
+	}
 	var assistant bool
 	for _, message := range session.Messages {
 		if message.Role == "assistant" && strings.Contains(message.Content, "项目助手") {
@@ -158,6 +163,58 @@ func TestProjectSupervisorReportsUnavailableModel(t *testing.T) {
 	created := do(t, env.ts, http.MethodPost, base, map[string]any{"api_version": "codexploit/v1"}, nil)
 	if created.status != http.StatusConflict || !strings.Contains(string(created.body), "agent_unavailable") {
 		t.Fatalf("unavailable session = %d %s", created.status, created.body)
+	}
+}
+
+func TestProjectSupervisorBudgetUsesWriterAndLedgerVersion(t *testing.T) {
+	env := newTestEnv(t, false)
+	configureSupervisorProvider(t, env)
+	projectID := createAnalysisProject(t, env, asgFixtureSource(t))
+	base := "/api/v1/projects/" + projectID + "/agent-sessions"
+	created := do(t, env.ts, http.MethodPost, base, map[string]any{"api_version": "codexploit/v1"}, nil)
+	var page struct {
+		Session storage.SupervisorSession `json:"session"`
+	}
+	created.decode(t, &page)
+	budgetURL := base + "/" + page.Session.ID + "/budget"
+	read := doAs(t, env.ts, readerSecret, http.MethodGet, budgetURL, nil, nil)
+	var current struct {
+		Budget agent.AuditBudget `json:"budget"`
+	}
+	read.decode(t, &current)
+	if read.status != http.StatusOK || current.Budget.LimitTokens != agent.DefaultAuditTokenBudget || current.Budget.Version == 0 {
+		t.Fatalf("read supervisor budget = %d %s", read.status, read.body)
+	}
+	grantBody := map[string]any{
+		"tokens": 5000, "reason": "continue investigation",
+		"decision": agent.GrantApproved, "expected_version": current.Budget.Version,
+	}
+	if denied := doAs(t, env.ts, readerSecret, http.MethodPost, budgetURL+"/grants", grantBody, nil); denied.status != http.StatusForbidden {
+		t.Fatalf("reader budget grant = %d (%s)", denied.status, denied.body)
+	}
+	granted := do(t, env.ts, http.MethodPost, budgetURL+"/grants", grantBody, nil)
+	var updated struct {
+		Budget agent.AuditBudget `json:"budget"`
+	}
+	granted.decode(t, &updated)
+	if granted.status != http.StatusCreated || updated.Budget.LimitTokens != current.Budget.LimitTokens+5000 {
+		t.Fatalf("grant supervisor budget = %d %s", granted.status, granted.body)
+	}
+	stale := do(t, env.ts, http.MethodPost, budgetURL+"/grants", grantBody, nil)
+	if stale.status != http.StatusPreconditionFailed {
+		t.Fatalf("stale supervisor grant = %d (%s)", stale.status, stale.body)
+	}
+	rejectedBody := map[string]any{
+		"tokens": 1000, "reason": "budget request rejected",
+		"decision": agent.GrantRejected, "expected_version": updated.Budget.Version,
+	}
+	rejected := do(t, env.ts, http.MethodPost, budgetURL+"/grants", rejectedBody, nil)
+	var final struct {
+		Budget agent.AuditBudget `json:"budget"`
+	}
+	rejected.decode(t, &final)
+	if rejected.status != http.StatusCreated || final.Budget.LimitTokens != updated.Budget.LimitTokens {
+		t.Fatalf("rejected supervisor grant = %d %s", rejected.status, rejected.body)
 	}
 }
 
