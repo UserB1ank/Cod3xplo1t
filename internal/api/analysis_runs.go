@@ -24,6 +24,7 @@ type analysisRunStartRequest struct {
 	IdempotencyKey     string `json:"idempotency_key,omitempty"`
 	AgentAssisted      bool   `json:"agent_assisted"`
 	Runtime            string `json:"runtime,omitempty"`
+	Frontend           string `json:"frontend,omitempty"`
 	ConfirmSourceBytes int64  `json:"confirm_source_bytes,omitempty"`
 }
 
@@ -126,6 +127,11 @@ func (s *Server) handleStartAnalysisRun(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "invalid_request", errors.New("api_version must be codexploit/v1"))
 		return
 	}
+	frontend, err := normalizeAnalysisFrontend(req.Frontend)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_frontend", err)
+		return
+	}
 	if req.IdempotencyKey == "" {
 		req.IdempotencyKey = strings.TrimSpace(r.Header.Get("Idempotency-Key"))
 	}
@@ -206,6 +212,13 @@ func (s *Server) handleStartAnalysisRun(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	spec := s.analysisProvider().Workflow()
+	if frontend != "" {
+		spec, err = analysisWorkflowForFrontend(spec, frontend)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_frontend", err)
+			return
+		}
+	}
 	raw, err := json.Marshal(spec)
 	if err != nil {
 		writeAnalysisError(w, err)
@@ -228,7 +241,7 @@ func (s *Server) handleStartAnalysisRun(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	plan, err := s.WorkflowCompiler.Compile(r.Context(), projectID, spec.ID, spec.Version, workflow.CompileRequest{
-		APIVersion: "codexploit/v1", SnapshotID: input.SnapshotID, Inputs: []string{root.ID}, Language: analysisLanguage(spec), MaxInputBytes: max(artifact.SourceWarningBytes, root.Bytes),
+		APIVersion: "codexploit/v1", SnapshotID: input.SnapshotID, Inputs: []string{root.ID}, Language: analysisLanguageForFrontend(spec, frontend), MaxInputBytes: max(artifact.SourceWarningBytes, root.Bytes),
 	})
 	if err != nil {
 		writeWorkflowError(w, err)

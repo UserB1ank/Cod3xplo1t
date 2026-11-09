@@ -4,6 +4,7 @@ import App from "./App";
 import "./styles.css";
 import "./workspace.css";
 import "./plugin-center.css";
+import "./analysis-frontend.css";
 
 const Prototype = lazy(() => import("./prototype/Journey"));
 const isPrototype = /^\/prototype(?:\/|$)/.test(window.location.pathname);

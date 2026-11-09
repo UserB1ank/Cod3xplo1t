@@ -36,6 +36,7 @@ import {
   projectInputSourceLabel,
   projectInputState,
 } from "./project-management";
+import { ANALYSIS_FRONTENDS } from "./analysis-frontends";
 
 const stages = [
   ["parse", "代码图谱构建", "解析符号、模块和调用关系"],
@@ -212,7 +213,7 @@ export function ProjectHome({
   onDelete: () => void;
   onSources: () => void;
   onNavigate: (view: string) => void;
-  onStartAnalysis: (agentAssisted: boolean) => void;
+  onStartAnalysis: (agentAssisted: boolean, frontend: string) => void;
   onCancelAnalysis: () => void;
   onRefresh: () => void;
 }) {
@@ -222,6 +223,7 @@ export function ProjectHome({
   const latest = runs[0];
   const [selectedID, setSelectedID] = useState("");
   const [agentAssisted, setAgentAssisted] = useState(false);
+  const [frontend, setFrontend] = useState("AUTO");
   const selected =
     runs.find((run) => run.analysis_run_id === selectedID) || latest;
   const active = !!latest && !terminal(latest.state);
@@ -449,10 +451,25 @@ export function ProjectHome({
             </button>
           ) : (
             <>
+              <label className="analysis-frontend">
+                <span>分析语言</span>
+                <select
+                  aria-label="分析语言"
+                  value={frontend}
+                  disabled={!ready || busy || active || !canWrite}
+                  onChange={(event) => setFrontend(event.target.value)}
+                >
+                  {ANALYSIS_FRONTENDS.map((option) => (
+                    <option value={option.value} key={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <button
                 className="button primary"
                 disabled={!ready || !engine?.ready || busy || active || !canWrite || !!latest && ["SUCCEEDED", "PARTIAL"].includes(latest.state)}
-                onClick={() => onStartAnalysis(agentAssisted)}
+                onClick={() => onStartAnalysis(agentAssisted, frontend)}
               >
                 {active ? (
                   <Loader2 size={15} className="spin" />

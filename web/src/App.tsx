@@ -1,4 +1,8 @@
-import { startProjectAnalysis } from "./analysis-start";
+import {
+  finishSourceSetupAndStartAnalysis,
+  startProjectAnalysis,
+} from "./analysis-start";
+import { ANALYSIS_FRONTENDS } from "./analysis-frontends";
 import {
   useCallback,
   useEffect,
@@ -895,11 +899,11 @@ export default function App() {
                       onNavigate={(view) =>
                         navigate({ project: project.id, view })
                       }
-                      onStartAnalysis={(agentAssisted) =>
+                      onStartAnalysis={(agentAssisted, frontend) =>
                         void action(
                           "开始图谱化分析",
                           async () => {
-                            const result = await startProjectAnalysis(api, project.id, agentAssisted, message => window.confirm(message));
+                            const result = await startProjectAnalysis(api, project.id, frontend, agentAssisted, message => window.confirm(message));
                             return result || false;
                           },
                           undefined,
@@ -983,7 +987,7 @@ export default function App() {
           busy={!!busy}
           network={identity.features.network}
           onSubmit={(values) =>
-            action("建立项目并保存源码", async () => {
+            action("建立项目并开始图谱化分析", async () => {
               if (values.kind === "legacy_auto") {
                 const created = await api.post<{ project: Project }>(
                   "/projects",
@@ -1003,6 +1007,7 @@ export default function App() {
                 return;
               }
               let projectID = values.projectID;
+              let createdInThisFlow = false;
               if (!projectID) {
                 const created = await api.post<{ project: Project }>(
                   "/v1/projects",
@@ -1014,10 +1019,11 @@ export default function App() {
                   values.signal,
                 );
                 projectID = created.project.id;
+                createdInThisFlow = true;
                 values.rememberProject(projectID);
                 refresh((n) => n + 1);
               }
-              try {
+              const setupSource = async () => {
                 if (
                   values.kind === "uploaded_archive" ||
                   values.kind === "uploaded_directory"
@@ -1070,9 +1076,20 @@ export default function App() {
                     values.signal,
                   );
                 }
+              };
+              try {
+                if (createdInThisFlow) {
+                  await finishSourceSetupAndStartAnalysis(
+                    api,
+                    projectID,
+                    values.frontend,
+                    setupSource,
+                    (message) => window.confirm(message),
+                  );
+                } else {
+                  await setupSource();
+                }
               } catch (error) {
-                // The project exists even when its import failed. Refresh the
-                // directory so the failed input is visible and retryable.
                 refresh((n) => n + 1);
                 throw error;
               }
@@ -3211,6 +3228,7 @@ function ProjectForm({
     ref: string;
     kind: string;
     credentialRef: string;
+    frontend: string;
     file?: File;
     directory?: DirectorySelection;
     signal?: AbortSignal;
@@ -3220,6 +3238,7 @@ function ProjectForm({
   }) => void;
 }) {
   const [kind, setKind] = useState("uploaded_archive");
+  const [frontend, setFrontend] = useState("");
   const [directory, setDirectory] = useState<DirectorySelection>();
   // The selected archive is held here rather than read back from the form: a
   // dismissed file dialog clears the input's value, and a form-driven upload then
@@ -3270,6 +3289,7 @@ function ProjectForm({
           ref: String(form.get("ref")),
           kind,
           credentialRef: String(form.get("credential_ref") || ""),
+          frontend,
           file: archive,
           directory,
           signal: controller.current.signal,
@@ -3301,6 +3321,24 @@ function ProjectForm({
             rows={2}
             placeholder="本次审计的目标、边界或关注范围（可选）"
           />
+        </label>
+        <label>
+          分析语言
+          <select
+            required
+            name="frontend"
+            value={frontend}
+            onChange={(event) => setFrontend(event.target.value)}
+          >
+            <option value="" disabled>
+              请选择
+            </option>
+            {ANALYSIS_FRONTENDS.map((option) => (
+              <option value={option.value} key={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
         </label>
         <label>
           代码源类型

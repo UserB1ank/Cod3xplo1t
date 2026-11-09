@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -42,17 +43,47 @@ type nativeExport struct {
 	} `json:"calls"`
 }
 
-func normalize(raw []byte, sourceRoot string, inventory map[string]bool, front frontend, nativeAlias string) (map[string]any, pluginsdk.Coverage, []string, error) {
+func normalize(raw []byte, sourceRoot, inputRoot string, inventory map[string]bool, front frontend, nativeAlias string) (map[string]any, pluginsdk.Coverage, []string, error) {
 	var exported nativeExport
 	if json.Unmarshal(raw, &exported) != nil || exported.Files == nil || exported.Methods == nil || exported.Calls == nil {
 		return nil, pluginsdk.Coverage{}, nil, errors.New("invalid CPG export")
 	}
 	files, symbols, calls, mappings := []any{}, []any{}, []any{}, []any{}
+	inputPrefix := ""
+	if relativeInput, err := filepath.Rel(sourceRoot, inputRoot); err == nil {
+		relativeInput = filepath.ToSlash(relativeInput)
+		if relativeInput != "." && safeRelative(relativeInput) {
+			inputPrefix = relativeInput
+		}
+	}
+	frozen := func(name string) string {
+		name = filepath.ToSlash(name)
+		if safeRelative(name) && inventory[name] {
+			return name
+		}
+		return ""
+	}
+	inputRelative := func(name string) string {
+		if inputPrefix == "" {
+			return ""
+		}
+		return frozen(path.Join(inputPrefix, filepath.ToSlash(name)))
+	}
 	relative := func(name string) string {
 		if filepath.IsAbs(name) {
 			rel, err := filepath.Rel(sourceRoot, name)
-			if err == nil && safeRelative(filepath.ToSlash(rel)) && inventory[filepath.ToSlash(rel)] {
-				return filepath.ToSlash(rel)
+			if err == nil {
+				if canonical := frozen(rel); canonical != "" {
+					return canonical
+				}
+			}
+			if inputPrefix != "" {
+				rel, err = filepath.Rel(inputRoot, name)
+				if err == nil {
+					if canonical := inputRelative(rel); canonical != "" {
+						return canonical
+					}
+				}
 			}
 			// Native tools may resolve /tmp to /private/tmp or copy bytecode to
 			// a private frontend directory. Bind only an unambiguous frozen file.
@@ -81,10 +112,13 @@ func normalize(raw []byte, sourceRoot string, inventory map[string]bool, front f
 			}
 			return ""
 		}
-		if !safeRelative(name) || !inventory[name] {
-			return ""
+		if canonical := inputRelative(name); canonical != "" {
+			return canonical
 		}
-		return name
+		if canonical := frozen(name); canonical != "" {
+			return canonical
+		}
+		return ""
 	}
 	mapping := func(native, canonical string) {
 		mappings = append(mappings, map[string]any{"native_artifact_ref": nativeAlias, "native_id": native, "canonical_ref": canonical, "mapping_rule": "joern-node/v2", "mapping_status": "mapped"})

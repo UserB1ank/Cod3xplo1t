@@ -1,0 +1,17 @@
+export const ANALYSIS_FRONTENDS = [
+  { value: "CSHARPSRC", label: "C#" },
+  { value: "GOLANG", label: "Go" },
+  { value: "JAVASRC", label: "Java 源码" },
+  { value: "JAVA", label: "Java 字节码" },
+  { value: "C", label: "C / C++" },
+  { value: "JAVASCRIPT", label: "JavaScript / TypeScript" },
+  { value: "KOTLIN", label: "Kotlin" },
+  { value: "PHP", label: "PHP" },
+  { value: "PYTHONSRC", label: "Python" },
+  { value: "RUBYSRC", label: "Ruby" },
+  { value: "RUST", label: "Rust" },
+  { value: "SWIFTSRC", label: "Swift" },
+  { value: "ABAP", label: "ABAP" },
+  { value: "GHIDRA", label: "原生二进制" },
+  { value: "AUTO", label: "自动识别所有匹配语言" },
+] as const;

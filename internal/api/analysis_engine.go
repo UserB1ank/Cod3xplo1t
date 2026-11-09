@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/open-mcp-ai/Codexploit/internal/analysisengine"
 	"github.com/open-mcp-ai/Codexploit/internal/plugin"
@@ -91,4 +93,109 @@ func analysisLanguage(spec workflow.Spec) string {
 		return "Mixed"
 	}
 	return "Go"
+}
+
+func normalizeAnalysisFrontend(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", nil
+	}
+	if raw == "JAVA" {
+		return "JAVA", nil
+	}
+	value := strings.ToUpper(strings.Join(strings.Fields(raw), " "))
+	switch value {
+	case "AUTO", "MIXED":
+		return "AUTO", nil
+	case "C", "C++", "CPP", "C / C++", "C/C++":
+		return "C", nil
+	case "C#", "CSHARP", "C SHARP", "CSHARPSRC":
+		return "CSHARPSRC", nil
+	case "GO", "GOLANG":
+		return "GOLANG", nil
+	case "JAVA", "JAVA SOURCE", "JAVASRC":
+		return "JAVASRC", nil
+	case "JAVA BYTECODE", "BYTECODE", "JAVACLASS":
+		return "JAVA", nil
+	case "JS", "JAVASCRIPT", "TYPESCRIPT", "TS":
+		return "JAVASCRIPT", nil
+	case "KOTLIN":
+		return "KOTLIN", nil
+	case "PHP":
+		return "PHP", nil
+	case "PYTHON", "PYTHONSRC":
+		return "PYTHONSRC", nil
+	case "RUBY", "RUBYSRC":
+		return "RUBYSRC", nil
+	case "RUST":
+		return "RUST", nil
+	case "SWIFT", "SWIFTSRC":
+		return "SWIFTSRC", nil
+	case "ABAP":
+		return "ABAP", nil
+	case "BINARY", "GHIDRA":
+		return "GHIDRA", nil
+	default:
+		return "", fmt.Errorf("unsupported analysis frontend %q", raw)
+	}
+}
+
+func analysisWorkflowForFrontend(spec workflow.Spec, raw string) (workflow.Spec, error) {
+	frontend, err := normalizeAnalysisFrontend(raw)
+	if err != nil {
+		return spec, err
+	}
+	if frontend == "" {
+		return spec, nil
+	}
+	if len(spec.Nodes) == 0 || spec.Nodes[0].PluginID != workflow.DefaultEnginePluginID {
+		return spec, fmt.Errorf("the selected analysis engine does not accept a frontend")
+	}
+	var config map[string]any
+	if err := json.Unmarshal(spec.Nodes[0].Config, &config); err != nil {
+		return spec, err
+	}
+	config["frontend"] = frontend
+	encoded, err := json.Marshal(config)
+	if err != nil {
+		return spec, err
+	}
+	spec.Nodes = append([]workflow.Node(nil), spec.Nodes...)
+	spec.Nodes[0].Config = encoded
+	return spec, nil
+}
+
+func analysisLanguageForFrontend(spec workflow.Spec, frontend string) string {
+	switch frontend {
+	case "C":
+		return "C"
+	case "CSHARPSRC":
+		return "C#"
+	case "GOLANG":
+		return "Go"
+	case "JAVASRC":
+		return "Java"
+	case "JAVA":
+		return "Java bytecode"
+	case "JAVASCRIPT":
+		return "JavaScript"
+	case "KOTLIN":
+		return "Kotlin"
+	case "PHP":
+		return "PHP"
+	case "PYTHONSRC":
+		return "Python"
+	case "RUBYSRC":
+		return "Ruby"
+	case "RUST":
+		return "Rust"
+	case "SWIFTSRC":
+		return "Swift"
+	case "ABAP":
+		return "ABAP"
+	case "GHIDRA":
+		return "Binary"
+	default:
+		return analysisLanguage(spec)
+	}
 }
