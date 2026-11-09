@@ -1047,6 +1047,61 @@ func TestListDuePathsHonoursTheRetrySchedule(t *testing.T) {
 	}
 }
 
+func TestListDuePathsKeepsWorkflowOwnedAuditsPrivate(t *testing.T) {
+	for _, tc := range fullStores(t) {
+		t.Run(tc.name, func(t *testing.T) {
+			seedRetrySchedule(t, tc.store, auditMainID, auditSnapID)
+			setStatus := func(status string) {
+				t.Helper()
+				document := `{"task_id":"` + auditMainID + `","status":"` + status + `"}`
+				switch store := tc.store.(type) {
+				case *SQL:
+					_, err := store.db.Exec(
+						store.rebind(`INSERT INTO workflow_runs
+						(run_id,project_id,snapshot_id,task_id,plan_id,status,version,document_json)
+						VALUES (?,?,?,?,?,?,?,?)
+						ON CONFLICT(run_id) DO UPDATE SET
+							status=excluded.status,
+							document_json=excluded.document_json,
+							version=workflow_runs.version+1`),
+						"wrun-due", "project-due", auditSnapID, auditMainID,
+						"plan-due", status, 1, document,
+					)
+					if err != nil {
+						t.Fatalf("insert %s workflow run: %v", status, err)
+					}
+				case *Memory:
+					store.mu.Lock()
+					if store.workflowRuns == nil {
+						store.workflowRuns = map[string][]byte{}
+					}
+					store.workflowRuns["wrun-due"] = []byte(document)
+					store.mu.Unlock()
+				default:
+					t.Fatalf("unsupported store %T", tc.store)
+				}
+			}
+
+			setStatus("RUNNING")
+			due, err := tc.store.ListDuePaths(auditMainID, retryLate, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(due) != 0 {
+				t.Fatalf("an active workflow still released %d path(s): %+v", len(due), due)
+			}
+			setStatus("PARTIAL")
+			due, err = tc.store.ListDuePaths(auditMainID, retryLate, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(due) != 0 {
+				t.Fatalf("a terminal workflow released %d path(s): %+v", len(due), due)
+			}
+		})
+	}
+}
+
 func TestTransitionPersistsAndClearsTheRetryTime(t *testing.T) {
 	for _, tc := range fullStores(t) {
 		t.Run(tc.name, func(t *testing.T) {

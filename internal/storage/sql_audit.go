@@ -719,8 +719,12 @@ func (s *SQL) ListDuePaths(auditID, now string, limit int) ([]path.Path, error) 
 		}
 		now = serverNow.UTC().Format(leaseTimeLayout)
 	}
+	// Workflow tasks own their path queues. Terminal workflow status does not
+	// transfer them to the legacy scheduler; human review uses selection or a
+	// review batch explicitly.
 	query := "SELECT " + pathSelectColumns + " FROM audit_paths WHERE audit_id = ? AND status = ?" +
-		" AND NOT EXISTS(SELECT 1 FROM workflow_runs w WHERE w.task_id=audit_paths.audit_id) AND (next_attempt_at = '' OR next_attempt_at <= ?) ORDER BY next_attempt_at, path_id LIMIT ?"
+		" AND NOT EXISTS(SELECT 1 FROM workflow_runs w WHERE w.task_id=audit_paths.audit_id)" +
+		" AND (next_attempt_at = '' OR next_attempt_at <= ?) ORDER BY next_attempt_at, path_id LIMIT ?"
 	rows, err := s.db.QueryContext(ctx, s.rebind(query), auditID, string(path.StatusQueued), now,
 		normaliseLimit(limit, 100, 1000))
 	if err != nil {

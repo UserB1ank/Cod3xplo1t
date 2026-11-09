@@ -144,6 +144,8 @@
 
 - 2026-10-28 — #104 专注阅读模式压缩 Agent 顶部无用留白：专注模式下隐藏 `PROJECT WORKSPACE` eyebrow 和 Agent 说明段，标题从 27px 收紧为 24px，并将标题、停止路径按钮、Agent 状态摘要压缩为紧凑工具栏；恢复侧栏时完整页标题与原间距自动恢复。已通过完整前端 70 项测试、构建和设计检测；真实 PostgreSQL Agent 页面实测标题区 42px、摘要 28px，会话工作区明显上移，无文本重叠或横向溢出。`make lint` 仍被既有未跟踪 `internal/app/example_test.go` 引用不存在的 `Runtime.EnsureExample` 阻断，与本 Issue 无关；纯前端布局修复未运行 stress。按交付流程提交并关闭；未 push。
 
+- 2026-11-09 — #111 修复 PostgreSQL 下 workflow 路径被旧调度器抢占：`ListDuePaths` 明确保持 workflow task 对其候选路径队列的永久所有权，active、PARTIAL、FAILED 或 SUCCEEDED 状态都不会把路径转交 legacy scheduler；人工审查仍通过路径选择或审查批次显式消费。新增 Memory / SQLite 统一回归，重跑隔离 PostgreSQL 后 `internal/storage` 与 `internal/api` 全部通过，相关 storage / scheduler race 回归、完整 API 测试和合约检查通过。`make lint` 仍被既有未跟踪 `internal/app/example_test.go` 引用不存在的 `Runtime.EnsureExample` 阻断，与本 Issue 无关，未删除该 WIP。按交付流程提交并关闭；未 push。
+
 ## Agent skills
 
 ### Issue tracker
