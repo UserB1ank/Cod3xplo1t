@@ -50,6 +50,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/plugin"
 	"github.com/open-mcp-ai/Codexploit/internal/publication"
 	"github.com/open-mcp-ai/Codexploit/internal/repository"
+	"github.com/open-mcp-ai/Codexploit/internal/reviewbatch"
 	"github.com/open-mcp-ai/Codexploit/internal/scg"
 	"github.com/open-mcp-ai/Codexploit/internal/schedule"
 	"github.com/open-mcp-ai/Codexploit/internal/sourceimport"
@@ -120,10 +121,13 @@ type Server struct {
 	// Scheduler is the P7 resident scheduler. It is separate from the path engine
 	// so a deployment can serve the audit surface without a resident loop, in which
 	// case every scheduler route answers 501 instead of reporting an idle queue.
-	Scheduler    *schedule.Scheduler
-	AllowNetwork bool
-	LLMSettings  *llm.Manager
-	Accounts     *access.Manager
+	Scheduler *schedule.Scheduler
+	// ReviewBatches coordinates explicit audit path batches. It is nil when the
+	// deployment has no batch-capable store or agent.
+	ReviewBatches *reviewbatch.Manager
+	AllowNetwork  bool
+	LLMSettings   *llm.Manager
+	Accounts      *access.Manager
 	// LocalSourceRoot is mounted as the logical /repos namespace by the host.
 	LocalSourceRoot string
 	Logger          *slog.Logger
@@ -258,6 +262,12 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/v1/projects/{projectID}/agent-sessions/{sessionID}/runs/{runID}/cancel", s.handleCancelSupervisorRun)
 	mux.HandleFunc("POST /api/v1/projects/{projectID}/path-selections", s.handleSelectPaths)
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/path-selections", s.handleListPathSelections)
+	mux.HandleFunc("POST /api/v1/projects/{projectID}/review-batches", s.withIdempotency(s.handleStartReviewBatch))
+	mux.HandleFunc("GET /api/v1/projects/{projectID}/review-batches", s.handleListReviewBatches)
+	mux.HandleFunc("GET /api/v1/projects/{projectID}/review-batches/{batchID}", s.handleGetReviewBatch)
+	mux.HandleFunc("POST /api/v1/projects/{projectID}/review-batches/{batchID}/pause", s.withIdempotency(s.handleReviewBatchControl("pause")))
+	mux.HandleFunc("POST /api/v1/projects/{projectID}/review-batches/{batchID}/resume", s.withIdempotency(s.handleReviewBatchControl("resume")))
+	mux.HandleFunc("POST /api/v1/projects/{projectID}/review-batches/{batchID}/cancel", s.withIdempotency(s.handleReviewBatchControl("cancel")))
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/analysis-runs", s.handleListAnalysisRuns)
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/analysis-runs/{analysisRunID}", s.handleGetAnalysisRun)
 	mux.HandleFunc("POST /api/v1/projects/{projectID}/analysis-runs/{analysisRunID}/cancel", s.handleCancelAnalysisRun)

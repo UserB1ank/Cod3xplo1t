@@ -7,6 +7,21 @@ export interface PathSubtask {
   run_id?: string; state: string; source: string; reused: boolean;
   entry_subject?: string; target_subject?: string; target_kind?: string;
 }
+
+export interface ReviewBatch {
+  batch_id: string; project_id: string; snapshot_id: string; audit_id: string;
+  state: 'RUNNING' | 'PAUSED' | 'CANCELLING' | 'CANCELLED' | 'COMPLETED' | 'FAILED';
+  path_ids: string[]; max_concurrent: number; created_by: string; reason?: string; last_error?: string;
+  execution_owner?: string; lease_epoch: number; heartbeat_at?: string; lease_until?: string;
+  created_at: string; updated_at: string; version: number;
+}
+
+export interface ReviewBatchView {
+  api_version: 'codexploit/v1';
+  batch: ReviewBatch;
+  progress: { total: number; queued: number; active: number; reviewed: number; failed: number; cancelled: number; blocked: number; paused: number };
+  paths: Array<{ path_id: string; status: string }>;
+}
 export interface AnswerEvidence {
   kind: string; ref?: string; file?: string; line?: number; quote?: string; summary?: string;
 }

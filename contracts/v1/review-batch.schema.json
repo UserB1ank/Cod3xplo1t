@@ -1,0 +1,244 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codexploit.invalid/contracts/v1/review-batch.schema.json",
+  "title": "Durable Audit review batch",
+  "type": "object",
+  "properties": {
+    "api_version": {
+      "const": "codexploit/v1"
+    },
+    "batch": {
+      "$ref": "#/$defs/Batch"
+    },
+    "progress": {
+      "$ref": "#/$defs/Progress"
+    },
+    "paths": {
+      "type": "array",
+      "maxItems": 2000,
+      "items": {
+        "$ref": "#/$defs/Path"
+      }
+    },
+    "batches": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "$ref": "#/$defs/View"
+      }
+    },
+    "total": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "api_version"
+  ],
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "required": [
+        "batch",
+        "progress",
+        "paths"
+      ]
+    },
+    {
+      "required": [
+        "batches",
+        "total"
+      ]
+    }
+  ],
+  "$defs": {
+    "View": {
+      "type": "object",
+      "properties": {
+        "api_version": {
+          "const": "codexploit/v1"
+        },
+        "batch": {
+          "$ref": "#/$defs/Batch"
+        },
+        "progress": {
+          "$ref": "#/$defs/Progress"
+        },
+        "paths": {
+          "type": "array",
+          "maxItems": 2000,
+          "items": {
+            "$ref": "#/$defs/Path"
+          }
+        }
+      },
+      "required": [
+        "api_version",
+        "batch",
+        "progress",
+        "paths"
+      ],
+      "additionalProperties": false
+    },
+    "Batch": {
+      "type": "object",
+      "properties": {
+        "batch_id": {
+          "$ref": "common.schema.json#/$defs/ID"
+        },
+        "project_id": {
+          "$ref": "common.schema.json#/$defs/ID"
+        },
+        "snapshot_id": {
+          "$ref": "common.schema.json#/$defs/ID"
+        },
+        "audit_id": {
+          "$ref": "common.schema.json#/$defs/ID"
+        },
+        "state": {
+          "enum": [
+            "RUNNING",
+            "PAUSED",
+            "CANCELLING",
+            "CANCELLED",
+            "COMPLETED",
+            "FAILED"
+          ]
+        },
+        "path_ids": {
+          "type": "array",
+          "maxItems": 2000,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "common.schema.json#/$defs/ID"
+          }
+        },
+        "max_concurrent": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16
+        },
+        "created_by": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "last_error": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "execution_owner": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "lease_epoch": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "heartbeat_at": {
+          "type": "string"
+        },
+        "lease_until": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string",
+          "minLength": 1
+        },
+        "updated_at": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "batch_id",
+        "project_id",
+        "snapshot_id",
+        "audit_id",
+        "state",
+        "path_ids",
+        "max_concurrent",
+        "created_by",
+        "lease_epoch",
+        "created_at",
+        "updated_at",
+        "version"
+      ],
+      "additionalProperties": false
+    },
+    "Progress": {
+      "type": "object",
+      "properties": {
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "queued": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "active": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reviewed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cancelled": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "blocked": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "paused": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "total",
+        "queued",
+        "active",
+        "reviewed",
+        "failed",
+        "cancelled",
+        "blocked",
+        "paused"
+      ],
+      "additionalProperties": false
+    },
+    "Path": {
+      "type": "object",
+      "properties": {
+        "path_id": {
+          "$ref": "common.schema.json#/$defs/ID"
+        },
+        "status": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        }
+      },
+      "required": [
+        "path_id",
+        "status"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

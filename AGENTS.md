@@ -150,6 +150,8 @@
 
 - 2026-11-09 — #113 正确投影路径提案的 SCG 与 ASG 来源：推断调用路径现在把真实符号、call-site / edge ID 写入 `scg_refs`，攻击面入口与 sink 保持在 `asg_refs`；显式 ASG `REACHES` 步骤把 relation ID 写入 `asg_refs`，步骤证据 ID 与 observed 状态分离，不再把 SCG edge 当作 ASG relation。Memory / SQLite / PostgreSQL 往返、API 响应、按审计来源过滤、SCG symbol provenance 和前端路径图层均有回归。相关四包 593 项测试与竞态、真实 PostgreSQL、合约、前端测试/构建、gofmt、vet 与 pinned Staticcheck 通过；主工作区全量 lint 仍被既有未跟踪 `internal/app/example_test.go` 阻断，与本 Issue 无关。按交付流程提交并关闭；未 push。
 
+- 2026-11-09 — #114 审查批次支持多实例热故障接管和陈旧控制拒绝：批次持久化 execution owner、单调 lease epoch、heartbeat 与 deadline，周期 reclaim 只允许新 owner/epoch 续租、提交终态或接管 `RUNNING/CANCELLING`；旧 owner 的迟到写入被 PostgreSQL / Memory 存储栅栏拒绝。Start/Resume 在建批或恢复前检查真实 Agent readiness；控制 API 返回 ETag，缺少 `If-Match` 返回 428，陈旧控制返回 412。进度合同和正式页面分别显示 blocked、paused、failed、cancelled，不再把受阻并入失败。覆盖双实例热接管、重启恢复、32 路径 / 4 并发、租约 fencing、reader / 跨项目隔离与前端控制；隔离提交树通过 1,460 项全量测试、相关四包竞态、三轮完整 `make test-stress`、真实 PostgreSQL、合约、前端测试/构建、gofmt、vet 与 pinned Staticcheck。主工作区 `make lint` 仍被既有未跟踪 `internal/app/example_test.go` 阻断，与本 Issue 无关。按交付流程提交并关闭；未 push。
+
 ## Agent skills
 
 ### Issue tracker

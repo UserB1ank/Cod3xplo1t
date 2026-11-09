@@ -1656,6 +1656,41 @@ textarea::placeholder {
   width: 100%;
   min-width: 0;
 }
+.review-batch-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 10px 0 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  background: var(--panel-raised);
+}
+.review-batch-summary {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 14px;
+}
+.review-batch-summary code {
+  overflow-wrap: anywhere;
+  color: var(--muted);
+}
+.review-batch-actions {
+  display: flex;
+  flex: none;
+  gap: 8px;
+}
+@media (max-width: 760px) {
+  .review-batch-card {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .review-batch-actions {
+    flex-wrap: wrap;
+  }
+}
 .review-path-row {
   display: flex;
   gap: 14px;

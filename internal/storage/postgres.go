@@ -26,6 +26,9 @@ func (s *SQL) deleteCatalogSnapshot(ctx context.Context, id string) error {
 	if err := s.lockSnapshotTx(ctx, tx, id); err != nil {
 		return err
 	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM review_batches WHERE snapshot_id=$1`, id); err != nil {
+		return err
+	}
 	for _, table := range []string{"workflow_node_claims", "workflow_leases"} {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE run_id IN (SELECT run_id FROM workflow_runs WHERE snapshot_id=$1)`, id); err != nil {
 			return err

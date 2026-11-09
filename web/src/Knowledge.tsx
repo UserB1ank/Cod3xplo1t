@@ -17,12 +17,15 @@ import {
   ListChecks,
   Loader2,
   Network,
+  Pause,
+  Play,
   RefreshCw,
   Search,
+  Square,
 } from "lucide-react";
 import { ApiClient, ApiError } from "./api";
 import { CodeBlock, EmptyState, Hint, Modal, Panel } from "./components";
-import type { PathSubtask, Snapshot } from "./types";
+import type { PathSubtask, ReviewBatchView, Snapshot } from "./types";
 import {
   layoutEntryGraph,
   callGraphNeighborhood,
@@ -30,6 +33,7 @@ import {
 } from "./entry-graph";
 import { latestSnapshot } from "./workbench";
 import { pathGraph, type PathStep } from "./path-graph";
+import { reviewBatchProgressLine, reviewBatchStateLabel } from "./review-batch";
 import { readRevisionDirectory } from "./knowledgeData";
 import {
   sinkCatalogQuery,
@@ -2151,8 +2155,15 @@ function PathPanel({
   const [subtasks, setSubtasks] = useState<PathSubtask[]>([]);
   const [selecting, setSelecting] = useState(false);
   const [selectionError, setSelectionError] = useState("");
+  const [batch, setBatch] = useState<ReviewBatchView>();
+  const [batchBusy, setBatchBusy] = useState(false);
+  const [batchError, setBatchError] = useState("");
   const { cursor, page, next, back, reset } = usePager();
   useEffect(() => reset(), [audit, reset]);
+  useEffect(() => {
+    setBatch(undefined);
+    setBatchError("");
+  }, [audit]);
   const existing = useQuery(
     (signal) =>
       agentAvailable
@@ -2160,6 +2171,35 @@ function PathPanel({
         : Promise.resolve({ selections: [] as PathSubtask[] }),
     [api, projectID, view.view_id, agentAvailable],
   );
+  const existingBatches = useQuery(
+    (signal) =>
+      audit && !audit.startsWith("analysis:") && agentAvailable
+        ? api.reviewBatches(projectID, audit, signal)
+        : Promise.resolve({ batches: [] as ReviewBatchView[], total: 0 }),
+    [api, projectID, audit, agentAvailable],
+  );
+  useEffect(() => {
+    if (!batch && existingBatches.data?.batches.length) {
+      setBatch(existingBatches.data.batches[0]);
+    }
+  }, [batch, existingBatches.data]);
+  useEffect(() => {
+    if (!batch || ["CANCELLED", "COMPLETED", "FAILED"].includes(batch.batch.state))
+      return;
+    const controller = new AbortController();
+    const timer = window.setInterval(() => {
+      api
+        .reviewBatch(projectID, batch.batch.batch_id, controller.signal)
+        .then(setBatch)
+        .catch((error) => {
+          if (!controller.signal.aborted) setBatchError(failureText(error));
+        });
+    }, 1500);
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+    };
+  }, [api, projectID, batch?.batch.batch_id, batch?.batch.state]);
   const existingByPath = new Map(
     (existing.data?.selections || []).map((item) => [item.path_id, item]),
   );
@@ -2214,6 +2254,40 @@ function PathPanel({
                 ))}
             </select>
             <button
+              className="button"
+              disabled={
+                !canWrite ||
+                !agentAvailable ||
+                !audit ||
+                audit.startsWith("analysis:") ||
+                batchBusy ||
+                Boolean(
+                  batch &&
+                    !["CANCELLED", "COMPLETED", "FAILED"].includes(
+                      batch.batch.state,
+                    ),
+                )
+              }
+              title="按当前任务批量消费待处理路径"
+              onClick={() => {
+                if (!audit || audit.startsWith("analysis:")) return;
+                setBatchBusy(true);
+                setBatchError("");
+                api
+                  .startReviewBatch(projectID, audit)
+                  .then(setBatch)
+                  .catch((error) => setBatchError(failureText(error)))
+                  .finally(() => setBatchBusy(false));
+              }}
+            >
+              {batchBusy ? (
+                <Loader2 size={14} className="spin" />
+              ) : (
+                <Play size={14} />
+              )}
+              批量审查
+            </button>
+            <button
               className="button primary"
               disabled={
                 !canWrite || !agentAvailable || !checked.length || selecting
@@ -2259,6 +2333,94 @@ function PathPanel({
           </div>
           <span className="muted">已选择 {checked.length} / 5 条路径</span>
         </div>
+        {batch ? (
+          <div className={`review-batch-card ${batch.batch.state.toLowerCase()}`}>
+            <div className="review-batch-summary">
+              <span className="subtle-label">
+                审查批次 · {reviewBatchStateLabel(batch.batch.state)}
+              </span>
+              <strong>
+                {batch.progress.reviewed} / {batch.progress.total} 条已审查
+              </strong>
+              <span>{reviewBatchProgressLine(batch.progress)}</span>
+              <code className="mono">{batch.batch.batch_id}</code>
+            </div>
+            <div className="review-batch-actions">
+              {batch.batch.state === "RUNNING" ? (
+                <button
+                  className="button"
+                  disabled={!canWrite || batchBusy}
+                  onClick={() => {
+                    setBatchBusy(true);
+                    setBatchError("");
+                    api
+                      .reviewBatchControl(
+                        projectID,
+                        batch.batch.batch_id,
+                        "pause",
+                        "由 WebUI 操作者暂停",
+                        batch.batch.version,
+                      )
+                      .then(setBatch)
+                      .catch((error) => setBatchError(failureText(error)))
+                      .finally(() => setBatchBusy(false));
+                  }}
+                >
+                  <Pause size={14} /> 暂停
+                </button>
+              ) : null}
+              {batch.batch.state === "PAUSED" ? (
+                <button
+                  className="button primary"
+                  disabled={!canWrite || batchBusy}
+                  onClick={() => {
+                    setBatchBusy(true);
+                    setBatchError("");
+                    api
+                      .reviewBatchControl(
+                        projectID,
+                        batch.batch.batch_id,
+                        "resume",
+                        "由 WebUI 操作者继续",
+                        batch.batch.version,
+                      )
+                      .then(setBatch)
+                      .catch((error) => setBatchError(failureText(error)))
+                      .finally(() => setBatchBusy(false));
+                  }}
+                >
+                  <Play size={14} /> 继续
+                </button>
+              ) : null}
+              {!["CANCELLED", "COMPLETED", "FAILED"].includes(
+                batch.batch.state,
+              ) ? (
+                <button
+                  className="button danger"
+                  disabled={!canWrite || batchBusy}
+                  onClick={() => {
+                    setBatchBusy(true);
+                    setBatchError("");
+                    api
+                      .reviewBatchControl(
+                        projectID,
+                        batch.batch.batch_id,
+                        "cancel",
+                        "由 WebUI 操作者停止",
+                        batch.batch.version,
+                      )
+                      .then(setBatch)
+                      .catch((error) => setBatchError(failureText(error)))
+                      .finally(() => setBatchBusy(false));
+                  }}
+                >
+                  <Square size={14} /> 全部停止
+                </button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+        {batchError && <Hint>{batchError}</Hint>}
         {data.error ? (
           <Hint>{data.error}</Hint>
         ) : data.loading ? (

@@ -1,4 +1,4 @@
-import type { AnalysisEngineStatus, AnalysisRun, Audit, PathSubtask, SupervisorSession, SupervisorRun, SupervisorMessage, AuditBudget, AuditDraft, AuditEvent, AuditPath, BudgetGrant, Connection, Finding, FindingDetail, GraphSummary, Project, ProjectDirectoryEntry, ProjectInput, Run, Scheduler, Snapshot, Workspace } from './types.ts';
+import type { AnalysisEngineStatus, AnalysisRun, Audit, PathSubtask, ReviewBatchView, SupervisorSession, SupervisorRun, SupervisorMessage, AuditBudget, AuditDraft, AuditEvent, AuditPath, BudgetGrant, Connection, Finding, FindingDetail, GraphSummary, Project, ProjectDirectoryEntry, ProjectInput, Run, Scheduler, Snapshot, Workspace } from './types.ts';
 
 export class ApiError extends Error {
   status: number;
@@ -119,6 +119,10 @@ export class ApiClient {
   }
   selectPaths(projectID: string, pathIDs: string[]) { return this.post<{ selections: PathSubtask[]; reused: boolean }>(`/v1/projects/${encodeURIComponent(projectID)}/path-selections`, { api_version: 'codexploit/v1', path_ids: pathIDs }); }
   pathSelections(projectID: string, pathID?: string, signal?: AbortSignal) { return this.get<{ selections: PathSubtask[] }>(`/v1/projects/${encodeURIComponent(projectID)}/path-selections${pathID ? `?path_id=${encodeURIComponent(pathID)}` : ''}`, signal); }
+  startReviewBatch(projectID: string, auditID: string) { return this.post<ReviewBatchView>(`/v1/projects/${encodeURIComponent(projectID)}/review-batches`, { api_version: "codexploit/v1", audit_id: auditID, max_concurrent: 4 }); }
+  reviewBatches(projectID: string, auditID: string, signal?: AbortSignal) { return this.get<{ batches: ReviewBatchView[]; total: number }>(`/v1/projects/${encodeURIComponent(projectID)}/review-batches?audit_id=${encodeURIComponent(auditID)}&limit=20`, signal); }
+  reviewBatch(projectID: string, batchID: string, signal?: AbortSignal) { return this.get<ReviewBatchView>(`/v1/projects/${encodeURIComponent(projectID)}/review-batches/${encodeURIComponent(batchID)}`, signal); }
+  reviewBatchControl(projectID: string, batchID: string, action: 'pause' | 'resume' | 'cancel', reason: string, version: number) { return this.post<ReviewBatchView>(`/v1/projects/${encodeURIComponent(projectID)}/review-batches/${encodeURIComponent(batchID)}/${action}`, { reason }, undefined, { "If-Match": `"review-batch-${batchID}-v${version}"` }); }
   supervisorSessions(projectID: string, signal?: AbortSignal) { return this.get<{ sessions: SupervisorSession[]; available: boolean; reason?: string }>(`/v1/projects/${encodeURIComponent(projectID)}/agent-sessions`, signal); }
   createSupervisorSession(projectID: string, title = "", reuseExisting = false) { return this.post<{ session: SupervisorSession }>(`/v1/projects/${encodeURIComponent(projectID)}/agent-sessions`, { api_version: "codexploit/v1", title, reuse_existing: reuseExisting }); }
   supervisorSession(projectID: string, sessionID: string, signal?: AbortSignal) { return this.get<{ session: SupervisorSession }>(`/v1/projects/${encodeURIComponent(projectID)}/agent-sessions/${encodeURIComponent(sessionID)}`, signal); }

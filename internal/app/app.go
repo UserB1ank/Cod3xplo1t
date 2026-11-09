@@ -32,6 +32,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/processplugin"
 	"github.com/open-mcp-ai/Codexploit/internal/reporting"
 	"github.com/open-mcp-ai/Codexploit/internal/repository"
+	"github.com/open-mcp-ai/Codexploit/internal/reviewbatch"
 	"github.com/open-mcp-ai/Codexploit/internal/scg"
 	"github.com/open-mcp-ai/Codexploit/internal/scg/gofrontend"
 	"github.com/open-mcp-ai/Codexploit/internal/schedule"
@@ -277,6 +278,9 @@ type Runtime struct {
 	Metrics *schedule.Metrics
 	// SchedulerConfig is the configuration the scheduler was wired from.
 	SchedulerConfig SchedulerConfig
+	// ReviewBatches coordinates explicit operator-requested batches over Audit
+	// paths while reusing the Agent runner's leases and run records.
+	ReviewBatches *reviewbatch.Manager
 	// LLMSettings is the model-settings manager exposed to the API. PostgreSQL
 	// stores ciphertext in the shared database; SQLite and memory keep the
 	// workspace files. It is non-nil only when the LLM runtime is enabled.
@@ -382,6 +386,7 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 			func() error { return rt.wireVerification(rt.VerificationConfig) },
 			rt.wireWorkflowRunner,
 			func() error { return rt.wireScheduler(rt.SchedulerConfig) },
+			rt.wireReviewBatches,
 		} {
 			if err := wire(); err != nil {
 				rt.Close()
@@ -427,6 +432,9 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 			return nil, err
 		}
 		if err := rt.wireScheduler(rt.SchedulerConfig); err != nil {
+			return nil, err
+		}
+		if err := rt.wireReviewBatches(); err != nil {
 			return nil, err
 		}
 		if err := rt.wireSupervisor(); err != nil {
@@ -475,6 +483,10 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 		return nil, err
 	}
 	if err := rt.wireScheduler(rt.SchedulerConfig); err != nil {
+		sqlStore.Close()
+		return nil, err
+	}
+	if err := rt.wireReviewBatches(); err != nil {
 		sqlStore.Close()
 		return nil, err
 	}
@@ -1087,6 +1099,30 @@ func (r *Runtime) wireScheduler(cfg SchedulerConfig) error {
 	)
 	r.Scheduler.Metrics = metrics
 	r.Metrics = metrics
+	return nil
+}
+
+// wireReviewBatches enables explicit path batches only when both the agent and a
+// durable batch store are available. Memory is a test/profile store; PostgreSQL is
+// the maintained production implementation.
+func (r *Runtime) wireReviewBatches() error {
+	store, ok := r.Store.(reviewbatch.Store)
+	if !ok || r.Agent == nil || r.Audit == nil {
+		return nil
+	}
+	if _, sqlStore := r.Store.(*storage.SQL); sqlStore && !storage.IsPostgres(r.Store) {
+		return nil
+	}
+	manager := reviewbatch.New(store, r.Audit, r.Agent)
+	if err := manager.Recover(context.Background()); err != nil {
+		manager.Close()
+		return fmt.Errorf("app: recover review batches: %w", err)
+	}
+	r.ReviewBatches = manager
+	r.closers = append([]func() error{func() error {
+		manager.Close()
+		return nil
+	}}, r.closers...)
 	return nil
 }
 

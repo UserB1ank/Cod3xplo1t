@@ -16,6 +16,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/findings"
 	"github.com/open-mcp-ai/Codexploit/internal/plugin"
 	"github.com/open-mcp-ai/Codexploit/internal/repository"
+	"github.com/open-mcp-ai/Codexploit/internal/reviewbatch"
 	"github.com/open-mcp-ai/Codexploit/internal/verify"
 	"github.com/open-mcp-ai/Codexploit/internal/workflow"
 )
@@ -94,6 +95,7 @@ type Memory struct {
 	// findingAudits is the append-only severity history.
 	findingObservations map[string]findings.Observation
 	findingAudits       map[string][]findings.SeverityAudit
+	reviewBatches       map[string]reviewbatch.Batch
 }
 
 type memorySnapshot struct {
@@ -131,6 +133,7 @@ func NewMemory() *Memory {
 		findings:               map[string]verify.Finding{},
 		findingObservations:    map[string]findings.Observation{},
 		findingAudits:          map[string][]findings.SeverityAudit{},
+		reviewBatches:          map[string]reviewbatch.Batch{},
 	}
 }
 

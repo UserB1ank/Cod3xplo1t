@@ -1,0 +1,43 @@
+{
+  "api_version": "codexploit/v1",
+  "batch": {
+    "batch_id": "review-batch-fixture",
+    "project_id": "proj-fixture",
+    "snapshot_id": "snap-fixture",
+    "audit_id": "audit-fixture",
+    "state": "RUNNING",
+    "path_ids": [
+      "path-fixture-a",
+      "path-fixture-b"
+    ],
+    "max_concurrent": 2,
+    "created_by": "operator",
+    "execution_owner": "review-batch-example",
+    "lease_epoch": 1,
+    "heartbeat_at": "2026-10-28T00:00:00Z",
+    "lease_until": "2026-10-28T00:00:30Z",
+    "created_at": "2026-10-28T00:00:00Z",
+    "updated_at": "2026-10-28T00:00:00Z",
+    "version": 1
+  },
+  "progress": {
+    "total": 2,
+    "queued": 1,
+    "active": 1,
+    "reviewed": 0,
+    "failed": 0,
+    "cancelled": 0,
+    "blocked": 0,
+    "paused": 0
+  },
+  "paths": [
+    {
+      "path_id": "path-fixture-a",
+      "status": "ANALYZING"
+    },
+    {
+      "path_id": "path-fixture-b",
+      "status": "QUEUED"
+    }
+  ]
+}

@@ -130,5 +130,9 @@
   {
     "file": "examples/path-proposal.json",
     "schema": "path-proposal.schema.json"
+  },
+  {
+    "file": "examples/review-batch.json",
+    "schema": "review-batch.schema.json"
   }
 ]
