@@ -16,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/open-mcp-ai/Codexploit/internal/claim"
 	projectmcp "github.com/open-mcp-ai/Codexploit/internal/mcp"
 	"github.com/open-mcp-ai/Codexploit/internal/storage"
 )
@@ -60,11 +61,13 @@ func (s *Server) wireSupervisorProjectTools() {
 		return
 	}
 	s.Supervisor.ProjectMCPClient = func(ctx context.Context, project, snapshot string) (*sdk.ClientSession, error) {
+		claimOrigin := claim.OriginFrom(ctx)
 		principal, ok := PrincipalFrom(ctx)
 		if !ok {
 			return nil, errors.New("project tools require an authenticated operator")
 		}
 		return projectmcp.NewProjectClientWithTools(ctx, s.Graph, s.Store, project, snapshot, s.PluginCatalog, func(server *sdk.Server) {
+			s.registerClaimTools(server, principal, project, snapshot, claimOrigin)
 			sdk.AddTool(server, &sdk.Tool{Name: "list_project_operations", Description: "Discover the current project's full application API: snapshots/graphs, source, analysis, tasks, workflows, Agent runs, findings, reports, artifacts and controls. Search by English route term; operation is the exact registered METHOD /path template. Project identity is injected by the host."}, func(ctx context.Context, _ *sdk.CallToolRequest, in projectOperationsInput) (*sdk.CallToolResult, any, error) {
 				if in.Offset < 0 || in.Limit < 0 {
 					return nil, nil, errors.New("invalid_argument: negative page")
@@ -85,6 +88,7 @@ func (s *Server) wireSupervisorProjectTools() {
 				return nil, map[string]any{"project_id": project, "default_snapshot_id": snapshot, "operations": rows[start:end], "total": len(rows), "next_offset": end, "truncated": end < len(rows), "usage": "Call project_api with operation, params for the listed placeholders, query, structured body, and optional if_match/idempotency_key. HTTP status and errors are preserved. Only this project's objects are accessible."}, nil
 			})
 			sdk.AddTool(server, &sdk.Tool{Name: "project_api", Description: "Read or operate on any current-project resource through the formal application API. Discover exact operation templates with list_project_operations. Uses the sending operator's permissions and the same validation, CAS, idempotency and execution gates as WebUI. For large GET responses follow next_offset with response_offset and expected_sha256; JSON fragments are explicitly marked text windows, never complete documents."}, func(ctx context.Context, _ *sdk.CallToolRequest, in projectAPIInput) (*sdk.CallToolResult, any, error) {
+				ctx = claim.WithOrigin(ctx, claimOrigin)
 				return s.callProjectAPI(ctx, principal, project, in)
 			})
 		})

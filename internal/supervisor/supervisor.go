@@ -18,6 +18,7 @@ import (
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/open-mcp-ai/Codexploit/internal/claim"
 	"github.com/open-mcp-ai/Codexploit/internal/llm"
 	"github.com/open-mcp-ai/Codexploit/internal/storage"
 )
@@ -28,7 +29,7 @@ const (
 	RunSucceeded  = "SUCCEEDED"
 	RunFailed     = "FAILED"
 	RunCancelled  = "CANCELLED"
-	PromptVersion = "supervisor/v3"
+	PromptVersion = "supervisor/v5"
 )
 
 var (
@@ -189,6 +190,7 @@ func (s *Service) run(ctx context.Context, session storage.SupervisorSession, us
 	}()
 	var client *sdk.ClientSession
 	var err error
+	ctx = claim.WithOrigin(ctx, claim.Origin{SessionID: session.ID, RunID: run.ID})
 	if s.ProjectMCPClient != nil {
 		client, err = s.ProjectMCPClient(ctx, session.ProjectID, session.SnapshotID)
 	} else {
@@ -406,7 +408,7 @@ func history(session storage.SupervisorSession, current storage.SupervisorMessag
 			start--
 		}
 	}
-	out := []llm.Message{{Role: "system", Content: systemPrompt}}
+	out := []llm.Message{{Role: "system", Content: systemPrompt + "\n" + investigationPrompt}}
 	for _, message := range session.Messages[start:] {
 		if message.ID == current.ID {
 			continue
@@ -560,3 +562,5 @@ func (s *Service) appendEvent(projectID, sessionID, runID, eventType, summary st
 		session.Events = append(session.Events, storage.SupervisorEvent{ID: "se-" + rand.Text(), SessionID: sessionID, RunID: runID, Seq: nextEventSeq(*session), Type: eventType, Summary: summary, Detail: detail, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)})
 	})
 }
+
+const investigationPrompt = `Use query_investigation_knowledge before investigating an audit question to reuse recorded conjectures, open questions and evidence. Persist specific new conjectures with propose_claim, missing premises with open_question, and both supporting and contradicting source/evidence/artifact references with attach_evidence. Read back persisted records before reporting success. A recorded conjecture, model agreement or static flow is never a verified vulnerability. These tools do not start background investigation workers or resolve questions automatically. Their input scope is the project's read-only source identity, not a promise of source content versioning.`

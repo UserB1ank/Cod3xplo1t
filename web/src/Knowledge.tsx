@@ -1,3 +1,4 @@
+import { InvestigationKnowledge } from "./InvestigationKnowledge";
 import {
   Fragment,
   useId,
@@ -463,6 +464,16 @@ export function Knowledge({
           <RefreshCw size={15} className={viewLoading ? "spin" : ""} /> 刷新图谱
         </button>
       </div>
+
+      {mode === "graph" && (
+        <InvestigationKnowledge
+          key={[projectID, snapshotID, revision].join(":")}
+          api={api}
+          projectID={projectID}
+          snapshotID={snapshotID}
+          canWrite={canWrite}
+        />
+      )}
 
       {viewLoading ? (
         <Panel title="正在读取图谱">

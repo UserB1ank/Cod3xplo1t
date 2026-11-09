@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codexploit.invalid/contracts/v1/investigation-knowledge.schema.json",
+  "title": "Append-only investigation knowledge (not verification verdicts)",
+  "oneOf": [
+    {"$ref": "#/$defs/Page"},
+    {"type": "object", "additionalProperties": false, "required": ["api_version", "record", "created"], "properties": {"api_version": {"const": "codexploit/v1"}, "record": {"$ref": "#/$defs/Record"}, "created": {"type": "boolean"}}}
+  ],
+  "$defs": {
+    "Target": {
+      "type": "object", "additionalProperties": false, "required": ["file", "start_line", "end_line"],
+      "properties": {"file": {"type": "string", "minLength": 1, "maxLength": 1024}, "start_line": {"type": "integer", "minimum": 1}, "end_line": {"type": "integer", "minimum": 1}}
+    },
+    "Reference": {
+      "type": "object", "additionalProperties": false, "required": ["kind"],
+      "properties": {"kind": {"enum": ["source", "evidence", "artifact"]}, "id": {"type": "string"}, "target": {"$ref": "#/$defs/Target"}, "content": {"type": "string", "maxLength": 20000}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "redacted": {"type": "boolean"}, "redaction_notes": {"type": "string"}}
+    },
+    "Record": {
+      "type": "object", "additionalProperties": false,
+      "required": ["record_id", "claim_id", "scope", "kind", "status", "statement", "actor", "created_at", "revision"],
+      "properties": {
+        "record_id": {"type": "string", "pattern": "^kr-[a-f0-9]{64}$"}, "claim_id": {"type": "string", "pattern": "^kc-[a-f0-9]{64}$"},
+        "scope": {"type": "object", "additionalProperties": false, "required": ["project_id", "snapshot_id"], "properties": {"project_id": {"type": "string", "minLength": 1}, "snapshot_id": {"type": "string", "minLength": 1}}},
+        "kind": {"enum": ["claim", "observation", "question", "evidence"]}, "status": {"enum": ["conjecture", "open", "recorded"]},
+        "category": {"enum": ["vulnerability", "control", "business_rule"]}, "statement": {"type": "string", "minLength": 1, "maxLength": 4000}, "conditions": {"type": "string", "maxLength": 2000},
+        "target": {"$ref": "#/$defs/Target"}, "reference": {"$ref": "#/$defs/Reference"}, "relation": {"enum": ["supports", "contradicts", "context"]},
+        "actor": {"type": "string", "minLength": 1}, "session_id": {"type": "string"}, "run_id": {"type": "string"}, "created_at": {"type": "string"}, "revision": {"type": "integer", "minimum": 1}
+      },
+      "allOf": [
+        {"if": {"properties": {"kind": {"enum": ["claim", "observation"]}}}, "then": {"required": ["category", "target"], "properties": {"status": {"const": "conjecture"}}}},
+        {"if": {"properties": {"kind": {"const": "question"}}}, "then": {"properties": {"status": {"const": "open"}}}},
+        {"if": {"properties": {"kind": {"const": "evidence"}}}, "then": {"required": ["reference", "relation"], "properties": {"status": {"const": "recorded"}}}}
+      ]
+    },
+    "Page": {
+      "type": "object", "additionalProperties": false, "required": ["records", "revision", "head_revision", "next_cursor", "has_more"],
+      "properties": {"records": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/Record"}}, "revision": {"type": "integer", "minimum": 0}, "head_revision": {"type": "integer", "minimum": 0}, "next_cursor": {"type": "integer", "minimum": 0}, "has_more": {"type": "boolean"}}
+    }
+  }
+}

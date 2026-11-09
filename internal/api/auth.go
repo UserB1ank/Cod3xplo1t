@@ -305,6 +305,14 @@ func requiredCapability(method, path string) (Capability, bool) {
 		}
 	case strings.HasPrefix(rest, "v1/projects/"):
 		_, action, _ := strings.Cut(strings.TrimPrefix(rest, "v1/projects/"), "/")
+		if action == "knowledge/claims" || strings.HasPrefix(action, "knowledge/claims/") {
+			if method == http.MethodGet {
+				return CapRead, true
+			}
+			if method == http.MethodPost {
+				return CapWrite, true
+			}
+		}
 		if action == "stop-paths" && method == http.MethodPost {
 			return CapWrite, true
 		}
