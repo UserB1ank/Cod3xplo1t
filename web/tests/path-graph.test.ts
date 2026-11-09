@@ -16,3 +16,33 @@ test("path graph renders recorded direction, intermediate nodes and evidence wit
   assert.equal(graph.omitted, 1);
   assert.equal(pathGraph({entry_subject:"display only",target_subject:"display only",steps:[]}).edges.length,0);
 });
+
+test("path graph keeps inferred SCG calls separate from ASG endpoint refs", () => {
+  const graph = pathGraph({
+    entry_node_id: "asgn-entry",
+    entry_subject: "http_route:GET /run",
+    target_node_id: "asgn-sink",
+    target_subject: "sink:process_execution",
+    scg_refs: ["sym-handler", "sym-run", "cs-call"],
+    asg_refs: ["asgn-entry", "asgn-sink"],
+    steps: [{
+      from: "sym-handler",
+      to: "sym-run",
+      layer: "scg",
+      kind: "CALLS",
+      evidence: "cs-call",
+      resolution: "resolved",
+    }],
+  });
+  assert.deepEqual(graph.nodes.map((node) => node.node_id).sort(), [
+    "asgn-entry",
+    "asgn-sink",
+    "sym-handler",
+    "sym-run",
+  ]);
+  assert.equal(graph.edges.length, 1);
+  assert.equal(graph.edges[0].layer, "scg");
+  assert.equal(graph.edges[0].evidence, "cs-call");
+  assert.equal(graph.edges[0].evidence_status, "resolved");
+  assert.equal(graph.nodes.some((node) => node.node_id === "cs-call"), false);
+});

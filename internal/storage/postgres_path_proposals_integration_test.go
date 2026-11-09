@@ -76,6 +76,10 @@ func TestPostgresPathProposalDeduplicatesConcurrentSourcesAndRestarts(t *testing
 		reopened.Discoveries[0].RequestDigest == "" {
 		t.Fatalf("restart lost proposal provenance: %+v", reopened.Discoveries)
 	}
+	if !sameProposalRefs(reopened.SCGRefs, proposal.SCGRefs) || !sameProposalRefs(reopened.ASGRefs, proposal.ASGRefs) {
+		t.Fatalf("restart changed proposal refs: got SCG=%v ASG=%v want SCG=%v ASG=%v",
+			reopened.SCGRefs, reopened.ASGRefs, proposal.SCGRefs, proposal.ASGRefs)
+	}
 
 	otherKey := provisionalPath(audit, "entry-a", "sink-a", "edge-a", now)
 	otherKey.Discoveries[0].RequestKey = "different-request"

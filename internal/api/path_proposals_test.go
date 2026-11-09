@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,12 +15,13 @@ import (
 	"github.com/open-mcp-ai/Codexploit/internal/asg"
 	"github.com/open-mcp-ai/Codexploit/internal/knowledge"
 	"github.com/open-mcp-ai/Codexploit/internal/path"
+	"github.com/open-mcp-ai/Codexploit/internal/scg"
 	"github.com/open-mcp-ai/Codexploit/internal/storage"
 )
 
 func TestAgentPathProposalIsPinnedIdempotentAndHumanSelectable(t *testing.T) {
 	env := newTestEnv(t, false)
-	project := createProject(t, env.ts, asgFixtureSource(t))
+	project := createProject(t, env.ts, pathProposalCallSource(t))
 	capture := do(t, env.ts, http.MethodPost, "/api/projects/"+project.Project.ID+"/snapshots",
 		map[string]any{"build_graph": true, "build_asg": true}, nil)
 	if capture.status != http.StatusCreated {
@@ -124,6 +126,64 @@ func TestAgentPathProposalIsPinnedIdempotentAndHumanSelectable(t *testing.T) {
 		supportedResult.Path.PathKind != path.PathKindCallGraph {
 		t.Fatalf("observed chain was not preserved distinctly: %d %s", supported.status, supported.body)
 	}
+	assertInferredProposalRefs(t, supportedResult.Path)
+	directory := do(t, env.ts, http.MethodGet, viewPath+"/"+view.View.ID+"/paths?limit=50", nil, nil)
+	if directory.status != http.StatusOK {
+		t.Fatalf("path directory: %d %s", directory.status, directory.body)
+	}
+	var page struct {
+		Paths []path.Path `json:"paths"`
+	}
+	directory.decode(t, &page)
+	var listedProposal *path.Path
+	for i := range page.Paths {
+		if page.Paths[i].Signature == supportedResult.Path.Signature {
+			listedProposal = &page.Paths[i]
+			break
+		}
+	}
+	if listedProposal == nil || !sameStrings(listedProposal.SCGRefs, supportedResult.Path.SCGRefs) ||
+		!sameStrings(listedProposal.ASGRefs, supportedResult.Path.ASGRefs) {
+		t.Fatalf("path directory changed proposal source layers: %+v", listedProposal)
+	}
+	filteredDirectory := do(t, env.ts, http.MethodGet,
+		viewPath+"/"+view.View.ID+"/paths?audit_id="+supportedResult.Path.AuditID+"&limit=50", nil, nil)
+	if filteredDirectory.status != http.StatusOK {
+		t.Fatalf("filtered path directory: %d %s", filteredDirectory.status, filteredDirectory.body)
+	}
+	var filteredPage struct {
+		Paths []path.Path `json:"paths"`
+	}
+	filteredDirectory.decode(t, &filteredPage)
+	foundFiltered := false
+	for _, item := range filteredPage.Paths {
+		if item.Signature == supportedResult.Path.Signature && sameStrings(item.SCGRefs, supportedResult.Path.SCGRefs) {
+			foundFiltered = true
+			break
+		}
+	}
+	if !foundFiltered {
+		t.Fatalf("audit source filter lost inferred SCG refs: %s", filteredDirectory.body)
+	}
+	var symbolRef string
+	for _, ref := range supportedResult.Path.SCGRefs {
+		if strings.HasPrefix(ref, "sym-") {
+			symbolRef = ref
+			break
+		}
+	}
+	if symbolRef == "" {
+		t.Fatalf("inferred path has no SCG symbol ref: %v", supportedResult.Path.SCGRefs)
+	}
+	provenance := do(t, env.ts, http.MethodGet,
+		viewPath+"/"+view.View.ID+"/provenance?fact_id="+symbolRef, nil, nil)
+	var source struct {
+		Provenance knowledge.Provenance `json:"provenance"`
+	}
+	provenance.decode(t, &source)
+	if provenance.status != http.StatusOK || source.Provenance.Kind != "symbol" {
+		t.Fatalf("SCG path source cannot be opened as a symbol: %d %s", provenance.status, provenance.body)
+	}
 	delete(body, "evidence")
 	body["request_key"] = "missing-evidence"
 	if got := do(t, env.ts, http.MethodPost, endpoint, body, nil); got.status != http.StatusBadRequest {
@@ -135,6 +195,94 @@ func TestAgentPathProposalIsPinnedIdempotentAndHumanSelectable(t *testing.T) {
 	invalidView := do(t, env.ts, http.MethodPost, viewPath+"/"+revisionView+"/path-proposals", body, nil)
 	if invalidView.status != http.StatusBadRequest || !bytes.Contains([]byte(invalidView.body), []byte("invalid_path_view")) {
 		t.Fatalf("publication revision view = %d %s, want invalid_path_view", invalidView.status, invalidView.body)
+	}
+}
+
+func TestAgentPathProposalKeepsExplicitASGChainOutOfSCGRefs(t *testing.T) {
+	env := newTestEnv(t, false)
+	project := createProject(t, env.ts, asgFixtureSource(t))
+	capture := do(t, env.ts, http.MethodPost, "/api/projects/"+project.Project.ID+"/snapshots",
+		map[string]any{"build_graph": true, "build_asg": true}, nil)
+	if capture.status != http.StatusCreated {
+		t.Fatalf("capture: %d %s", capture.status, capture.body)
+	}
+	var snapshot snapshotResponse
+	capture.decode(t, &snapshot)
+	snapshotID := snapshot.Snapshot.SnapshotID
+	ctx := context.Background()
+	entries, _, err := env.rt.Store.ListASGNodes(ctx, storage.ASGNodeQuery{
+		SnapshotID: snapshotID, Kinds: []asg.NodeKind{asg.NodeEntryPoint}, Limit: 1,
+	})
+	sinks, _, err2 := env.rt.Store.ListASGNodes(ctx, storage.ASGNodeQuery{
+		SnapshotID: snapshotID, Kinds: []asg.NodeKind{asg.NodeSensitiveOperation}, Limit: 1,
+	})
+	if err != nil || err2 != nil || len(entries) == 0 || len(sinks) == 0 {
+		t.Fatalf("fixture lacks proposal endpoints: %v %v", err, err2)
+	}
+	edge := installObservedReachability(t, env, snapshotID, entries[0], sinks[0])
+	viewPath := "/api/v1/projects/" + project.Project.ID + "/knowledge/views"
+	opened := do(t, env.ts, http.MethodPost, viewPath, map[string]any{
+		"api_version": "codexploit/v1", "snapshot_id": snapshotID,
+		"layers": []string{knowledge.LayerSCG, knowledge.LayerASG, knowledge.LayerPaths},
+	}, nil)
+	if opened.status != http.StatusOK {
+		t.Fatalf("open knowledge view: %d %s", opened.status, opened.body)
+	}
+	var view knowledgeViewResponse
+	opened.decode(t, &view)
+	body := map[string]any{
+		"request_key": "explicit-asg-proposal", "entry_ref": entries[0].ID,
+		"target_ref": sinks[0].ID, "basis": "call_reachability",
+		"steps": []map[string]any{{
+			"layer": "asg", "from_ref": entries[0].ID, "to_ref": sinks[0].ID, "relation_ref": edge.ID,
+		}},
+		"evidence": []map[string]any{{"kind": "source", "file": "main.go", "start_line": 1, "end_line": 2}},
+	}
+	created := do(t, env.ts, http.MethodPost, viewPath+"/"+view.View.ID+"/path-proposals", body, nil)
+	if created.status != http.StatusCreated {
+		t.Fatalf("explicit ASG proposal: %d %s", created.status, created.body)
+	}
+	var result struct {
+		Path path.Path `json:"path"`
+	}
+	created.decode(t, &result)
+	if len(result.Path.SCGRefs) != 0 {
+		t.Fatalf("explicit ASG chain leaked into SCG refs: %v", result.Path.SCGRefs)
+	}
+	for _, want := range []string{entries[0].ID, sinks[0].ID, edge.ID} {
+		if !containsProposalRef(result.Path.ASGRefs, want) {
+			t.Fatalf("ASG refs %v missing %s", result.Path.ASGRefs, want)
+		}
+	}
+	if len(result.Path.Steps) != 1 || result.Path.Steps[0].Evidence != edge.ID ||
+		result.Path.Steps[0].Resolution != string(edge.Evidence) {
+		t.Fatalf("ASG step lost its relation identity: %+v", result.Path.Steps)
+	}
+}
+
+func TestProposalReferencesRespectTheDeclaredLayer(t *testing.T) {
+	scgRefs, asgRefs := proposalReferences(
+		"asgn-entry", "asgn-sink",
+		[]path.Step{{Layer: "scg", From: "sym-handler", To: "sym-run", Evidence: "cs-call"}},
+		[]string{"sym-handler", "sym-run", "cs-call"},
+	)
+	if !sameStrings(scgRefs, []string{"sym-handler", "sym-run", "cs-call"}) ||
+		!sameStrings(asgRefs, []string{"asgn-entry", "asgn-sink"}) {
+		t.Fatalf("inferred refs: SCG=%v ASG=%v", scgRefs, asgRefs)
+	}
+	scgRefs, asgRefs = proposalReferences(
+		"asgn-entry", "asgn-sink",
+		[]path.Step{{Layer: "asg", From: "asgn-entry", To: "asgn-sink", Evidence: "asge-observed"}},
+		nil,
+	)
+	if len(scgRefs) != 0 ||
+		!sameStrings(asgRefs, []string{"asgn-entry", "asgn-sink", "asge-observed"}) {
+		t.Fatalf("explicit ASG refs: SCG=%v ASG=%v", scgRefs, asgRefs)
+	}
+	scgRefs, asgRefs = proposalReferences("asgn-entry", "asgn-sink", nil, []string{"sym-handler"})
+	if !sameStrings(scgRefs, []string{"sym-handler"}) ||
+		!sameStrings(asgRefs, []string{"asgn-entry", "asgn-sink"}) {
+		t.Fatalf("same-symbol refs: SCG=%v ASG=%v", scgRefs, asgRefs)
 	}
 }
 
@@ -272,4 +420,110 @@ func TestSupervisorProposePathUsesOriginAndDedupes(t *testing.T) {
 	if !late.IsError {
 		t.Fatalf("late proposal after cancellation was accepted: %+v", late)
 	}
+}
+
+func assertInferredProposalRefs(t *testing.T, proposal path.Path) {
+	t.Helper()
+	if len(proposal.SCGRefs) == 0 {
+		t.Fatalf("inferred call path has no SCG refs: %+v", proposal)
+	}
+	scgRefs := make(map[string]bool, len(proposal.SCGRefs))
+	for _, ref := range proposal.SCGRefs {
+		scgRefs[ref] = true
+	}
+	asgRefs := make(map[string]bool, len(proposal.ASGRefs))
+	for _, ref := range proposal.ASGRefs {
+		asgRefs[ref] = true
+	}
+	if len(proposal.Steps) == 0 {
+		t.Fatal("inferred call path has no recorded steps")
+	}
+	for _, step := range proposal.Steps {
+		if step.Layer != "scg" {
+			t.Fatalf("inferred call step has layer %q", step.Layer)
+		}
+		for _, ref := range []string{step.From, step.To, step.Evidence} {
+			if ref != "" && !scgRefs[ref] {
+				t.Fatalf("SCG refs %v missing step ref %s", proposal.SCGRefs, ref)
+			}
+		}
+		if step.Evidence != "" && asgRefs[step.Evidence] {
+			t.Fatalf("SCG edge %s was recorded as an ASG ref: %v", step.Evidence, proposal.ASGRefs)
+		}
+	}
+}
+
+func installObservedReachability(t *testing.T, env *testEnv, snapshotID string, entry, sink asg.Node) asg.Edge {
+	t.Helper()
+	summary, err := env.rt.Store.ASGSummary(context.Background(), snapshotID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edge := asg.Edge{
+		ID:         asg.EdgeID(snapshotID, asg.EdgeReaches, entry.ID, sink.ID, "path-proposal-test"),
+		SnapshotID: snapshotID, From: entry.ID, To: sink.ID, Kind: asg.EdgeReaches,
+		Evidence: asg.StatusObserved, Confidence: scg.Observed,
+		Generator: "fixture/observed", SCGRefs: append(append([]string(nil), entry.SCGRefs...), sink.SCGRefs...),
+		Detail: map[string]string{"reason": "deterministic proposal test"},
+	}
+	document := &asg.Document{
+		SchemaVersion: asg.SchemaVersion, SnapshotID: snapshotID,
+		ASGVersion: summary.ASGVersion, SCGVersion: summary.SCGVersion,
+		Engine: summary.Engine, RulesetHash: summary.RulesetHash,
+		Nodes: []asg.Node{entry, sink}, Edges: []asg.Edge{edge},
+		Coverage: summary.Coverage, Limitations: summary.Limitations,
+		BuiltAt: summary.BuiltAt, BuildDurationMS: summary.BuildDurationMS,
+	}
+	if err := env.rt.Store.ReplaceASG(context.Background(), snapshotID, document); err != nil {
+		t.Fatal(err)
+	}
+	return edge
+}
+
+func sameStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func containsProposalRef(refs []string, want string) bool {
+	for _, ref := range refs {
+		if ref == want {
+			return true
+		}
+	}
+	return false
+}
+
+func pathProposalCallSource(t *testing.T) string {
+	t.Helper()
+	source := t.TempDir()
+	writeFile(t, source, "go.mod", "module example.invalid/pathproposal\n\ngo 1.24\n")
+	writeFile(t, source, "main.go", `package main
+
+import (
+	"net/http"
+	"os/exec"
+)
+
+func run(cmd string) {
+	exec.Command("sh", "-c", cmd).Run()
+}
+
+func Handler(w http.ResponseWriter, r *http.Request) {
+	run(r.URL.Query().Get("cmd"))
+}
+
+func main() {
+	http.HandleFunc("/run", Handler)
+	http.ListenAndServe(":8080", nil)
+}
+`)
+	return source
 }

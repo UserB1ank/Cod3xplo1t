@@ -15,6 +15,8 @@ export interface GraphPath {
   entry_subject: string;
   target_node_id?: string;
   target_subject: string;
+  scg_refs?: string[];
+  asg_refs?: string[];
   steps?: PathStep[];
 }
 export interface PathGraphNode {

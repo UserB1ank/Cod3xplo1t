@@ -148,6 +148,8 @@
 
 - 2026-11-09 — #112 路径提案强制 writer 权限并在事务内拒绝迟到写入：路径提案 POST 在 HTTP 与项目 MCP 两条入口均要求 writer；宿主绑定 supervisor session/run、execution owner 与 lease epoch，Memory / SQL 持久化在事务内重新校验 project、snapshot、RUNNING、owner、epoch 与 deadline，PostgreSQL 使用数据库时钟，请求取消可终止事务。覆盖 reader 拒绝、合法 human writer、无请求上下文、陈旧 owner/epoch、过期/取消 lease 及冲突后不新增 path/event；隔离提交树通过 1,449 项全量测试、相关四包竞态、真实 PostgreSQL、合约、前端测试/构建、gofmt、vet 与 pinned Staticcheck。主工作区 `make lint` 仍被既有未跟踪 `internal/app/example_test.go` 引用不存在的 `Runtime.EnsureExample` 阻断，与本 Issue 无关，未删除该 WIP。按交付流程提交并关闭；未 push。
 
+- 2026-11-09 — #113 正确投影路径提案的 SCG 与 ASG 来源：推断调用路径现在把真实符号、call-site / edge ID 写入 `scg_refs`，攻击面入口与 sink 保持在 `asg_refs`；显式 ASG `REACHES` 步骤把 relation ID 写入 `asg_refs`，步骤证据 ID 与 observed 状态分离，不再把 SCG edge 当作 ASG relation。Memory / SQLite / PostgreSQL 往返、API 响应、按审计来源过滤、SCG symbol provenance 和前端路径图层均有回归。相关四包 593 项测试与竞态、真实 PostgreSQL、合约、前端测试/构建、gofmt、vet 与 pinned Staticcheck 通过；主工作区全量 lint 仍被既有未跟踪 `internal/app/example_test.go` 阻断，与本 Issue 无关。按交付流程提交并关闭；未 push。
+
 ## Agent skills
 
 ### Issue tracker

@@ -49,10 +49,15 @@ func TestProposedPathRequiresCurrentRunOwnerAndLease(t *testing.T) {
 			SessionID: session.ID, RunID: session.Runs[0].ID, ExecutionOwner: "owner-a", LeaseEpoch: 7,
 		}
 		proposal := proposalForFence(audit, "path-proposal-fence", "request-proposal-fence", now)
-		if _, created, err := proposalStore.AddProposedPath(
+		stored, created, err := proposalStore.AddProposedPath(
 			path.WithProposalOrigin(ctx, origin), proposal, "operator", "request-proposal-fence", 20,
-		); err != nil || !created {
+		)
+		if err != nil || !created {
 			t.Fatalf("active proposal = created:%t err:%v", created, err)
+		}
+		if !sameProposalRefs(stored.SCGRefs, proposal.SCGRefs) || !sameProposalRefs(stored.ASGRefs, proposal.ASGRefs) {
+			t.Fatalf("active proposal changed source refs: got SCG=%v ASG=%v want SCG=%v ASG=%v",
+				stored.SCGRefs, stored.ASGRefs, proposal.SCGRefs, proposal.ASGRefs)
 		}
 		staleOwnerOrigin := origin
 		staleOwnerOrigin.ExecutionOwner = "owner-stale"
@@ -122,6 +127,18 @@ func TestProposedPathRequiresCurrentRunOwnerAndLease(t *testing.T) {
 			}
 		}
 	})
+}
+
+func sameProposalRefs(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func proposalForFence(audit path.Audit, id, requestKey string, now time.Time) path.Path {

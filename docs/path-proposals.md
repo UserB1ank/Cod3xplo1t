@@ -33,14 +33,18 @@ path layers.
 
 `basis=call_reachability` asks the host to resolve the entry handler and sink
 caller through the pinned SCG. When no explicit ASG steps are supplied, the host
-uses `find_call_paths` equivalent domain logic and stores the actual symbol
-sequence and edge IDs. A same-symbol entry/sink is supported without inventing an
+uses `find_call_paths` equivalent domain logic and stores the actual symbols and
+call-site / edge IDs in `scg_refs`; the attack-surface entry and sink remain in
+`asg_refs`. A same-symbol entry/sink is supported without inventing an
 interprocedural edge. `basis=hypothesis` keeps an unresolved or not-yet-proven
 connection explicit and stores it as `path_status=unresolved`.
 
 Explicit `steps` are ASG `REACHES` edges. Every step must exist, connect in
 order and have observed evidence. A caller cannot submit a fabricated relation
-ID or promote an inferred edge to `statically_supported`.
+ID or promote an inferred edge to `statically_supported`. Those endpoint and
+relation IDs are written only to `asg_refs`; the step keeps the real relation ID
+separate from its `observed` evidence status so the WebUI cannot present an SCG
+edge as an attack-surface relation.
 
 Evidence may reference a source range, an existing evidence or artifact ID,
 an ASG node, a symbol or a call site. The host rechecks project/snapshot scope;

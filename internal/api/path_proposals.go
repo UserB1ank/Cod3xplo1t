@@ -119,8 +119,9 @@ func (s *Server) handleProposePath(w http.ResponseWriter, r *http.Request) {
 		writeProposalError(w, err)
 		return
 	}
+	var inferredSCGRefs []string
 	if in.Basis == "call_reachability" && len(steps) == 0 {
-		steps, edgeIDs, err = s.inferCallReachability(r.Context(), scope.SnapshotID, entry, target, steps, edgeIDs)
+		steps, edgeIDs, inferredSCGRefs, err = s.inferCallReachability(r.Context(), scope.SnapshotID, entry, target, steps, edgeIDs)
 		if err != nil {
 			writeProposalError(w, err)
 			return
@@ -167,6 +168,7 @@ func (s *Server) handleProposePath(w http.ResponseWriter, r *http.Request) {
 		pathKind, pathStatus, risk, support, priority = path.PathKindCallGraph, path.PathStaticallySupported, 0.4, 0.7, 0.55
 	}
 	signature := path.Signature(scope.SnapshotID, entry.Node.ID, target.Node.ID, pathKind, edgeIDs)
+	scgRefs, asgRefs := proposalReferences(entry.Node.ID, target.Node.ID, steps, inferredSCGRefs)
 	observation := path.PathDiscovery{
 		Source: source, Tool: tool, SessionID: origin.SessionID, RunID: origin.RunID,
 		KnowledgeViewID: view.ID, RequestKey: in.RequestKey,
@@ -183,7 +185,7 @@ func (s *Server) handleProposePath(w http.ResponseWriter, r *http.Request) {
 		TargetNodeID: target.Node.ID, TargetSubject: target.Node.Subject, TargetKind: string(target.Node.Kind),
 		PathKind: pathKind, PathStatus: pathStatus, Status: path.StatusQueued,
 		Steps: steps, Signature: signature,
-		SCGRefs: []string{}, ASGRefs: []string{entry.Node.ID, target.Node.ID},
+		SCGRefs: scgRefs, ASGRefs: asgRefs,
 		EvidenceRefs: proposalEvidenceIDs(evidence),
 		Objectives:   []string{"agent_discovered:" + in.Basis},
 		Limitations: append([]string{
@@ -202,7 +204,6 @@ func (s *Server) handleProposePath(w http.ResponseWriter, r *http.Request) {
 		Discoveries: []path.PathDiscovery{observation},
 		CreatedAt:   now, UpdatedAt: now, Version: 1,
 	}
-	proposal.ASGRefs = append(proposal.ASGRefs, edgeIDs...)
 	stored, created, err := s.Audit.AddProposedPath(r.Context(), proposal, principalName(r), min(in.MaxPerRun, maxProposalItems))
 	if err != nil {
 		writeProposalError(w, err)
@@ -215,7 +216,7 @@ func (s *Server) handleProposePath(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, status, map[string]any{"api_version": "codexploit/v1", "path": stored, "created": created})
 }
 
-func (s *Server) inferCallReachability(ctx context.Context, snapshotID string, entry, target *graph.ASGNodeView, _ []path.Step, _ []string) ([]path.Step, []string, error) {
+func (s *Server) inferCallReachability(ctx context.Context, snapshotID string, entry, target *graph.ASGNodeView, _ []path.Step, _ []string) ([]path.Step, []string, []string, error) {
 	entrySymbol := entry.Node.Detail["handler_symbol_id"]
 	targetSymbol := ""
 	for _, ref := range target.DerivedFrom {
@@ -235,33 +236,38 @@ func (s *Server) inferCallReachability(ctx context.Context, snapshotID string, e
 		}
 	}
 	if entrySymbol == "" || targetSymbol == "" {
-		return nil, nil, fmt.Errorf("%w: entry handler or sink caller symbol is unresolved", path.ErrInvalidArgument)
+		return nil, nil, nil, fmt.Errorf("%w: entry handler or sink caller symbol is unresolved", path.ErrInvalidArgument)
 	}
 	set, err := s.Graph.CallPaths(ctx, snapshotID, graph.PathRequest{
 		Source: entrySymbol, Sink: targetSymbol, MaxPaths: 1, Options: graph.Options{MaxDepth: 10},
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if len(set.Paths) == 0 {
-		return nil, nil, fmt.Errorf("%w: no observed call path connects the selected entry and sink", path.ErrInvalidArgument)
+		return nil, nil, nil, fmt.Errorf("%w: no observed call path connects the selected entry and sink", path.ErrInvalidArgument)
 	}
 	found := set.Paths[0]
 	if len(found.Symbols) == 1 && len(found.EdgeIDs) == 0 {
-		return []path.Step{}, []string{}, nil
+		return []path.Step{}, []string{}, []string{found.Symbols[0].ID}, nil
 	}
 	if len(found.Symbols) < 2 || len(found.EdgeIDs) != len(found.Symbols)-1 {
-		return nil, nil, fmt.Errorf("%w: call path is incomplete", path.ErrInvalidArgument)
+		return nil, nil, nil, fmt.Errorf("%w: call path is incomplete", path.ErrInvalidArgument)
 	}
 	steps := make([]path.Step, 0, len(found.EdgeIDs))
+	refs := make([]string, 0, len(found.Symbols)+len(found.EdgeIDs))
+	for _, symbol := range found.Symbols {
+		refs = append(refs, symbol.ID)
+	}
 	for i, edgeID := range found.EdgeIDs {
 		from, to := found.Symbols[i], found.Symbols[i+1]
 		steps = append(steps, path.Step{
 			Layer: "scg", From: from.ID, To: to.ID, Kind: "CALLS",
 			File: to.File, Line: to.StartLine, Evidence: edgeID, Confidence: "observed",
 		})
+		refs = append(refs, edgeID)
 	}
-	return steps, append([]string(nil), found.EdgeIDs...), nil
+	return steps, append([]string(nil), found.EdgeIDs...), uniqueProposalRefs(refs), nil
 }
 
 func (s *Server) validateProposalSteps(ctx context.Context, snapshotID string, in proposalInput) ([]path.Step, []string, error) {
@@ -292,7 +298,7 @@ func (s *Server) validateProposalSteps(ctx context.Context, snapshotID string, i
 		steps = append(steps, path.Step{
 			Layer: "asg", From: selected.From, To: selected.To, Kind: string(selected.Kind),
 			Subject: targetView.Node.Subject, File: targetView.Node.File, Line: targetView.Node.Line,
-			Evidence: string(selected.Evidence), Confidence: string(selected.Confidence),
+			Evidence: selected.ID, Confidence: string(selected.Confidence), Resolution: string(selected.Evidence),
 		})
 		edgeIDs = append(edgeIDs, selected.ID)
 		if len(steps) > 1 && steps[len(steps)-2].To != steps[len(steps)-1].From {
@@ -303,6 +309,34 @@ func (s *Server) validateProposalSteps(ctx context.Context, snapshotID string, i
 		return nil, nil, fmt.Errorf("%w: path does not connect the selected endpoints", path.ErrInvalidArgument)
 	}
 	return steps, edgeIDs, nil
+}
+
+func proposalReferences(entryID, targetID string, steps []path.Step, inferredSCG []string) ([]string, []string) {
+	scgRefs := append([]string(nil), inferredSCG...)
+	asgRefs := []string{entryID, targetID}
+	for _, step := range steps {
+		refs := []string{step.From, step.To, step.Evidence}
+		switch strings.ToLower(step.Layer) {
+		case "scg":
+			scgRefs = append(scgRefs, refs...)
+		case "asg":
+			asgRefs = append(asgRefs, refs...)
+		}
+	}
+	return uniqueProposalRefs(scgRefs), uniqueProposalRefs(asgRefs)
+}
+
+func uniqueProposalRefs(refs []string) []string {
+	seen := make(map[string]bool, len(refs))
+	out := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		if ref == "" || seen[ref] {
+			continue
+		}
+		seen[ref] = true
+		out = append(out, ref)
+	}
+	return out
 }
 
 func (s *Server) validateProposalEvidence(ctx context.Context, scope knowledge.Scope, inputs []proposalEvidenceInput) ([]path.DiscoveryEvidence, error) {
