@@ -111,8 +111,14 @@ type Service struct {
 }
 
 // Origin is bound by the host when a supervisor run starts, never decoded from
-// a request body. Persistence checks the run again under the transaction lock.
-type Origin struct{ SessionID, RunID string }
+// a request body. Persistence checks the run owner and generation under the
+// transaction lock.
+type Origin struct {
+	SessionID string
+	RunID     string
+	Owner     string
+	Epoch     int64
+}
 type originKey struct{}
 
 func WithOrigin(ctx context.Context, origin Origin) context.Context {

@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { projectAgentConversation } from "../src/agent-conversation.ts";
+import {
+  continuableRun,
+  projectAgentConversation,
+  terminalRunFallback,
+} from "../src/agent-conversation.ts";
 import type { SupervisorSession } from "../src/types.ts";
 
 function sessionWith(
@@ -67,6 +71,75 @@ test("tool-only assistant turns become historical tool activity", () => {
   assert.equal(conversation[0].kind, "tool-activity");
   assert.equal(conversation[0].calls.length, 1);
   assert.doesNotMatch(JSON.stringify(conversation), /正在读取/);
+});
+
+test("legacy terminal runs without text receive a visible fallback", () => {
+  const session = sessionWith(
+    [
+      {
+        message_id: "message-one",
+        session_id: "session-one",
+        project_id: "project-one",
+        role: "assistant",
+        content: "",
+        calls: [{ call_id: "call-one", name: "repo_map", arguments: "{}" }],
+        run_id: "run-one",
+        status: "complete",
+        seq: 1,
+        created_at: "2026-01-01T00:00:01Z",
+      },
+    ],
+    "PAUSED",
+  );
+
+  const fallback = terminalRunFallback(session);
+  assert.equal(fallback?.run.status, "PAUSED");
+  assert.match(fallback?.message || "", /已暂停/);
+  assert.match(fallback?.message || "", /未完成/);
+});
+
+test("backend terminal messages suppress the legacy fallback", () => {
+  const session = sessionWith(
+    [
+      {
+        message_id: "terminal",
+        session_id: "session-one",
+        project_id: "project-one",
+        role: "assistant",
+        content: "本次运行已暂停。",
+        message_kind: "paused",
+        run_id: "run-one",
+        status: "complete",
+        seq: 1,
+        created_at: "2026-01-01T00:00:01Z",
+      },
+    ],
+    "PAUSED",
+  );
+
+  assert.equal(terminalRunFallback(session), undefined);
+});
+
+test("only the latest paused run with its user message can continue", () => {
+  const session = sessionWith([], "PAUSED");
+  session.runs[0].user_message_id = "message-user";
+  assert.equal(continuableRun(session)?.run_id, "run-one");
+
+  session.runs[0].status = "SUCCEEDED";
+  assert.equal(continuableRun(session), undefined);
+
+  session.runs[0].status = "PAUSED";
+  session.runs[0].user_message_id = "";
+  assert.equal(continuableRun(session), undefined);
+
+  session.runs[0].user_message_id = "message-user";
+  session.runs.push({
+    ...session.runs[0],
+    run_id: "run-active",
+    status: "RUNNING",
+    root_run_id: "run-one",
+  });
+  assert.equal(continuableRun(session), undefined);
 });
 
 test("tool results remain distinct from chat messages", () => {

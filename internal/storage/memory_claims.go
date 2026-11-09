@@ -41,8 +41,10 @@ func (m *Memory) AppendClaimRecord(ctx context.Context, r claim.Record) (claim.R
 		session, ok := m.supervisorSessions[r.SessionID]
 		active := false
 		if ok && session.ProjectID == r.Scope.ProjectID {
+			origin := claim.OriginFrom(ctx)
 			for _, run := range session.Runs {
-				if run.ID == r.RunID && run.Status == "RUNNING" {
+				if run.ID == r.RunID && run.Status == "RUNNING" &&
+					run.ExecutionOwner == origin.Owner && run.LeaseEpoch == origin.Epoch {
 					active = true
 				}
 			}

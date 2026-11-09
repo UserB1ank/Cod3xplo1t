@@ -2031,6 +2031,10 @@ textarea::placeholder {
 .supervisor-message p:last-child {
   margin-bottom: 0;
 }
+.supervisor-terminal-message {
+  border: 1px solid var(--border);
+  background: var(--panel-raised);
+}
 .supervisor-role {
   font-size: 11px;
   margin-bottom: 8px;

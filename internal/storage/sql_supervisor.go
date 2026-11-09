@@ -115,3 +115,71 @@ WHERE session_id = ? AND project_id = ? AND version = ?`),
 	}
 	return session, nil
 }
+
+func (s *SQL) SaveSupervisorSessionFenced(ctx context.Context, session SupervisorSession, expectedVersion int64, fence SupervisorRunFence) (SupervisorSession, error) {
+	if expectedVersion <= 0 {
+		return SupervisorSession{}, fmt.Errorf("%w: expected version is required", path.ErrInvalidArgument)
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return SupervisorSession{}, mapSQLError(err)
+	}
+	defer tx.Rollback()
+	lock := ""
+	if s.postgres {
+		lock = " FOR UPDATE"
+	}
+	var raw string
+	var version int64
+	if err := tx.QueryRowContext(ctx, s.rebind(`
+SELECT document_json, version FROM supervisor_sessions
+WHERE session_id = ? AND project_id = ?`+lock), session.ID, session.ProjectID).Scan(&raw, &version); err != nil {
+		return SupervisorSession{}, mapSQLError(err)
+	}
+	if version != expectedVersion {
+		return SupervisorSession{}, fmt.Errorf("%w: supervisor session version", ErrConflict)
+	}
+	var existing SupervisorSession
+	if err := decodeJSON(raw, &existing); err != nil {
+		return SupervisorSession{}, err
+	}
+	currentIndex, nextIndex := -1, -1
+	for i := range existing.Runs {
+		if existing.Runs[i].ID == fence.RunID {
+			currentIndex = i
+		}
+	}
+	for i := range session.Runs {
+		if session.Runs[i].ID == fence.RunID {
+			nextIndex = i
+		}
+	}
+	if currentIndex < 0 || nextIndex < 0 ||
+		!supervisorRunFenceAllows(existing.Runs[currentIndex], session.Runs[nextIndex], fence) {
+		return SupervisorSession{}, fmt.Errorf("%w: supervisor run %s owner or lease changed", ErrConflict, fence.RunID)
+	}
+	session.Version = expectedVersion + 1
+	session.CreatedAt = existing.CreatedAt
+	document, err := jsonString(session)
+	if err != nil {
+		return SupervisorSession{}, err
+	}
+	result, err := tx.ExecContext(ctx, s.rebind(`
+UPDATE supervisor_sessions SET state = ?, document_json = ?, updated_at = ?, version = version + 1
+WHERE session_id = ? AND project_id = ? AND version = ?`),
+		session.State, document, session.UpdatedAt, session.ID, session.ProjectID, expectedVersion)
+	if err != nil {
+		return SupervisorSession{}, mapSQLError(err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return SupervisorSession{}, err
+	}
+	if affected != 1 {
+		return SupervisorSession{}, fmt.Errorf("%w: supervisor session version", ErrConflict)
+	}
+	if err := tx.Commit(); err != nil {
+		return SupervisorSession{}, mapSQLError(err)
+	}
+	return session, nil
+}

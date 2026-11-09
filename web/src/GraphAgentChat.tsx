@@ -3,6 +3,7 @@ import {
   Bot,
   ExternalLink,
   Loader2,
+  Play,
   Plus,
   RefreshCw,
   Send,
@@ -10,7 +11,11 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ApiClient } from "./api";
-import { projectAgentConversation } from "./agent-conversation";
+import {
+  continuableRun as selectContinuableRun,
+  projectAgentConversation,
+  terminalRunFallback,
+} from "./agent-conversation";
 import { AgentConversationFeed } from "./AgentConversationFeed";
 import { isFollowingLatest } from "./agent-scroll";
 import { AgentMessageSendState } from "./agent-send-state";
@@ -35,6 +40,9 @@ function clientMessageID() {
 function runLabel(run?: SupervisorRun) {
   if (!run) return "等待对话";
   if (run.status === "RUNNING") return "正在查询";
+  if (run.status === "FINALIZING") return "正在收尾";
+  if (run.status === "PAUSED") return "本轮已暂停";
+  if (run.status === "PARTIAL") return "本轮部分完成";
   if (run.status === "FAILED") return "本轮失败";
   if (run.status === "CANCELLED") return "本轮已停止";
   return "已完成";
@@ -68,8 +76,11 @@ export function GraphAgentChat({
   const sendState = useRef(new AgentMessageSendState());
   const [showJump, setShowJump] = useState(false);
   const sessionID = session?.session_id || "";
-  const activeRun = session?.runs.find((run) => run.status === "RUNNING");
+  const activeRun = session?.runs.find(
+    (run) => run.status === "RUNNING" || run.status === "FINALIZING",
+  );
   const latestRun = session?.runs.at(-1);
+  const continuableRun = session ? selectContinuableRun(session) : undefined;
 
   const load = useCallback(
     async (preferredID = selectedSession.current, signal?: AbortSignal) => {
@@ -235,6 +246,7 @@ export function GraphAgentChat({
   const visibleConversation = conversation.filter(
     (entry) => entry.kind !== "tool-result",
   );
+  const terminalFallback = session ? terminalRunFallback(session) : undefined;
 
   return (
     <aside className="graph-agent-panel" aria-label="图谱 Agent 对话">
@@ -333,7 +345,7 @@ export function GraphAgentChat({
             <strong>等待源码输入</strong>
             <p>源码就绪后即可开始图谱对话。</p>
           </div>
-        ) : !visibleConversation.length ? (
+        ) : !visibleConversation.length && !terminalFallback ? (
           <div className="graph-agent-empty">
             <Bot size={20} />
             <strong>直接从图谱开始提问</strong>
@@ -352,47 +364,56 @@ export function GraphAgentChat({
             </div>
           </div>
         ) : (
-          visibleConversation.map((entry) => {
-            if (entry.kind === "tool-activity") {
-              return (
-                <AgentToolActivity
-                  key={entry.messageID}
-                  calls={entry.calls}
-                  current={!!entry.runID && entry.runID === latestRun?.run_id}
-                  compact
-                />
-              );
-            }
-            if (entry.kind === "empty-message") {
+          <>
+            {visibleConversation.map((entry) => {
+              if (entry.kind === "tool-activity") {
+                return (
+                  <AgentToolActivity
+                    key={entry.messageID}
+                    calls={entry.calls}
+                    current={!!entry.runID && entry.runID === latestRun?.run_id}
+                    compact
+                  />
+                );
+              }
+              if (entry.kind === "empty-message") {
+                return (
+                  <article
+                    className="graph-agent-message assistant"
+                    key={entry.message.message_id}
+                  >
+                    <span>Agent</span>
+                    <p>本轮未返回可显示文本。</p>
+                  </article>
+                );
+              }
+              const message = entry.message;
               return (
                 <article
-                  className="graph-agent-message assistant"
-                  key={entry.message.message_id}
+                  className={`graph-agent-message ${message.role}`}
+                  key={message.message_id}
                 >
-                  <span>Agent</span>
-                  <p>本轮未返回可显示文本。</p>
+                  <span>{message.role === "user" ? "你" : "Agent"}</span>
+                  {message.role === "assistant" ? (
+                    <Markdown source={message.content} />
+                  ) : (
+                    <p>{message.content}</p>
+                  )}
                 </article>
               );
-            }
-            const message = entry.message;
-            return (
-              <article
-                className={`graph-agent-message ${message.role}`}
-                key={message.message_id}
-              >
-                <span>{message.role === "user" ? "你" : "Agent"}</span>
-                {message.role === "assistant" ? (
-                  <Markdown source={message.content} />
-                ) : (
-                  <p>{message.content}</p>
-                )}
+            })}
+            {terminalFallback && (
+              <article className="graph-agent-message assistant">
+                <span>Agent</span>
+                <p>{terminalFallback.message}</p>
               </article>
-            );
-          })
+            )}
+          </>
         )}
         {activeRun && (
           <div className="graph-agent-thinking">
-            <Loader2 size={14} className="spin" /> 正在查询当前项目…
+            <Loader2 size={14} className="spin" />{" "}
+            {activeRun.status === "FINALIZING" ? "正在收尾…" : "正在查询当前项目…"}
           </div>
         )}
       </AgentConversationFeed>
@@ -482,27 +503,52 @@ export function GraphAgentChat({
               <Square size={12} /> 停止
             </button>
           ) : (
-            <button
-              type="button"
-              className="button primary"
-              aria-label="发送图谱 Agent 消息"
-              disabled={
-                !canWrite ||
-                !available ||
-                !session ||
-                loading ||
-                busy ||
-                !draft.trim()
-              }
-              onClick={() => void send()}
-            >
-              {busy ? (
-                <Loader2 size={13} className="spin" />
-              ) : (
-                <Send size={13} />
+            <>
+              {continuableRun && (
+                <button
+                  type="button"
+                  className="button secondary"
+                  disabled={!canWrite || busy}
+                  onClick={() =>
+                    void api
+                      .continueSupervisorRun(
+                        projectID,
+                        sessionID,
+                        continuableRun.run_id,
+                      )
+                      .then(() => load())
+                      .catch((value) =>
+                        setError(
+                          value instanceof Error ? value.message : "继续失败",
+                        ),
+                      )
+                  }
+                >
+                  <Play size={12} /> 继续
+                </button>
               )}
-              发送
-            </button>
+              <button
+                type="button"
+                className="button primary"
+                aria-label="发送图谱 Agent 消息"
+                disabled={
+                  !canWrite ||
+                  !available ||
+                  !session ||
+                  loading ||
+                  busy ||
+                  !draft.trim()
+                }
+                onClick={() => void send()}
+              >
+                {busy ? (
+                  <Loader2 size={13} className="spin" />
+                ) : (
+                  <Send size={13} />
+                )}
+                发送
+              </button>
+            </>
           )}
         </div>
       </div>

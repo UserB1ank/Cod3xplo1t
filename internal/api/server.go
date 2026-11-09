@@ -260,6 +260,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/agent-sessions/{sessionID}/events", s.handleSupervisorEvents)
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/agent-sessions/{sessionID}/runs/{runID}", s.handleGetSupervisorRun)
 	mux.HandleFunc("POST /api/v1/projects/{projectID}/agent-sessions/{sessionID}/runs/{runID}/cancel", s.handleCancelSupervisorRun)
+	mux.HandleFunc("POST /api/v1/projects/{projectID}/agent-sessions/{sessionID}/runs/{runID}/continue", s.withIdempotency(s.handleContinueSupervisorRun))
 	mux.HandleFunc("POST /api/v1/projects/{projectID}/path-selections", s.handleSelectPaths)
 	mux.HandleFunc("GET /api/v1/projects/{projectID}/path-selections", s.handleListPathSelections)
 	mux.HandleFunc("POST /api/v1/projects/{projectID}/review-batches", s.withIdempotency(s.handleStartReviewBatch))

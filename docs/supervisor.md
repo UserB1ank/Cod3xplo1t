@@ -13,6 +13,7 @@
 | `POST .../messages` | writer；开放文本 + `client_message_id`，返回 `202` 和 RUNNING run |
 | `GET .../events?after_seq=` | 有序事件与 `next_seq` |
 | `GET .../runs/{runID}` / `POST .../cancel` | 单个主 Agent run 的真实状态与停止 |
+| `POST .../runs/{runID}/continue` | writer；仅从最新 `PAUSED/PARTIAL` 运行创建新 Run Segment，复用原用户消息并保存续跑血缘 |
 
 `client_message_id` 相同的发送幂等返回已记录的消息/run；同一会话只允许一个 RUNNING turn。消息、run、事件和固定 pin 保存在 `supervisor_sessions` 文档（SQLite `0038` / PostgreSQL `0020`），文档提交后才可见。会话快照由项目输入绑定，模型参数不能更换项目或 snapshot；工具调用时宿主强制注入绑定 snapshot。
 
@@ -23,6 +24,14 @@
 主 Agent 通过真实 MCP SDK 连接与 stdio 相同的 `internal/mcp` 九只只读工具：`tools/list` 列出工具，`tools/call` 执行。领域查询仍在 Go 服务中，没有在 adapter/TypeScript 重写。宿主从 advertised schema 中去掉 `snapshot_id` 并在调用前注入，所以模型不能自选快照。工具结果按 call id 配对；错误作为 `{ok:false,error}` 回灌，不伪造成功。
 
 当前项目助手运行时为 `llm`（复用应用内模型设置），记录 model / config version / prompt version / tool schema digest / tokens。模型未配置时 API 返回 `agent_unavailable`，页面显示原因，不回退 ScriptedRuntime。Pi 的路径 Agent 与项目会话是不同运行身份；Pi 主会话适配属于后续切片。
+
+普通会话默认预算为 90 个模型回合、150 次工具调用和 600 秒。边界耗尽时运行进入 `PAUSED` 或 `PARTIAL`，并由无工具 Finalizer 或模板生成用户可见终态消息；`round_limit`、`tool_limit` 和 `time_limit` 记录在 `stop_reason`，不再等同于不可恢复失败。
+
+暂停运行保存有界 Checkpoint，包含原始用户消息、模型与工具计数、最后工具错误、下一动作和后续继续所需的稳定引用。Continue 不新增用户消息，也不重置运行限制。
+
+同一工具名与规范化参数连续失败两次后，第三次不会执行，而是返回结构化 `REPEATED_CALL` 并暂停为 `stuck`。默认 90 轮中的 72/81/86 轮软阈值会各注入一次收尾提示。
+
+Run 保存执行 owner、heartbeat 与 lease。读取过期 lease 的会话时，宿主把中断的 `RUNNING/FINALIZING` Segment 恢复为 `PAUSED(recovery)`，保留已有消息、工具结果和计数，并生成可见终态消息。
 
 ## 边界
 

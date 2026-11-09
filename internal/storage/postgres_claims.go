@@ -49,8 +49,10 @@ EXISTS(SELECT 1 FROM snapshot_deletions WHERE snapshot_id=$1) OR EXISTS(SELECT 1
 			return claim.Record{}, false, err
 		}
 		active := false
+		origin := claim.OriginFrom(ctx)
 		for _, run := range session.Runs {
-			if run.ID == r.RunID && run.Status == "RUNNING" {
+			if run.ID == r.RunID && run.Status == "RUNNING" &&
+				run.ExecutionOwner == origin.Owner && run.LeaseEpoch == origin.Epoch {
 				active = true
 			}
 		}

@@ -152,6 +152,8 @@
 
 - 2026-11-09 — #114 审查批次支持多实例热故障接管和陈旧控制拒绝：批次持久化 execution owner、单调 lease epoch、heartbeat 与 deadline，周期 reclaim 只允许新 owner/epoch 续租、提交终态或接管 `RUNNING/CANCELLING`；旧 owner 的迟到写入被 PostgreSQL / Memory 存储栅栏拒绝。Start/Resume 在建批或恢复前检查真实 Agent readiness；控制 API 返回 ETag，缺少 `If-Match` 返回 428，陈旧控制返回 412。进度合同和正式页面分别显示 blocked、paused、failed、cancelled，不再把受阻并入失败。覆盖双实例热接管、重启恢复、32 路径 / 4 并发、租约 fencing、reader / 跨项目隔离与前端控制；隔离提交树通过 1,460 项全量测试、相关四包竞态、三轮完整 `make test-stress`、真实 PostgreSQL、合约、前端测试/构建、gofmt、vet 与 pinned Staticcheck。主工作区 `make lint` 仍被既有未跟踪 `internal/app/example_test.go` 阻断，与本 Issue 无关。按交付流程提交并关闭；未 push。
 
+- 2026-11-09 — #115 为主 Agent Run 增加 owner/epoch 写入栅栏：Supervisor session 新增带锁的 fenced save，所有模型响应、tool result、event、checkpoint、pause/finalize 与 investigation claim 都同时核对 execution owner 和单调 lease epoch；过期 `RUNNING/FINALIZING` 仅允许新 owner 以更高 epoch 原子接管并恢复为 `PAUSED(recovery)`。旧 owner 的迟到 message、tool result、checkpoint、终态和 in-run cancel 不进入历史；Continue 只从最新 `PAUSED/PARTIAL` 创建新 Segment，旧 Segment 不能复活。正式工作台与图谱侧栏区分 RUNNING、FINALIZING、PAUSED、PARTIAL、FAILED、CANCELLED，并显示可继续状态。覆盖 Memory / 真实 PostgreSQL 双连接 fencing、恢复 epoch、旧 owner 拒绝、重启与单所有者事件序列；隔离提交树通过 1,473 项全量测试、相关四包竞态、三轮完整 `make test-stress`、真实 PostgreSQL、合约、前端测试/构建、gofmt、vet 与 pinned Staticcheck。主工作区 `make lint` 仍被既有未跟踪 `internal/app/example_test.go` 阻断，与本 Issue 无关。按交付流程提交并关闭；未 push。
+
 ## Agent skills
 
 ### Issue tracker

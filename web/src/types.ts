@@ -40,12 +40,26 @@ export interface SupervisorCall { call_id: string; name: string; arguments: stri
 export interface SupervisorMessage {
   message_id: string; session_id: string; project_id: string; role: string; content: string;
   client_message_id?: string; calls?: SupervisorCall[]; tool_call_id?: string; run_id?: string;
+  message_kind?: 'final' | 'partial' | 'paused' | 'failed' | 'cancelled';
   status: string; seq: number; created_at: string;
 }
 export interface SupervisorRun {
   run_id: string; session_id: string; project_id: string; status: string; runtime: string;
   model: string; config_version: string; prompt_version: string; tool_digest: string;
-  input_tokens: number; output_tokens: number; error?: string; error_code?: string;
+  stop_reason?: string; model_turns?: number; tool_calls?: number;
+  tool_errors?: number; blocked_tool_calls?: number;
+  round_limit?: number; tool_call_limit?: number;
+  input_tokens: number; output_tokens: number; visible_message_id?: string;
+  finalizer_source?: 'model' | 'template';
+  user_message_id?: string; resume_of?: string; root_run_id?: string;
+  execution_owner?: string; heartbeat_at?: string; lease_until?: string;
+  checkpoint?: {
+    schema_version: 1; user_message_id: string; stop_reason: string;
+    model_turns: number; tool_calls: number; input_tokens: number; output_tokens: number;
+    completed: string[]; pending: string[]; claim_ids: string[]; evidence_ids: string[];
+    last_tool_error?: string; next_action: string; created_at: string;
+  };
+  error?: string; error_code?: string;
   started_at?: string; finished_at?: string; created_at: string; updated_at: string; version: number;
 }
 export interface SupervisorEvent {

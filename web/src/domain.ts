@@ -4,7 +4,7 @@ export const ACTIVE = new Set(['ANALYZING', 'LOCAL_EXPLORING', 'VERIFYING']);
 export const ATTENTION = new Set(['BLOCKED', 'FAILED', 'INTERRUPTED']);
 export const pathStatus: Record<string, string> = {
   DISCOVERED: '已发现', QUEUED: '待处理', ANALYZING: '分析中', LOCAL_EXPLORING: '局部探索',
-  HYPOTHESIS_FORMED: '已形成假设', VERIFYING: '验证中', CONCLUDED: '已完成', BLOCKED: '受阻',
+  HYPOTHESIS_FORMED: '已形成假设', VERIFYING: '验证中', CONCLUDED: '已完成', BLOCKED: '受阻', FINALIZING: '正在收尾',
   PAUSED: '已暂停', PARTIAL: '已完成 · 部分覆盖', FAILED: '执行失败', CANCELLED: '已取消', INTERRUPTED: '已中断',
 };
 export const findingStatus: Record<FindingStatus, string> = { confirmed: '已确认', candidate: '候选', refuted: '已排除', inconclusive: '证据不足', blocked: '验证受阻' };

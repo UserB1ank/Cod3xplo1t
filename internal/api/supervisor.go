@@ -240,6 +240,29 @@ type cancelSupervisorRequest struct {
 	Reason string `json:"reason"`
 }
 
+type continueSupervisorRequest struct {
+	Reason string `json:"reason"`
+}
+
+func (s *Server) handleContinueSupervisorRun(w http.ResponseWriter, r *http.Request) {
+	if !s.supervisorAvailable(w) {
+		return
+	}
+	var req continueSupervisorRequest
+	if !s.decode(w, r, &req) {
+		return
+	}
+	run, err := s.Supervisor.Continue(
+		r.Context(), r.PathValue("projectID"), r.PathValue("sessionID"),
+		r.PathValue("runID"), strings.TrimSpace(req.Reason),
+	)
+	if err != nil {
+		writeSupervisorError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"api_version": "codexploit/v1", "run": run})
+}
+
 func (s *Server) handleCancelSupervisorRun(w http.ResponseWriter, r *http.Request) {
 	if !s.supervisorAvailable(w) {
 		return

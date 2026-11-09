@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -57,7 +58,9 @@ func waitSupervisorAPI(t *testing.T, env *testEnv, projectID, sessionID, runID s
 		}
 		response.decode(t, &page)
 		for _, run := range page.Session.Runs {
-			if run.ID == runID && (run.Status == supervisor.RunSucceeded || run.Status == supervisor.RunFailed || run.Status == supervisor.RunCancelled) {
+			if run.ID == runID && (run.Status == supervisor.RunSucceeded ||
+				run.Status == supervisor.RunFailed || run.Status == supervisor.RunCancelled ||
+				run.Status == supervisor.RunPaused || run.Status == supervisor.RunPartial) {
 				return page.Session, run
 			}
 		}
@@ -109,6 +112,11 @@ func TestProjectSupervisorSessionAndConversation(t *testing.T) {
 	if run.Status != supervisor.RunSucceeded {
 		t.Fatalf("run = %+v", run)
 	}
+	if run.StopReason != supervisor.StopNormal || run.ModelTurns != 1 ||
+		run.ToolCalls != 0 || run.RoundLimit != 90 || run.ToolCallLimit != 150 ||
+		run.VisibleMessageID == "" || run.ExecutionOwner == "" || run.LeaseEpoch <= 0 {
+		t.Fatalf("successful run facts = %+v", run)
+	}
 	var assistant bool
 	for _, message := range session.Messages {
 		if message.Role == "assistant" && strings.Contains(message.Content, "项目助手") {
@@ -150,6 +158,153 @@ func TestProjectSupervisorReportsUnavailableModel(t *testing.T) {
 	created := do(t, env.ts, http.MethodPost, base, map[string]any{"api_version": "codexploit/v1"}, nil)
 	if created.status != http.StatusConflict || !strings.Contains(string(created.body), "agent_unavailable") {
 		t.Fatalf("unavailable session = %d %s", created.status, created.body)
+	}
+}
+
+func TestProjectSupervisorPausesAtRoundLimitWithVisibleMessage(t *testing.T) {
+	env := newTestEnv(t, false)
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Tools []llm.Tool `json:"tools"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		w.Header().Set("Content-Type", "application/json")
+		if len(body.Tools) > 0 {
+			_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"","tool_calls":[{"id":"c1","type":"function","function":{"name":"graph_summary","arguments":"{}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":5,"completion_tokens":2}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"本轮达到轮次上限，已暂停。"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":4}}`))
+	}))
+	t.Cleanup(provider.Close)
+	settings, err := llm.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := settings.Save(llm.Update{Enabled: true, Protocol: "chat-completions", BaseURL: provider.URL, Model: "round-limit", TimeoutSeconds: 10, MaxOutputTokens: 512}, "initial"); err != nil {
+		t.Fatal(err)
+	}
+	env.rt.Supervisor.Settings = settings
+	env.rt.Supervisor.MaxRounds = 2
+	env.rt.Supervisor.MaxToolCalls = 10
+	projectID := createAnalysisProject(t, env, asgFixtureSource(t))
+	base := "/api/v1/projects/" + projectID + "/agent-sessions"
+	created := do(t, env.ts, http.MethodPost, base, map[string]any{"api_version": "codexploit/v1"}, nil)
+	var sessionPage struct {
+		Session storage.SupervisorSession `json:"session"`
+	}
+	created.decode(t, &sessionPage)
+	sent := do(t, env.ts, http.MethodPost, base+"/"+sessionPage.Session.ID+"/messages", map[string]any{
+		"api_version": "codexploit/v1", "content": "loop", "client_message_id": "api-round-limit",
+	}, nil)
+	var receipt struct {
+		Run storage.SupervisorRun `json:"run"`
+	}
+	sent.decode(t, &receipt)
+	session, run := waitSupervisorAPI(t, env, projectID, sessionPage.Session.ID, receipt.Run.ID)
+	if run.Status != supervisor.RunPaused || run.StopReason != supervisor.StopRoundLimit ||
+		run.ModelTurns != 2 || run.ToolCalls != 2 || run.VisibleMessageID == "" {
+		t.Fatalf("round-limit API run = %+v", run)
+	}
+	found := false
+	for _, message := range session.Messages {
+		if message.ID == run.VisibleMessageID && message.MessageKind == "paused" &&
+			strings.TrimSpace(message.Content) != "" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("visible terminal message missing: %+v", session.Messages)
+	}
+}
+
+func TestProjectSupervisorContinuesPausedRun(t *testing.T) {
+	env := newTestEnv(t, false)
+	var normalCalls atomic.Int32
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Tools []llm.Tool `json:"tools"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		w.Header().Set("Content-Type", "application/json")
+		if len(body.Tools) == 0 {
+			_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"第一段暂停。"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2}}`))
+			return
+		}
+		if normalCalls.Add(1) == 1 {
+			_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"","tool_calls":[{"id":"c1","type":"function","function":{"name":"graph_summary","arguments":"{}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":5,"completion_tokens":2}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"续跑完成。"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":4}}`))
+	}))
+	t.Cleanup(provider.Close)
+	settings, err := llm.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := settings.Save(llm.Update{Enabled: true, Protocol: "chat-completions", BaseURL: provider.URL, Model: "continue-api", TimeoutSeconds: 10, MaxOutputTokens: 512}, "initial"); err != nil {
+		t.Fatal(err)
+	}
+	env.rt.Supervisor.Settings = settings
+	env.rt.Supervisor.MaxRounds = 1
+	env.rt.Supervisor.MaxToolCalls = 10
+	projectID := createAnalysisProject(t, env, asgFixtureSource(t))
+	base := "/api/v1/projects/" + projectID + "/agent-sessions"
+	created := do(t, env.ts, http.MethodPost, base, map[string]any{"api_version": "codexploit/v1"}, nil)
+	var sessionPage struct {
+		Session storage.SupervisorSession `json:"session"`
+	}
+	created.decode(t, &sessionPage)
+	sent := do(t, env.ts, http.MethodPost, base+"/"+sessionPage.Session.ID+"/messages", map[string]any{
+		"api_version": "codexploit/v1", "content": "continue", "client_message_id": "api-continue-source",
+	}, nil)
+	var first struct {
+		Run storage.SupervisorRun `json:"run"`
+	}
+	sent.decode(t, &first)
+	_, paused := waitSupervisorAPI(t, env, projectID, sessionPage.Session.ID, first.Run.ID)
+	if paused.Status != supervisor.RunPaused || paused.Checkpoint == nil {
+		t.Fatalf("paused run = %+v", paused)
+	}
+	if denied := doAs(t, env.ts, readerSecret, http.MethodPost,
+		base+"/"+sessionPage.Session.ID+"/runs/"+paused.ID+"/continue",
+		map[string]any{"reason": "reader"}, map[string]string{"Idempotency-Key": "reader-continue"}); denied.status != http.StatusForbidden {
+		t.Fatalf("reader continue = %d (%s)", denied.status, denied.body)
+	}
+	continued := do(t, env.ts, http.MethodPost,
+		base+"/"+sessionPage.Session.ID+"/runs/"+paused.ID+"/continue",
+		map[string]any{"reason": "operator continue"},
+		map[string]string{"Idempotency-Key": "continue-api-key"})
+	if continued.status != http.StatusAccepted {
+		t.Fatalf("continue = %d (%s)", continued.status, continued.body)
+	}
+	var receipt struct {
+		Run storage.SupervisorRun `json:"run"`
+	}
+	continued.decode(t, &receipt)
+	replayed := do(t, env.ts, http.MethodPost,
+		base+"/"+sessionPage.Session.ID+"/runs/"+paused.ID+"/continue",
+		map[string]any{"reason": "operator continue"},
+		map[string]string{"Idempotency-Key": "continue-api-key"})
+	var replayReceipt struct {
+		Run storage.SupervisorRun `json:"run"`
+	}
+	replayed.decode(t, &replayReceipt)
+	if replayed.status != http.StatusAccepted || replayReceipt.Run.ID != receipt.Run.ID {
+		t.Fatalf("continue replay = %d %+v", replayed.status, replayReceipt.Run)
+	}
+	session, finished := waitSupervisorAPI(t, env, projectID, sessionPage.Session.ID, receipt.Run.ID)
+	if finished.Status != supervisor.RunSucceeded || finished.ResumeOf != paused.ID ||
+		finished.RootRunID != paused.RootRunID {
+		t.Fatalf("continued run = %+v", finished)
+	}
+	users := 0
+	for _, message := range session.Messages {
+		if message.Role == "user" {
+			users++
+		}
+	}
+	if users != 1 {
+		t.Fatalf("continue duplicated user message: %d", users)
 	}
 }
 

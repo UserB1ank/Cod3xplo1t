@@ -91,3 +91,34 @@ func (m *Memory) SaveSupervisorSession(_ context.Context, session SupervisorSess
 	m.supervisorSessions[session.ID] = session
 	return cloneDocument(session)
 }
+
+func (m *Memory) SaveSupervisorSessionFenced(_ context.Context, session SupervisorSession, expectedVersion int64, fence SupervisorRunFence) (SupervisorSession, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	existing, ok := m.supervisorSessions[session.ID]
+	if !ok || existing.ProjectID != session.ProjectID {
+		return SupervisorSession{}, fmt.Errorf("%w: supervisor session %s", ErrNotFound, session.ID)
+	}
+	if expectedVersion <= 0 || existing.Version != expectedVersion {
+		return SupervisorSession{}, fmt.Errorf("%w: supervisor session version", ErrConflict)
+	}
+	currentIndex, nextIndex := -1, -1
+	for i := range existing.Runs {
+		if existing.Runs[i].ID == fence.RunID {
+			currentIndex = i
+		}
+	}
+	for i := range session.Runs {
+		if session.Runs[i].ID == fence.RunID {
+			nextIndex = i
+		}
+	}
+	if currentIndex < 0 || nextIndex < 0 ||
+		!supervisorRunFenceAllows(existing.Runs[currentIndex], session.Runs[nextIndex], fence) {
+		return SupervisorSession{}, fmt.Errorf("%w: supervisor run %s owner or lease changed", ErrConflict, fence.RunID)
+	}
+	session.Version = existing.Version + 1
+	session.CreatedAt = existing.CreatedAt
+	m.supervisorSessions[session.ID] = session
+	return cloneDocument(session)
+}

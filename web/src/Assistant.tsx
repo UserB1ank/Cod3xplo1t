@@ -16,10 +16,15 @@ import {
   Pause,
   PanelLeftClose,
   PanelLeftOpen,
+  Play,
   Plus,
 } from "lucide-react";
 import type { ApiClient } from "./api";
-import { projectAgentConversation } from "./agent-conversation";
+import {
+  continuableRun as selectContinuableRun,
+  projectAgentConversation,
+  terminalRunFallback,
+} from "./agent-conversation";
 import { AgentConversationFeed } from "./AgentConversationFeed";
 import { isFollowingLatest } from "./agent-scroll";
 import { AgentToolActivity } from "./AgentToolActivity";
@@ -123,6 +128,12 @@ function stateLabel(status: string) {
   switch (status) {
     case "RUNNING":
       return "正在思考";
+    case "FINALIZING":
+      return "正在收尾";
+    case "PAUSED":
+      return "已暂停";
+    case "PARTIAL":
+      return "部分完成";
     case "SUCCEEDED":
       return "已完成";
     case "FAILED":
@@ -169,7 +180,9 @@ export function Assistant({
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const sessionID = session?.session_id || "";
-  const activeRun = session?.runs.find((run) => run.status === "RUNNING");
+  const activeRun = session?.runs.find(
+    (run) => run.status === "RUNNING" || run.status === "FINALIZING",
+  );
   const timer = useRef<number>();
   const selectedSession = useRef("");
   const pendingMessage = useRef<{ content: string; id: string }>();
@@ -358,6 +371,8 @@ export function Assistant({
       feed.current.scrollTop = feed.current.scrollHeight;
   }, [session?.messages.length, activeRun?.run_id]);
   const latestRun = session?.runs[session.runs.length - 1];
+  const continuableRun = session ? selectContinuableRun(session) : undefined;
+  const terminalFallback = session ? terminalRunFallback(session) : undefined;
   const conversation = session ? projectAgentConversation(session) : [];
   const callInfo = new Map<
     string,
@@ -691,6 +706,12 @@ export function Assistant({
                       );
                     })
                   )}
+                  {terminalFallback && (
+                    <article className="supervisor-message assistant supervisor-terminal-message">
+                      <span className="supervisor-role">主 Agent · 本轮</span>
+                      <p>{terminalFallback.message}</p>
+                    </article>
+                  )}
                   {activeRun && (
                     <div className="supervisor-thinking">
                       <Loader2 className="spin" size={15} />{" "}
@@ -788,6 +809,28 @@ export function Assistant({
                     <Square size={13} /> 停止本轮
                   </button>
                 )}
+                {continuableRun && (
+                  <button
+                    className="button secondary"
+                    disabled={!canWrite || busy}
+                    onClick={() =>
+                      void api
+                        .continueSupervisorRun(
+                          projectID,
+                          sessionID,
+                          continuableRun.run_id,
+                        )
+                        .then(() => load())
+                        .catch((value) =>
+                          setError(
+                            value instanceof Error ? value.message : "继续失败",
+                          ),
+                        )
+                    }
+                  >
+                    <Play size={13} /> 继续本轮
+                  </button>
+                )}
                 <button
                   className="button primary"
                   disabled={
@@ -878,6 +921,17 @@ export function Assistant({
                   </dd>
                 </div>
                 <div>
+                  <dt>运行预算</dt>
+                  <dd>
+                    {latestRun.model_turns ?? "未记录"} /{" "}
+                    {latestRun.round_limit ?? "未记录"} 轮 ·{" "}
+                    {latestRun.tool_calls ?? "未记录"} /{" "}
+                    {latestRun.tool_call_limit ?? "未记录"} 次工具 ·{" "}
+                    {latestRun.tool_errors ?? "未记录"} 次错误 ·{" "}
+                    {latestRun.blocked_tool_calls ?? "未记录"} 次熔断
+                  </dd>
+                </div>
+                <div>
                   <dt>工具契约</dt>
                   <dd className="mono">
                     {latestRun.tool_digest
@@ -893,6 +947,17 @@ export function Assistant({
                         : "失败原因"}
                     </dt>
                     <dd>{latestRun.error}</dd>
+                  </div>
+                )}
+                {latestRun.stop_reason && (
+                  <div>
+                    <dt>停止原因</dt>
+                    <dd>
+                      {stopReasonLabel(latestRun.stop_reason)}
+                      {latestRun.finalizer_source
+                        ? ` · ${latestRun.finalizer_source === "model" ? "模型收尾" : "模板收尾"}`
+                        : ""}
+                    </dd>
                   </div>
                 )}
               </dl>
@@ -1026,6 +1091,10 @@ function stopReasonLabel(reason?: string) {
         "no_new_evidence": "无新证据收敛",
         round_limit: "模型轮次上限",
         tool_call_limit: "工具预算耗尽",
+        tool_limit: "工具调用上限",
+        time_limit: "运行时间上限",
+        stuck: "无进展熔断",
+        recovery: "执行宿主已中断",
         budget_exhausted: "审计预算耗尽",
         budget_paused: "预算暂停，已保存检查点",
         invalid_output: "输出校验失败",

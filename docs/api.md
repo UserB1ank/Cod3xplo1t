@@ -150,6 +150,7 @@ without an input record.
 | `GET .../agent-sessions/{sessionID}/messages?after_seq=&limit=` | bounded message history |
 | `GET .../agent-sessions/{sessionID}/events?after_seq=` | ordered event cursor |
 | `POST .../agent-sessions/{sessionID}/runs/{runID}/cancel` | writer; stop the current main-Agent turn |
+| `POST .../agent-sessions/{sessionID}/runs/{runID}/continue` | writer; continue the latest PAUSED/PARTIAL Segment from its checkpoint without duplicating the user message |
 
 The main-Agent session is separate from path audits and runs. Tools are the
 existing read-only MCP surface; the host binds project/snapshot and never accepts
