@@ -152,3 +152,79 @@ func TestProjectSupervisorReportsUnavailableModel(t *testing.T) {
 		t.Fatalf("unavailable session = %d %s", created.status, created.body)
 	}
 }
+
+func TestProjectSupervisorCreatesIsolatedSessionsOnEveryRequest(t *testing.T) {
+	env := newTestEnv(t, false)
+	configureSupervisorProvider(t, env)
+	firstProject := createAnalysisProject(t, env, asgFixtureSource(t))
+	secondProject := createAnalysisProject(t, env, asgFixtureSource(t))
+
+	create := func(projectID, title string) storage.SupervisorSession {
+		t.Helper()
+		response := do(t, env.ts, http.MethodPost, "/api/v1/projects/"+projectID+"/agent-sessions", map[string]any{
+			"api_version": "codexploit/v1",
+			"title":       title,
+		}, nil)
+		if response.status != http.StatusCreated {
+			t.Fatalf("create session: %d %s", response.status, response.body)
+		}
+		var page struct {
+			Session storage.SupervisorSession `json:"session"`
+		}
+		response.decode(t, &page)
+		if page.Session.ProjectID != projectID {
+			t.Fatalf("session project = %q, want %q", page.Session.ProjectID, projectID)
+		}
+		return page.Session
+	}
+
+	first := create(firstProject, "First")
+	ensure := do(t, env.ts, http.MethodPost, "/api/v1/projects/"+firstProject+"/agent-sessions", map[string]any{
+		"api_version":    "codexploit/v1",
+		"title":          "Ignored after bootstrap",
+		"reuse_existing": true,
+	}, nil)
+	var ensured struct {
+		Session storage.SupervisorSession `json:"session"`
+	}
+	ensure.decode(t, &ensured)
+	if ensure.status != http.StatusCreated || ensured.Session.ID != first.ID {
+		t.Fatalf("ensure existing session = %d %s", ensure.status, ensure.body)
+	}
+	second := create(firstProject, "Second")
+	if first.ID == second.ID {
+		t.Fatalf("manual session creation reused %s", first.ID)
+	}
+	other := create(secondProject, "Other project")
+
+	list := func(projectID string) []storage.SupervisorSession {
+		t.Helper()
+		response := do(t, env.ts, http.MethodGet, "/api/v1/projects/"+projectID+"/agent-sessions", nil, nil)
+		if response.status != http.StatusOK {
+			t.Fatalf("list sessions: %d %s", response.status, response.body)
+		}
+		var page struct {
+			Sessions []storage.SupervisorSession `json:"sessions"`
+		}
+		response.decode(t, &page)
+		return page.Sessions
+	}
+
+	firstSessions := list(firstProject)
+	if len(firstSessions) != 2 {
+		t.Fatalf("first project sessions = %d, want 2", len(firstSessions))
+	}
+	for _, session := range firstSessions {
+		if session.ProjectID != firstProject || session.ID == other.ID {
+			t.Fatalf("first project leaked session: %+v", session)
+		}
+	}
+	otherSessions := list(secondProject)
+	if len(otherSessions) != 1 || otherSessions[0].ID != other.ID || otherSessions[0].ProjectID != secondProject {
+		t.Fatalf("second project sessions = %+v", otherSessions)
+	}
+	cross := do(t, env.ts, http.MethodGet, "/api/v1/projects/"+secondProject+"/agent-sessions/"+first.ID, nil, nil)
+	if cross.status != http.StatusNotFound {
+		t.Fatalf("cross-project session read = %d %s", cross.status, cross.body)
+	}
+}

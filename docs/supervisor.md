@@ -7,7 +7,7 @@
 | 路由 | 行为 |
 |---|---|
 | `GET /api/v1/projects/{projectID}/agent-sessions` | 最近会话、`available` 与不可用原因 |
-| `POST .../agent-sessions` | 创建或返回项目默认会话（绑定当前 ready 快照） |
+| `POST .../agent-sessions` | 显式创建新的项目会话（绑定当前 ready 快照）；`reuse_existing=true` 时返回已有首会话，供页面首次自动引导使用 |
 | `GET .../agent-sessions/{sessionID}` | 消息、运行、有序事件和固定 pin |
 | `GET .../messages?after_seq=&limit=` | 有界消息历史 |
 | `POST .../messages` | writer；开放文本 + `client_message_id`，返回 `202` 和 RUNNING run |
@@ -15,6 +15,8 @@
 | `GET .../runs/{runID}` / `POST .../cancel` | 单个主 Agent run 的真实状态与停止 |
 
 `client_message_id` 相同的发送幂等返回已记录的消息/run；同一会话只允许一个 RUNNING turn。消息、run、事件和固定 pin 保存在 `supervisor_sessions` 文档（SQLite `0038` / PostgreSQL `0020`），文档提交后才可见。会话快照由项目输入绑定，模型参数不能更换项目或 snapshot；工具调用时宿主强制注入绑定 snapshot。
+
+每个 `POST` 默认产生新的 `session_id`，因此主 Agent 工作台和图谱页都可以手动新建会话。列表、详情、消息、运行和取消全部以路径中的 `projectID` 为作用域；同一项目可有多条互不覆盖的会话，不同项目不能互相列举或读取会话。
 
 ## MCP 工具
 

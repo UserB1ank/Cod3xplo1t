@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -293,5 +294,45 @@ func TestSupervisorRejectsUnknownProjectAndUnavailableModel(t *testing.T) {
 	_, _, err := service.Send(context.Background(), project.ID, session.ID, "hello", "no-model")
 	if !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("unavailable model = %v", err)
+	}
+}
+
+func TestSupervisorConcurrentBootstrapReusesOneSession(t *testing.T) {
+	service, project, _ := supervisorFixture(t)
+	const clients = 8
+	start := make(chan struct{})
+	results := make(chan storage.SupervisorSession, clients)
+	errors := make(chan error, clients)
+	var workers sync.WaitGroup
+	for range clients {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			<-start
+			session, err := service.EnsureSession(context.Background(), project.ID, "snap-fixed", "default")
+			if err != nil {
+				errors <- err
+				return
+			}
+			results <- session
+		}()
+	}
+	close(start)
+	workers.Wait()
+	close(results)
+	close(errors)
+	for err := range errors {
+		t.Fatal(err)
+	}
+	unique := map[string]bool{}
+	for session := range results {
+		unique[session.ID] = true
+	}
+	if len(unique) != 1 {
+		t.Fatalf("concurrent bootstrap created %d sessions: %v", len(unique), unique)
+	}
+	sessions, err := service.List(context.Background(), project.ID, 20)
+	if err != nil || len(sessions) != 1 {
+		t.Fatalf("stored sessions = %d, %v", len(sessions), err)
 	}
 }

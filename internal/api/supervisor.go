@@ -72,8 +72,9 @@ func (s *Server) handleListSupervisorSessions(w http.ResponseWriter, r *http.Req
 }
 
 type createSupervisorSessionRequest struct {
-	APIVersion string `json:"api_version"`
-	Title      string `json:"title"`
+	APIVersion    string `json:"api_version"`
+	Title         string `json:"title"`
+	ReuseExisting bool   `json:"reuse_existing"`
 }
 
 func (s *Server) handleCreateSupervisorSession(w http.ResponseWriter, r *http.Request) {
@@ -96,7 +97,15 @@ func (s *Server) handleCreateSupervisorSession(w http.ResponseWriter, r *http.Re
 		writeSupervisorError(w, readyErr)
 		return
 	}
-	session, err := s.Supervisor.EnsureSession(r.Context(), r.PathValue("projectID"), snapshotID, req.Title)
+	var (
+		session storage.SupervisorSession
+		err     error
+	)
+	if req.ReuseExisting {
+		session, err = s.Supervisor.EnsureSession(r.Context(), r.PathValue("projectID"), snapshotID, req.Title)
+	} else {
+		session, err = s.Supervisor.CreateSession(r.Context(), r.PathValue("projectID"), snapshotID, req.Title)
+	}
 	if err != nil {
 		writeSupervisorError(w, err)
 		return

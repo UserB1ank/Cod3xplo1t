@@ -47,8 +47,9 @@ type Service struct {
 	MaxRounds        int
 	MaxToolCalls     int
 
-	mu      sync.Mutex
-	cancels map[string]context.CancelFunc
+	sessionMu sync.Mutex
+	mu        sync.Mutex
+	cancels   map[string]context.CancelFunc
 }
 
 func New(store storage.SupervisorStore, settings *llm.Manager, client func(context.Context) (*sdk.ClientSession, error)) *Service {
@@ -73,6 +74,8 @@ func (s *Service) Ready() error {
 }
 
 func (s *Service) EnsureSession(ctx context.Context, projectID, snapshotID, title string) (storage.SupervisorSession, error) {
+	s.sessionMu.Lock()
+	defer s.sessionMu.Unlock()
 	sessions, err := s.Store.ListSupervisorSessions(ctx, projectID, 1)
 	if err != nil {
 		return storage.SupervisorSession{}, err
@@ -80,8 +83,18 @@ func (s *Service) EnsureSession(ctx context.Context, projectID, snapshotID, titl
 	if len(sessions) > 0 {
 		return sessions[0], nil
 	}
+	return s.CreateSession(ctx, projectID, snapshotID, title)
+}
+
+// CreateSession always creates a new project-scoped conversation. Existing
+// callers that want first-use bootstrapping use EnsureSession.
+func (s *Service) CreateSession(ctx context.Context, projectID, snapshotID, title string) (storage.SupervisorSession, error) {
+	title = strings.TrimSpace(title)
+	if len([]rune(title)) > 200 {
+		return storage.SupervisorSession{}, fmt.Errorf("%w: title is too long", ErrInvalid)
+	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	session := storage.SupervisorSession{ID: "ss-" + rand.Text(), ProjectID: projectID, SnapshotID: snapshotID, Title: strings.TrimSpace(title), State: SessionActive, Messages: []storage.SupervisorMessage{}, Runs: []storage.SupervisorRun{}, Events: []storage.SupervisorEvent{}, CreatedAt: now, UpdatedAt: now}
+	session := storage.SupervisorSession{ID: "ss-" + rand.Text(), ProjectID: projectID, SnapshotID: snapshotID, Title: title, State: SessionActive, Messages: []storage.SupervisorMessage{}, Runs: []storage.SupervisorRun{}, Events: []storage.SupervisorEvent{}, CreatedAt: now, UpdatedAt: now}
 	return s.Store.CreateSupervisorSession(ctx, session)
 }
 
