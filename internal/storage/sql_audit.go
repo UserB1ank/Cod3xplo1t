@@ -247,7 +247,24 @@ func pathWriteValues(p path.Path) ([]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	features, err := jsonString(p.Features)
+	featuresValue := p.Features
+	if len(p.Discoveries) > 0 {
+		if featuresValue.Reasons == nil {
+			featuresValue.Reasons = map[string]string{}
+		} else {
+			copied := make(map[string]string, len(featuresValue.Reasons)+1)
+			for key, value := range featuresValue.Reasons {
+				copied[key] = value
+			}
+			featuresValue.Reasons = copied
+		}
+		discoveries, err := json.Marshal(p.Discoveries)
+		if err != nil {
+			return nil, err
+		}
+		featuresValue.Reasons[path.DiscoveryReasonKey] = string(discoveries)
+	}
+	features, err := jsonString(featuresValue)
 	if err != nil {
 		return nil, err
 	}
@@ -316,6 +333,11 @@ func scanPathRow(scan func(...any) error) (path.Path, error) {
 	}
 	p.Score.Weights = score.Weights
 	p.Score.ComputedAt = score.ComputedAt
+	if raw := p.Features.Reasons[path.DiscoveryReasonKey]; raw != "" {
+		if err := json.Unmarshal([]byte(raw), &p.Discoveries); err != nil {
+			return path.Path{}, fmt.Errorf("storage: path %s discoveries: %w", p.ID, err)
+		}
+	}
 	return p, nil
 }
 
@@ -654,6 +676,200 @@ func (s *SQL) ReplacePaths(auditID string, paths []path.Path) error {
 		}
 	}
 	return tx.Commit()
+}
+
+// AddProposedPath implements path.ProposalStore. The audit row is the
+// serialization lock for request-key conflicts, per-run proposal budget and exact
+// path dedup. A second source for the same structural path is retained as an
+// additional discovery observation instead of overwriting the first.
+func (s *SQL) AddProposedPath(ctx context.Context, p path.Path, actor, requestKey string, maxPerRun int) (*path.Path, bool, error) {
+	if len(p.Discoveries) == 0 || requestKey == "" || p.Signature == "" {
+		return nil, false, fmt.Errorf("%w: discovery provenance and signature are required", path.ErrInvalidArgument)
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, false, mapAuditSQLError(err)
+	}
+	defer tx.Rollback()
+	if err := s.snapshotWritableTx(ctx, tx, p.SnapshotID); err != nil {
+		return nil, false, err
+	}
+	observation := p.Discoveries[0]
+	if observation.Source == "supervisor" {
+		origin := path.ProposalOriginFrom(ctx)
+		var projectID string
+		if err := tx.QueryRowContext(ctx, s.rebind(
+			"SELECT project_id FROM snapshots WHERE snapshot_id = ?",
+		), p.SnapshotID).Scan(&projectID); err != nil {
+			return nil, false, mapAuditSQLError(err)
+		}
+		lock := ""
+		if s.postgres {
+			lock = " FOR SHARE"
+		}
+		var sessionRaw string
+		err := tx.QueryRowContext(ctx, s.rebind(
+			"SELECT document_json FROM supervisor_sessions WHERE session_id = ? AND project_id = ?"+lock,
+		), origin.SessionID, projectID).Scan(&sessionRaw)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, false, fmt.Errorf("%w: supervisor session is unavailable", path.ErrConflict)
+		}
+		if err != nil {
+			return nil, false, err
+		}
+		var session SupervisorSession
+		if err := json.Unmarshal([]byte(sessionRaw), &session); err != nil {
+			return nil, false, err
+		}
+		now := time.Now().UTC()
+		if s.postgres {
+			if err := tx.QueryRowContext(ctx, "SELECT clock_timestamp()").Scan(&now); err != nil {
+				return nil, false, mapAuditSQLError(err)
+			}
+			now = now.UTC()
+		}
+		if err := ValidateSupervisorProposalRun(session, projectID, p.SnapshotID, observation, origin, now); err != nil {
+			return nil, false, err
+		}
+	}
+	var version int64
+	var snapshotID, scgVersion, asgVersion string
+	if err := tx.QueryRowContext(ctx, s.rebind(
+		"SELECT version, snapshot_id, scg_version, asg_version FROM audits WHERE audit_id = ?"+s.forUpdate()),
+		p.AuditID,
+	).Scan(&version, &snapshotID, &scgVersion, &asgVersion); err != nil {
+		return nil, false, mapAuditSQLError(err)
+	}
+	if snapshotID != p.SnapshotID || scgVersion != p.SCGVersion || asgVersion != p.ASGVersion {
+		return nil, false, fmt.Errorf("%w: proposal does not match its discovery audit pin", path.ErrConflict)
+	}
+	rows, err := tx.QueryContext(ctx, s.rebind(
+		"SELECT "+pathSelectColumns+" FROM audit_paths WHERE audit_id = ?"), p.AuditID)
+	if err != nil {
+		return nil, false, mapAuditSQLError(err)
+	}
+	var existing []path.Path
+	for rows.Next() {
+		item, err := scanPathRow(rows.Scan)
+		if err != nil {
+			rows.Close()
+			return nil, false, err
+		}
+		existing = append(existing, item)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, false, mapAuditSQLError(err)
+	}
+	var limitsRaw string
+	if err := tx.QueryRowContext(ctx, s.rebind("SELECT limits_json FROM audits WHERE audit_id = ?"), p.AuditID).Scan(&limitsRaw); err != nil {
+		return nil, false, mapAuditSQLError(err)
+	}
+	var auditLimits path.Limits
+	if err := decodeJSON(limitsRaw, &auditLimits); err != nil {
+		return nil, false, err
+	}
+	if len(existing) >= auditLimits.Normalize().MaxPaths {
+		return nil, false, fmt.Errorf("%w: discovery audit path limit reached", path.ErrBudgetExceeded)
+	}
+	for _, item := range existing {
+		for _, discovery := range item.Discoveries {
+			if discovery.RequestKey == requestKey && item.Signature != p.Signature {
+				return nil, false, fmt.Errorf("%w: request key was already used for another path", path.ErrConflict)
+			}
+		}
+		if item.Signature != p.Signature {
+			continue
+		}
+		added, err := path.MergeDiscovery(&item, observation)
+		if err != nil {
+			return nil, false, err
+		}
+		if !added {
+			return &item, false, nil
+		}
+		item.UpdatedAt = observation.CreatedAt
+		item.Version++
+		if err := s.updatePathTx(ctx, tx, item, item.Version-1, pathUpdateSetClauses); err != nil {
+			return nil, false, err
+		}
+		if err := s.appendProposalEventTx(ctx, tx, item, actor, path.EventPathProposalSeen, observation); err != nil {
+			return nil, false, err
+		}
+		if _, err := tx.ExecContext(ctx, s.rebind(
+			"UPDATE audits SET updated_at = ?, version = version + 1 WHERE audit_id = ?"),
+			observation.CreatedAt, p.AuditID,
+		); err != nil {
+			return nil, false, mapAuditSQLError(err)
+		}
+		if err := tx.Commit(); err != nil {
+			return nil, false, mapAuditSQLError(err)
+		}
+		return &item, false, nil
+	}
+	if maxPerRun > 0 && observation.RunID != "" {
+		count := 0
+		for _, item := range existing {
+			for _, discovery := range item.Discoveries {
+				if discovery.RunID == observation.RunID {
+					count++
+					break
+				}
+			}
+		}
+		if count >= maxPerRun {
+			return nil, false, fmt.Errorf("%w: run reached %d path proposals", path.ErrBudgetExceeded, maxPerRun)
+		}
+	}
+	if p.CreatedAt == "" {
+		p.CreatedAt = observation.CreatedAt
+	}
+	if p.UpdatedAt == "" {
+		p.UpdatedAt = observation.CreatedAt
+	}
+	if p.Version == 0 {
+		p.Version = 1
+	}
+	values, err := pathWriteValues(p)
+	if err != nil {
+		return nil, false, err
+	}
+	insert := "INSERT INTO audit_paths (" + strings.Join(pathColumnNames, ", ") + ") VALUES (" +
+		placeholders(len(pathColumnNames)) + ")"
+	if _, err := tx.ExecContext(ctx, s.rebind(insert), values...); err != nil {
+		return nil, false, mapAuditSQLError(err)
+	}
+	if _, err := tx.ExecContext(ctx, s.rebind(
+		"UPDATE audits SET path_count = path_count + 1, updated_at = ?, version = version + 1 WHERE audit_id = ?"),
+		observation.CreatedAt, p.AuditID,
+	); err != nil {
+		return nil, false, mapAuditSQLError(err)
+	}
+	if err := s.appendProposalEventTx(ctx, tx, p, actor, path.EventPathProposed, observation); err != nil {
+		return nil, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, false, mapAuditSQLError(err)
+	}
+	return &p, true, nil
+}
+
+func (s *SQL) appendProposalEventTx(ctx context.Context, tx *sql.Tx, p path.Path, actor, eventType string, observation path.PathDiscovery) error {
+	seq, err := s.nextEventSeqTx(ctx, tx, p.AuditID)
+	if err != nil {
+		return err
+	}
+	return s.insertEventTx(ctx, tx, path.Event{
+		ID: path.EventID(p.AuditID, p.ID, seq), AuditID: p.AuditID, PathID: p.ID,
+		Seq: seq, Type: eventType, To: p.Status, Actor: actor,
+		Reason: eventType, CreatedAt: observation.CreatedAt,
+		Detail: map[string]string{
+			"source": observation.Source, "tool": observation.Tool,
+			"session_id": observation.SessionID, "run_id": observation.RunID,
+			"knowledge_view_id": observation.KnowledgeViewID,
+			"request_key":       observation.RequestKey, "request_digest": observation.RequestDigest,
+			"basis": observation.Basis,
+		},
+	})
 }
 
 // GetPath implements path.Store.

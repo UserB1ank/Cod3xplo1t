@@ -1,0 +1,16 @@
+{
+  "request_key": "agent-path-1",
+  "entry_ref": "asgn-entry",
+  "target_ref": "asgn-sink",
+  "basis": "hypothesis",
+  "evidence": [
+    {
+      "kind": "source",
+      "file": "src/Handler.java",
+      "start_line": 20,
+      "end_line": 35
+    }
+  ],
+  "related_path_ids": [],
+  "limitations": ["The connection between the selected entry and sink still needs evidence."]
+}

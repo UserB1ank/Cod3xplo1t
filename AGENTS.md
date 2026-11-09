@@ -146,6 +146,8 @@
 
 - 2026-11-09 — #111 修复 PostgreSQL 下 workflow 路径被旧调度器抢占：`ListDuePaths` 明确保持 workflow task 对其候选路径队列的永久所有权，active、PARTIAL、FAILED 或 SUCCEEDED 状态都不会把路径转交 legacy scheduler；人工审查仍通过路径选择或审查批次显式消费。新增 Memory / SQLite 统一回归，重跑隔离 PostgreSQL 后 `internal/storage` 与 `internal/api` 全部通过，相关 storage / scheduler race 回归、完整 API 测试和合约检查通过。`make lint` 仍被既有未跟踪 `internal/app/example_test.go` 引用不存在的 `Runtime.EnsureExample` 阻断，与本 Issue 无关，未删除该 WIP。按交付流程提交并关闭；未 push。
 
+- 2026-11-09 — #112 路径提案强制 writer 权限并在事务内拒绝迟到写入：路径提案 POST 在 HTTP 与项目 MCP 两条入口均要求 writer；宿主绑定 supervisor session/run、execution owner 与 lease epoch，Memory / SQL 持久化在事务内重新校验 project、snapshot、RUNNING、owner、epoch 与 deadline，PostgreSQL 使用数据库时钟，请求取消可终止事务。覆盖 reader 拒绝、合法 human writer、无请求上下文、陈旧 owner/epoch、过期/取消 lease 及冲突后不新增 path/event；隔离提交树通过 1,449 项全量测试、相关四包竞态、真实 PostgreSQL、合约、前端测试/构建、gofmt、vet 与 pinned Staticcheck。主工作区 `make lint` 仍被既有未跟踪 `internal/app/example_test.go` 引用不存在的 `Runtime.EnsureExample` 阻断，与本 Issue 无关，未删除该 WIP。按交付流程提交并关闭；未 push。
+
 ## Agent skills
 
 ### Issue tracker

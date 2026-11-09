@@ -28,6 +28,14 @@ import (
 // cannot be replayed cannot be reviewed.
 const ScoreVersion = 1
 
+// DiscoveryReasonKey carries proposal provenance in the existing feature
+// document, avoiding a storage-only migration while keeping source observations
+// outside structural path identity.
+const (
+	DiscoveryReasonKey         = "path_discoveries"
+	AwaitingSelectionReasonKey = "awaiting_selection"
+)
+
 // SchemaVersion identifies the serialised shape of a path document.
 const SchemaVersion = 1
 
@@ -336,6 +344,10 @@ type Path struct {
 	// Selection is set by the deterministic four-stage enhancement. Old paths
 	// and custom workflows without that stage leave it nil.
 	Selection *PathSelection `json:"selection,omitempty"`
+	// Discoveries records host-validated agent proposals that produced this
+	// structural path. It is independent of the path signature and never changes
+	// the candidate's evidence class.
+	Discoveries []PathDiscovery `json:"discoveries,omitempty"`
 
 	// ScoreSeq counts the score snapshots stored for this path, so a recomputation
 	// appends rather than overwrites.
@@ -445,6 +457,8 @@ const (
 	EventAuditCreated     = "audit_created"
 	EventAuditReady       = "audit_ready"
 	EventPathDiscovered   = "path_discovered"
+	EventPathProposed     = "path_proposed"
+	EventPathProposalSeen = "path_proposal_observed"
 	EventPathQueued       = "path_queued"
 	EventPathClaimed      = "path_claimed"
 	EventPathHeartbeat    = "path_heartbeat"

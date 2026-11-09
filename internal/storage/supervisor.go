@@ -26,24 +26,28 @@ type SupervisorMessage struct {
 }
 
 type SupervisorRun struct {
-	ID            string `json:"run_id"`
-	SessionID     string `json:"session_id"`
-	ProjectID     string `json:"project_id"`
-	Status        string `json:"status"`
-	Runtime       string `json:"runtime"`
-	Model         string `json:"model"`
-	ConfigVersion string `json:"config_version"`
-	PromptVersion string `json:"prompt_version"`
-	ToolDigest    string `json:"tool_digest"`
-	InputTokens   int    `json:"input_tokens"`
-	OutputTokens  int    `json:"output_tokens"`
-	ErrorCode     string `json:"error_code,omitempty"`
-	Error         string `json:"error,omitempty"`
-	StartedAt     string `json:"started_at,omitempty"`
-	FinishedAt    string `json:"finished_at,omitempty"`
-	CreatedAt     string `json:"created_at"`
-	UpdatedAt     string `json:"updated_at"`
-	Version       int64  `json:"version"`
+	ID             string `json:"run_id"`
+	SessionID      string `json:"session_id"`
+	ProjectID      string `json:"project_id"`
+	Status         string `json:"status"`
+	Runtime        string `json:"runtime"`
+	Model          string `json:"model"`
+	ConfigVersion  string `json:"config_version"`
+	PromptVersion  string `json:"prompt_version"`
+	ToolDigest     string `json:"tool_digest"`
+	InputTokens    int    `json:"input_tokens"`
+	OutputTokens   int    `json:"output_tokens"`
+	ExecutionOwner string `json:"execution_owner,omitempty"`
+	LeaseEpoch     int64  `json:"lease_epoch,omitempty"`
+	HeartbeatAt    string `json:"heartbeat_at,omitempty"`
+	LeaseUntil     string `json:"lease_until,omitempty"`
+	ErrorCode      string `json:"error_code,omitempty"`
+	Error          string `json:"error,omitempty"`
+	StartedAt      string `json:"started_at,omitempty"`
+	FinishedAt     string `json:"finished_at,omitempty"`
+	CreatedAt      string `json:"created_at"`
+	UpdatedAt      string `json:"updated_at"`
+	Version        int64  `json:"version"`
 }
 
 type SupervisorEvent struct {

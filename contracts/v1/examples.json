@@ -126,5 +126,9 @@
   {
     "file": "examples/project-path-stop.json",
     "schema": "project-path-stop.schema.json"
+  },
+  {
+    "file": "examples/path-proposal.json",
+    "schema": "path-proposal.schema.json"
   }
 ]

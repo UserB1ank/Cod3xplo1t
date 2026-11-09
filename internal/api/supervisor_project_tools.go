@@ -18,6 +18,7 @@ import (
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/open-mcp-ai/Codexploit/internal/claim"
 	projectmcp "github.com/open-mcp-ai/Codexploit/internal/mcp"
+	"github.com/open-mcp-ai/Codexploit/internal/path"
 	"github.com/open-mcp-ai/Codexploit/internal/storage"
 )
 
@@ -62,12 +63,14 @@ func (s *Server) wireSupervisorProjectTools() {
 	}
 	s.Supervisor.ProjectMCPClient = func(ctx context.Context, project, snapshot string) (*sdk.ClientSession, error) {
 		claimOrigin := claim.OriginFrom(ctx)
+		pathOrigin := path.ProposalOriginFrom(ctx)
 		principal, ok := PrincipalFrom(ctx)
 		if !ok {
 			return nil, errors.New("project tools require an authenticated operator")
 		}
 		return projectmcp.NewProjectClientWithTools(ctx, s.Graph, s.Store, project, snapshot, s.PluginCatalog, func(server *sdk.Server) {
 			s.registerClaimTools(server, principal, project, snapshot, claimOrigin)
+			s.registerPathProposalTools(server, principal, project, snapshot, pathOrigin)
 			sdk.AddTool(server, &sdk.Tool{Name: "list_project_operations", Description: "Discover the current project's full application API: snapshots/graphs, source, analysis, tasks, workflows, Agent runs, findings, reports, artifacts and controls. Search by English route term; operation is the exact registered METHOD /path template. Project identity is injected by the host."}, func(ctx context.Context, _ *sdk.CallToolRequest, in projectOperationsInput) (*sdk.CallToolResult, any, error) {
 				if in.Offset < 0 || in.Limit < 0 {
 					return nil, nil, errors.New("invalid_argument: negative page")
@@ -89,6 +92,7 @@ func (s *Server) wireSupervisorProjectTools() {
 			})
 			sdk.AddTool(server, &sdk.Tool{Name: "project_api", Description: "Read or operate on any current-project resource through the formal application API. Discover exact operation templates with list_project_operations. Uses the sending operator's permissions and the same validation, CAS, idempotency and execution gates as WebUI. For large GET responses follow next_offset with response_offset and expected_sha256; JSON fragments are explicitly marked text windows, never complete documents."}, func(ctx context.Context, _ *sdk.CallToolRequest, in projectAPIInput) (*sdk.CallToolResult, any, error) {
 				ctx = claim.WithOrigin(ctx, claimOrigin)
+				ctx = path.WithProposalOrigin(ctx, pathOrigin)
 				return s.callProjectAPI(ctx, principal, project, in)
 			})
 		})

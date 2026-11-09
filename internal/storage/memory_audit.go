@@ -1,11 +1,13 @@
 package storage
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/open-mcp-ai/Codexploit/internal/path"
 	"github.com/open-mcp-ai/Codexploit/internal/workflow"
@@ -257,6 +259,127 @@ func (m *Memory) ReplacePaths(auditID string, paths []path.Path) error {
 	}
 	doc.paths = replacement
 	return nil
+}
+
+// AddProposedPath persists one agent-discovered candidate atomically. The audit
+// row is locked while request-key conflicts, per-run budget and structural
+// dedup are checked, so concurrent proposals cannot bypass any of them.
+func (m *Memory) AddProposedPath(ctx context.Context, p path.Path, actor, requestKey string, maxPerRun int) (*path.Path, bool, error) {
+	if len(p.Discoveries) == 0 || requestKey == "" || p.Signature == "" {
+		return nil, false, fmt.Errorf("%w: discovery provenance and signature are required", path.ErrInvalidArgument)
+	}
+	observation := p.Discoveries[0]
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, false, err
+	}
+	if err := m.snapshotWritableLocked(p.SnapshotID); err != nil {
+		return nil, false, err
+	}
+	if observation.Source == "supervisor" {
+		origin := path.ProposalOriginFrom(ctx)
+		session, ok := m.supervisorSessions[origin.SessionID]
+		if !ok {
+			return nil, false, fmt.Errorf("%w: supervisor session is unavailable", path.ErrConflict)
+		}
+		if err := ValidateSupervisorProposalRun(session, m.snapshots[p.SnapshotID].projectID, p.SnapshotID, observation, origin, time.Now().UTC()); err != nil {
+			return nil, false, err
+		}
+	}
+	doc, ok := m.audits[p.AuditID]
+	if !ok {
+		return nil, false, fmt.Errorf("%w: audit %s", path.ErrNotFound, p.AuditID)
+	}
+	if doc.audit.SnapshotID != p.SnapshotID || doc.audit.SCGVersion != p.SCGVersion || doc.audit.ASGVersion != p.ASGVersion {
+		return nil, false, fmt.Errorf("%w: proposal does not match its discovery audit pin", path.ErrConflict)
+	}
+	if len(doc.paths) >= doc.audit.Limits.Normalize().MaxPaths {
+		return nil, false, fmt.Errorf("%w: discovery audit path limit reached", path.ErrBudgetExceeded)
+	}
+	for _, existing := range doc.paths {
+		for _, discovery := range existing.Discoveries {
+			if discovery.RequestKey == requestKey && existing.Signature != p.Signature {
+				return nil, false, fmt.Errorf("%w: request key was already used for another path", path.ErrConflict)
+			}
+		}
+		if existing.Signature == p.Signature {
+			added, err := path.MergeDiscovery(&existing, observation)
+			if err != nil {
+				return nil, false, err
+			}
+			if !added {
+				copy, copyErr := cloneDocument(existing)
+				return &copy, false, copyErr
+			}
+			existing.UpdatedAt = observation.CreatedAt
+			existing.Version++
+			doc.paths[existing.ID] = existing
+			doc.audit.UpdatedAt = observation.CreatedAt
+			doc.audit.Version++
+			m.appendDiscoveryEventLocked(doc, existing, actor, path.EventPathProposalSeen, observation)
+			copy, copyErr := cloneDocument(existing)
+			return &copy, false, copyErr
+		}
+	}
+	if maxPerRun > 0 && observation.RunID != "" {
+		count := 0
+		for _, existing := range doc.paths {
+			for _, discovery := range existing.Discoveries {
+				if discovery.RunID == observation.RunID {
+					count++
+					break
+				}
+			}
+		}
+		if count >= maxPerRun {
+			return nil, false, fmt.Errorf("%w: run reached %d path proposals", path.ErrBudgetExceeded, maxPerRun)
+		}
+	}
+	stored, err := cloneDocument(p)
+	if err != nil {
+		return nil, false, err
+	}
+	if stored.CreatedAt == "" {
+		stored.CreatedAt = observation.CreatedAt
+	}
+	if stored.UpdatedAt == "" {
+		stored.UpdatedAt = observation.CreatedAt
+	}
+	if stored.Version == 0 {
+		stored.Version = 1
+	}
+	doc.paths[stored.ID] = stored
+	doc.audit.PathCount++
+	if doc.audit.CountsByStatus == nil {
+		doc.audit.CountsByStatus = map[string]int{}
+	}
+	if doc.audit.CountsByPathStatus == nil {
+		doc.audit.CountsByPathStatus = map[string]int{}
+	}
+	doc.audit.CountsByStatus[string(stored.Status)]++
+	doc.audit.CountsByPathStatus[string(stored.PathStatus)]++
+	doc.audit.UpdatedAt = observation.CreatedAt
+	doc.audit.Version++
+	m.appendDiscoveryEventLocked(doc, stored, actor, path.EventPathProposed, observation)
+	copy, err := cloneDocument(stored)
+	return &copy, true, err
+}
+
+func (m *Memory) appendDiscoveryEventLocked(doc *auditDocument, p path.Path, actor, eventType string, observation path.PathDiscovery) {
+	doc.maxSeq++
+	doc.appendEventLocked(path.Event{
+		ID: path.EventID(doc.audit.ID, p.ID, doc.maxSeq), AuditID: doc.audit.ID, PathID: p.ID,
+		Seq: doc.maxSeq, Type: eventType, To: p.Status, Actor: actor,
+		Reason: eventType, CreatedAt: observation.CreatedAt,
+		Detail: map[string]string{
+			"source": observation.Source, "tool": observation.Tool,
+			"session_id": observation.SessionID, "run_id": observation.RunID,
+			"knowledge_view_id": observation.KnowledgeViewID,
+			"request_key":       observation.RequestKey, "request_digest": observation.RequestDigest,
+			"basis": observation.Basis,
+		},
+	})
 }
 
 // GetPath implements path.Store.

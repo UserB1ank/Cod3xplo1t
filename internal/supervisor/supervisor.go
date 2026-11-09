@@ -20,6 +20,7 @@ import (
 
 	"github.com/open-mcp-ai/Codexploit/internal/claim"
 	"github.com/open-mcp-ai/Codexploit/internal/llm"
+	"github.com/open-mcp-ai/Codexploit/internal/path"
 	"github.com/open-mcp-ai/Codexploit/internal/storage"
 )
 
@@ -46,14 +47,20 @@ type Service struct {
 	ProjectMCPClient func(context.Context, string, string) (*sdk.ClientSession, error)
 	MaxRounds        int
 	MaxToolCalls     int
+	LeaseTTL         time.Duration
 
-	sessionMu sync.Mutex
-	mu        sync.Mutex
-	cancels   map[string]context.CancelFunc
+	sessionMu      sync.Mutex
+	mu             sync.Mutex
+	cancels        map[string]context.CancelFunc
+	executionOwner string
 }
 
 func New(store storage.SupervisorStore, settings *llm.Manager, client func(context.Context) (*sdk.ClientSession, error)) *Service {
-	return &Service{Store: store, Settings: settings, MCPClient: client, MaxRounds: 20, MaxToolCalls: 60, cancels: map[string]context.CancelFunc{}}
+	return &Service{
+		Store: store, Settings: settings, MCPClient: client,
+		MaxRounds: 20, MaxToolCalls: 60, LeaseTTL: 12 * time.Minute,
+		cancels: map[string]context.CancelFunc{}, executionOwner: "supervisor-" + rand.Text(),
+	}
 }
 
 func (s *Service) Ready() error {
@@ -143,9 +150,17 @@ func (s *Service) Send(ctx context.Context, projectID, sessionID, content, clien
 			return storage.SupervisorMessage{}, storage.SupervisorRun{}, fmt.Errorf("%w: a turn is already running", ErrConflict)
 		}
 	}
-	now := time.Now().UTC().Format(time.RFC3339Nano)
+	nowTime := time.Now().UTC()
+	now := nowTime.Format(time.RFC3339Nano)
 	message := storage.SupervisorMessage{ID: "sm-" + rand.Text(), SessionID: session.ID, ProjectID: projectID, Role: "user", Content: content, ClientMessageID: clientMessageID, Status: "complete", Seq: nextMessageSeq(session), CreatedAt: now}
-	run := storage.SupervisorRun{ID: "srun-" + rand.Text(), SessionID: session.ID, ProjectID: projectID, Status: RunRunning, Runtime: "llm", Model: cfg.Model, ConfigVersion: public.Version, PromptVersion: PromptVersion, StartedAt: now, CreatedAt: now, UpdatedAt: now, Version: 1}
+	run := storage.SupervisorRun{
+		ID: "srun-" + rand.Text(), SessionID: session.ID, ProjectID: projectID,
+		Status: RunRunning, Runtime: "llm", Model: cfg.Model,
+		ConfigVersion: public.Version, PromptVersion: PromptVersion,
+		ExecutionOwner: s.executionOwner, LeaseEpoch: 1,
+		HeartbeatAt: now, LeaseUntil: s.leaseUntil(nowTime),
+		StartedAt: now, CreatedAt: now, UpdatedAt: now, Version: 1,
+	}
 	message.RunID = run.ID
 	session.Messages = append(session.Messages, message)
 	session.Runs = append(session.Runs, run)
@@ -204,6 +219,10 @@ func (s *Service) run(ctx context.Context, session storage.SupervisorSession, us
 	var client *sdk.ClientSession
 	var err error
 	ctx = claim.WithOrigin(ctx, claim.Origin{SessionID: session.ID, RunID: run.ID})
+	ctx = path.WithProposalOrigin(ctx, path.ProposalOrigin{
+		SessionID: session.ID, RunID: run.ID,
+		ExecutionOwner: run.ExecutionOwner, LeaseEpoch: run.LeaseEpoch,
+	})
 	if s.ProjectMCPClient != nil {
 		client, err = s.ProjectMCPClient(ctx, session.ProjectID, session.SnapshotID)
 	} else {
@@ -445,6 +464,14 @@ const systemPrompt = `You are the project supervisor for a source-code audit app
 
 func terminal(status string) bool {
 	return status == RunSucceeded || status == RunFailed || status == RunCancelled
+}
+
+func (s *Service) leaseUntil(now time.Time) string {
+	ttl := s.LeaseTTL
+	if ttl <= 0 {
+		ttl = 12 * time.Minute
+	}
+	return now.Add(ttl).UTC().Format(time.RFC3339Nano)
 }
 
 func nextMessageSeq(session storage.SupervisorSession) int64 {

@@ -83,6 +83,8 @@ parsing prose:
 | `list_sinks` | 按 SQL / MyBatis / Hibernate、反序列化、表达式 / JNDI、XXE、进程、网络、文件、LDAP、模板等类别读取全部命中 sink；支持高风险目录 / 未分类分区、规则 ID、receiver 类型和是否有流筛选。未产生数据流的 sink 也保留，规则命中不表示可被利用。 |
 | `get_asg_node` | 读取一个 ASG 节点、相邻边、已解析源码证据与限定；控制存在不等于有效，静态候选不等于漏洞成立。 |
 | `repo_map` | 返回不超过 2,000 字节的仓库定向图：主要模块、入口边界、sink 类别、文件未解析率和精确覆盖分母。 |
+| `open_knowledge_view` | 为宿主绑定的快照打开不可变知识视图，同时固定 SCG、ASG 和路径层；返回的 `view_id` 才能用于 `propose_path`，发布修订 ID 不是完整视图 pin。 |
+| `propose_path` | 在固定知识视图内提交有界审查路径提案；宿主校验真实入口、sink、ASG 边或调用路径、证据、Scope、请求幂等与每个 Agent run 的预算。候选默认等待人工选择，不成为数据流或已验证漏洞。 |
 
 source 元数据、物理源码树和图谱是否就绪分别报告；`graph_not_ready` 不等于快照丢失。攻击面目录不以“是否已有数据流”过滤，失败时保留精确总数、页码和截断原因。先检查 source/analysis，再按 workflow_run_id 和 invocation_id 追踪实际错误。新 file-job 的已知错误码保留；历史调用没有保存的底层日志不会被补造。工具结果超过 32 KiB 返回可缩小查询的完整错误，不截断 JSON。配置值、凭据、宿主路径、任意日志、SQL 和 Shell 不在此工具面。对话保留模型请求与 MCP 结果的配对记录，仍不改变漏洞裁定。
 
