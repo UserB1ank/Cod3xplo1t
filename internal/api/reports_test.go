@@ -634,7 +634,7 @@ func fixedReportIncludesNonFindingReview(t *testing.T, format string) {
 			seenLines[line] = true
 		}
 		input := do(t, env.ts, http.MethodGet, "/api/v1/projects/"+project+"/snapshots/"+snapshot+"/artifacts/"+inv.Request.Inputs[0].ID+"/content", nil, nil)
-		if input.status != 200 || !strings.Contains(string(input.body), run.Answer.Hypothesis.Statement) || !strings.Contains(string(input.body), "final-summary/zh-CN/1") {
+		if input.status != 200 || !strings.Contains(string(input.body), run.Answer.Hypothesis.Statement) || !strings.Contains(string(input.body), reporting.SummaryTemplate) {
 			t.Fatal("original assessment or saved Chinese presentation missing from separate input")
 		}
 		rerendered, err := reporting.Executor().Run(t.Context(), inv, [][]byte{input.body})

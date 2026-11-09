@@ -11,10 +11,11 @@ import (
 
 	"github.com/open-mcp-ai/Codexploit/internal/agent"
 	"github.com/open-mcp-ai/Codexploit/internal/llm"
+	"github.com/open-mcp-ai/Codexploit/internal/path"
 	"github.com/open-mcp-ai/Codexploit/internal/plugin"
 )
 
-const SummaryTemplate = "final-summary/zh-CN/1"
+const SummaryTemplate = "final-summary/zh-CN/2"
 const summaryItems = 10
 
 var ErrChineseUnavailable = errors.New("中文总结生成不可用或输出无效，请检查模型设置后重试；未生成英文替代报告")
@@ -38,16 +39,26 @@ type Summary struct {
 	UsageReported    bool           `json:"usage_reported"`
 }
 type SummaryItem struct {
-	ID     string `json:"id"`
-	PathID string `json:"path_id,omitempty"`
-	Status string `json:"status"`
-	Text   string `json:"text"`
-	Next   string `json:"next,omitempty"`
+	ID              string   `json:"id"`
+	PathID          string   `json:"path_id,omitempty"`
+	Status          string   `json:"status"`
+	Text            string   `json:"text"`
+	Entry           string   `json:"entry,omitempty"`
+	Sink            string   `json:"sink,omitempty"`
+	Controllability string   `json:"controllability,omitempty"`
+	Severity        string   `json:"severity,omitempty"`
+	Evidence        []string `json:"evidence_ids,omitempty"`
+	Next            string   `json:"next,omitempty"`
 }
 
 func prepareSummary(ctx context.Context, c Capture, models *llm.Manager) (*Summary, error) {
 	s := &Summary{Template: SummaryTemplate, Language: "zh-CN", Findings: []SummaryItem{}, Reviews: []SummaryItem{}, ReviewCounts: map[string]int{}}
 	groups := append([]Group(nil), c.Groups...)
+	paths := make(map[string]path.Path, len(c.Paths))
+	for _, value := range c.Paths {
+		paths[value.ID] = value
+	}
+	latest := latestReviews(c.Reviews)
 	rank := func(status, severity string) int {
 		statuses := map[string]int{"confirmed": 0, "candidate": 1, "blocked": 2, "inconclusive": 3, "refuted": 4}
 		grades := map[string]int{"high": 0, "medium": 1, "low": 2, "": 3}
@@ -64,15 +75,20 @@ func prepareSummary(ctx context.Context, c Capture, models *llm.Manager) (*Summa
 		if len(s.Findings) == summaryItems {
 			break
 		}
-		s.Findings = append(s.Findings, SummaryItem{ID: g.Finding.ID, PathID: g.Finding.PathID, Status: string(g.Finding.Status), Text: g.Finding.Title})
-	}
-	latest := map[string]Review{}
-	for _, r := range c.Reviews {
-		old, ok := latest[r.PathID]
-		// Version is a per-run CAS counter, not chronological order between runs.
-		if !ok || r.CreatedAt > old.CreatedAt || (r.CreatedAt == old.CreatedAt && (r.FinishedAt > old.FinishedAt || (r.FinishedAt == old.FinishedAt && r.RunID > old.RunID))) {
-			latest[r.PathID] = r
+		item := SummaryItem{
+			ID: g.Finding.ID, PathID: g.Finding.PathID, Status: string(g.Finding.Status),
+			Text: g.Finding.Title, Severity: g.Finding.Severity,
+			Controllability: "未评估",
+			Evidence:        append([]string{}, g.Finding.Supporting[:min(3, len(g.Finding.Supporting))]...),
 		}
+		if value, ok := paths[g.Finding.PathID]; ok {
+			item.Entry, item.Sink = value.EntrySubject, value.TargetSubject
+		}
+		if review, ok := latest[g.Finding.PathID]; ok {
+			item.Next = reviewNext(review)
+			item.Controllability = reviewControllability(review)
+		}
+		s.Findings = append(s.Findings, item)
 	}
 	ids := make([]string, 0, len(latest))
 	for id := range latest {
@@ -195,6 +211,51 @@ func prepareSummary(ctx context.Context, c Capture, models *llm.Manager) (*Summa
 	s.Limitations = uniqueLimits
 	return s, nil
 }
+
+func latestReviews(reviews []Review) map[string]Review {
+	latest := map[string]Review{}
+	for _, value := range reviews {
+		old, ok := latest[value.PathID]
+		// Version is a per-run CAS counter, not chronological order between runs.
+		if !ok || value.CreatedAt > old.CreatedAt ||
+			(value.CreatedAt == old.CreatedAt &&
+				(value.FinishedAt > old.FinishedAt ||
+					(value.FinishedAt == old.FinishedAt && value.RunID > old.RunID))) {
+			latest[value.PathID] = value
+		}
+	}
+	return latest
+}
+
+func reviewNext(review Review) string {
+	if review.Status != agent.RunSucceeded || review.Answer == nil {
+		return ""
+	}
+	return review.Answer.NextAction
+}
+
+func reviewControllability(review Review) string {
+	if review.Status != agent.RunSucceeded || review.Answer == nil {
+		return "未评估"
+	}
+	for _, obligation := range review.Answer.Obligations {
+		if obligation.Kind != agent.ObligationSource {
+			continue
+		}
+		switch obligation.Verdict {
+		case "met":
+			return "外部可控（审查判定）"
+		case "not_met":
+			return "未证明外部可控"
+		case "unknown":
+			if obligation.Blocker != "" {
+				return "未评估（" + obligation.Blocker + "）"
+			}
+			return "未评估"
+		}
+	}
+	return "未评估"
+}
 func chinese(value string) bool {
 	for _, r := range value {
 		if unicode.Is(unicode.Han, r) {
@@ -227,9 +288,14 @@ func renderSummary(c Capture) []byte {
 	if len(s.Findings) == 0 {
 		out.WriteString("本次未记录符合所选策略的漏洞发现。\n\n")
 	} else {
-		fmt.Fprintf(&out, "发现总数：%d。按确认状态与严重性优先展示 %d 项，其余见独立明细。\n\n| 状态 | 最终结论 | 记录 |\n| --- | --- | --- |\n", len(c.Groups), len(s.Findings))
+		fmt.Fprintf(&out, "发现总数：%d。按确认状态与严重性优先展示 %d 项，其余见独立明细。\n\n", len(c.Groups), len(s.Findings))
+		out.WriteString("| 状态 | 严重度 | 入口 | Sink | 可控性 | 证据 ID | 最终结论 | 修复/下一步 | 记录 |\n")
+		out.WriteString("| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
 		for _, item := range s.Findings {
-			fmt.Fprintf(&out, "| %s | %s | `%s` |\n", statusName(item.Status), reportText(item.Text), item.ID)
+			fmt.Fprintf(&out, "| %s | %s | %s | %s | %s | %s | %s | %s | `%s` |\n",
+				statusName(item.Status), summaryValue(item.Severity),
+				summaryValue(item.Entry), summaryValue(item.Sink), summaryValue(item.Controllability),
+				summaryEvidence(item.Evidence), reportText(item.Text), summaryValue(item.Next), item.ID)
 		}
 		out.WriteString("\n")
 	}
@@ -280,4 +346,28 @@ func renderSummary(c Capture) []byte {
 	fmt.Fprintf(&out, "模板：`%s`。", s.Template)
 	out.WriteString("\n")
 	return []byte(out.String())
+}
+
+func summaryValue(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "未记录"
+	}
+	return reportText(value)
+}
+
+func summaryEvidence(values []string) string {
+	if len(values) == 0 {
+		return "未记录"
+	}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			out = append(out, reportText(value))
+		}
+	}
+	if len(out) == 0 {
+		return "未记录"
+	}
+	return strings.Join(out, ", ")
 }
