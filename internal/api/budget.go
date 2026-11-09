@@ -108,5 +108,8 @@ func (s *Server) handleGrantBudget(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	if s.Scheduler != nil && grant.Decision == agent.GrantApproved {
+		s.Scheduler.ReleaseAuditBudgetHold(task.ID)
+	}
 	writeJSON(w, http.StatusCreated, map[string]any{"api_version": "codexploit/v1", "budget": budget, "grant": grant})
 }

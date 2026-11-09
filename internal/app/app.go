@@ -1122,6 +1122,10 @@ func (d *agentPathDispatcher) DispatchPath(ctx context.Context, pathID string) e
 	if run == nil {
 		return fmt.Errorf("app: scheduler: path %s produced no run record", pathID)
 	}
+	if run.Status == agent.RunPaused && run.StopReason == agent.StopBudgetPaused {
+		return fmt.Errorf("%w: run %s of path %s reached the audit token budget",
+			schedule.ErrDispatchPaused, run.ID, pathID)
+	}
 	if run.Status != agent.RunSucceeded {
 		return fmt.Errorf("app: scheduler: run %s of path %s ended %s (%s)",
 			run.ID, pathID, run.Status, run.StopReason)

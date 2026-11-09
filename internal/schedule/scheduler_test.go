@@ -3,6 +3,7 @@ package schedule
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -211,6 +212,37 @@ func TestSchedulerDispatchesUpToTheConcurrencyBudget(t *testing.T) {
 		if got := f.path(id).Status; got != path.StatusHypothesisFormed {
 			t.Errorf("path %s status = %s, want HYPOTHESIS_FORMED", id, got)
 		}
+	}
+}
+
+func TestSchedulerBudgetPauseDoesNotSpendAPathAttempt(t *testing.T) {
+	f := newSchedFixture(t, schedPath("audit-1", "path-1"))
+	f.dispatcher.onCall = func(pathID string) {
+		if _, err := f.svc.Release(pathID, "scheduler-1", "audit token budget exhausted"); err != nil {
+			t.Errorf("Release: %v", err)
+		}
+	}
+	f.dispatcher.err = fmt.Errorf("%w: audit token budget exhausted", ErrDispatchPaused)
+
+	result := f.tick()
+	if result.Failed != 0 {
+		t.Fatalf("a pre-execution pause was counted as a failed attempt: %+v", result)
+	}
+	stored := f.path("path-1")
+	if stored.Status != path.StatusQueued || stored.Attempts != 0 || stored.NextAttemptAt != "" {
+		t.Fatalf("budget pause spent or deferred the path: %+v", stored)
+	}
+	if f.metrics.Snapshot()["retried_total"] != int64(0) {
+		t.Fatalf("a pre-execution pause incremented retries: %+v", f.metrics.Snapshot())
+	}
+	second := f.tick()
+	if second.Dispatched != 0 || f.dispatcher.total() != 1 {
+		t.Fatalf("a held audit was dispatched again before a budget grant: %+v calls=%d", second, f.dispatcher.total())
+	}
+	f.scheduler.ReleaseAuditBudgetHold(f.auditID)
+	third := f.tick()
+	if third.Dispatched != 1 || f.dispatcher.total() != 2 {
+		t.Fatalf("releasing the budget hold did not resume the audit: %+v calls=%d", third, f.dispatcher.total())
 	}
 }
 

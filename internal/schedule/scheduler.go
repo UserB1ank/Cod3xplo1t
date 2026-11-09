@@ -29,6 +29,11 @@ type Dispatcher interface {
 	DispatchPath(ctx context.Context, pathID string) error
 }
 
+// ErrDispatchPaused tells the scheduler that execution stopped before the path
+// consumed an attempt. Budget pauses and other global holds use this signal so
+// they do not burn the path's retry ceiling or create retry backoff.
+var ErrDispatchPaused = errors.New("schedule: dispatch paused before execution")
+
 // TickResult is the observable summary of one scheduler pass.
 type TickResult struct {
 	// Held is how many paths this scheduler still holds a lease on when the tick
@@ -87,6 +92,7 @@ type Scheduler struct {
 	mu             sync.Mutex
 	inflight       map[string]bool
 	held           map[string]bool
+	budgetHeld     map[string]bool
 	defaultMetrics *Metrics
 
 	running atomic.Bool
@@ -275,6 +281,10 @@ func (s *Scheduler) tick(ctx context.Context, audits []string, concurrency int) 
 		if budget <= 0 || ctx.Err() != nil {
 			break
 		}
+		if s.auditBudgetHeld(auditID) {
+			result.Skipped++
+			continue
+		}
 		// The audit's own active-lease ceiling is enforced here, because taking a
 		// lease is what spends it. It is counted over the audit's whole path set:
 		// another worker may hold the rest.
@@ -373,6 +383,14 @@ func (s *Scheduler) runDispatch(ctx context.Context, claimed path.Path) bool {
 		s.settleSuccess(claimed)
 		return false
 	}
+	if errors.Is(err, ErrDispatchPaused) {
+		// The runner normally releases the path before returning. This also clears
+		// a lease for dispatchers that pause before doing so.
+		s.releaseLease(claimed.ID, "execution paused before the path consumed an attempt")
+		s.holdAuditBudget(claimed.AuditID)
+		s.forget(claimed.ID)
+		return false
+	}
 	s.metrics().AddFailed()
 	if ctx.Err() != nil {
 		// The pass was cancelled: this is a shutdown, not a failed attempt. The
@@ -384,6 +402,32 @@ func (s *Scheduler) runDispatch(ctx context.Context, claimed path.Path) bool {
 	}
 	s.deferRetry(claimed, err)
 	return true
+}
+
+func (s *Scheduler) auditBudgetHeld(auditID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.budgetHeld[auditID]
+}
+
+func (s *Scheduler) holdAuditBudget(auditID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.budgetHeld == nil {
+		s.budgetHeld = map[string]bool{}
+	}
+	s.budgetHeld[auditID] = true
+}
+
+// ReleaseAuditBudgetHold lets a successful token grant make the audit eligible
+// for the next scheduler tick. The hold is process-local; a restart clears it.
+func (s *Scheduler) ReleaseAuditBudgetHold(auditID string) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	delete(s.budgetHeld, auditID)
+	s.mu.Unlock()
 }
 
 // settleSuccess completes a path the dispatcher left active. A dispatcher that
