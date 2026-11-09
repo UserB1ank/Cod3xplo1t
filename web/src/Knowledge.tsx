@@ -1,4 +1,5 @@
 import { InvestigationKnowledge } from "./InvestigationKnowledge";
+import { GraphAgentChat } from "./GraphAgentChat";
 import {
   Fragment,
   useId,
@@ -396,7 +397,7 @@ export function Knowledge({
   if (!snapshotID) {
     return (
       <EmptyState title="等待源码输入就绪">
-        创建项目时会自动保存源码。请在项目总览查看输入状态，再开始图谱化分析。
+        创建项目时会自动保存源码并启动图谱化分析。请在项目总览查看输入状态和真实阶段进度。
       </EmptyState>
     );
   }
@@ -465,122 +466,138 @@ export function Knowledge({
         </button>
       </div>
 
-      {mode === "graph" && (
-        <InvestigationKnowledge
-          key={[projectID, snapshotID, revision].join(":")}
-          api={api}
-          projectID={projectID}
-          snapshotID={snapshotID}
-          canWrite={canWrite}
-        />
-      )}
-
-      {viewLoading ? (
-        <Panel title="正在读取图谱">
-          <div className="knowledge-loading">
-            <Loader2 className="spin" size={18} /> 读取该快照的图层版本…
-          </div>
-        </Panel>
-      ) : viewError ? (
-        <Panel title="图谱不可用">
-          <Hint>{viewError}</Hint>
-          <button className="button" onClick={openView}>
-            <RefreshCw size={15} /> 重试
-          </button>
-        </Panel>
-      ) : view ? (
-        <>
-          <CoverageStrip view={view} />
-          <details className="knowledge-version-details">
-            <summary>
-              知识版本与工具来源 <span className="mono">{view.revision}</span>
-            </summary>
-            <PublicationPanel
+      <div
+        className={`knowledge-agent-layout ${mode === "graph" ? "with-agent" : ""}`}
+      >
+        <div className="knowledge-agent-main">
+          {mode === "graph" && (
+            <InvestigationKnowledge
+              key={`${projectID}:${snapshotID}:${revision}`}
               api={api}
               projectID={projectID}
               snapshotID={snapshotID}
+              canWrite={canWrite}
             />
-          </details>
-          {layerState && layerState.status !== "available" ? (
-            <Panel title={layerLabels[layer]}>
-              <EmptyState
-                title={layerState.detail || `${layerLabels[layer]}不可用`}
-              >
-                {layer === "asg"
-                  ? "构建代码源快照时勾选攻击面，或等待后续版本补齐。"
-                  : layer === "paths"
-                    ? "可从插件中心发布路径分析结果，或从任务生成候选路径。"
-                    : null}
-              </EmptyState>
+          )}
+
+          {viewLoading ? (
+            <Panel title="正在读取图谱">
+              <div className="knowledge-loading">
+                <Loader2 className="spin" size={18} /> 读取该快照的图层版本…
+              </div>
             </Panel>
-          ) : layer === "entries" ? (
-            <div className="entry-explorer panel">
-              <EntryPanel
-                api={api}
-                projectID={projectID}
-                view={view}
-                onSelect={setSelectedEntry}
-                selected={selectedEntry}
-              />
-              <section
-                className="entry-explorer-main"
-                aria-label="入口局部图谱"
-              >
-                {selectedEntry ? (
-                  <EntryInspector
-                    key={selectedEntry.node_id}
+          ) : viewError ? (
+            <Panel title="图谱不可用">
+              <Hint>{viewError}</Hint>
+              <button className="button" onClick={openView}>
+                <RefreshCw size={15} /> 重试
+              </button>
+            </Panel>
+          ) : view ? (
+            <>
+              <CoverageStrip view={view} />
+              <details className="knowledge-version-details">
+                <summary>
+                  知识版本与工具来源 <span className="mono">{view.revision}</span>
+                </summary>
+                <PublicationPanel
+                  api={api}
+                  projectID={projectID}
+                  snapshotID={snapshotID}
+                />
+              </details>
+              {layerState && layerState.status !== "available" ? (
+                <Panel title={layerLabels[layer]}>
+                  <EmptyState
+                    title={layerState.detail || `${layerLabels[layer]}不可用`}
+                  >
+                    {layer === "asg"
+                      ? "构建代码源快照时勾选攻击面，或等待后续版本补齐。"
+                      : layer === "paths"
+                        ? "可从插件中心发布路径分析结果，或从任务生成候选路径。"
+                        : null}
+                  </EmptyState>
+                </Panel>
+              ) : layer === "entries" ? (
+                <div className="entry-explorer panel">
+                  <EntryPanel
                     api={api}
                     projectID={projectID}
                     view={view}
-                    entry={selectedEntry}
+                    onSelect={setSelectedEntry}
+                    selected={selectedEntry}
                   />
-                ) : (
-                  <EmptyState title="选择程序入口">
-                    从左侧入口开始，查看局部调用关系与源码。
-                  </EmptyState>
-                )}
-              </section>
-            </div>
-          ) : layer === "scg" ? (
-            <SymbolPanel
-              api={api}
-              projectID={projectID}
-              view={view}
-              onSelect={setSelectedSymbol}
-              selected={selectedSymbol}
-            />
-          ) : layer === "asg" ? (
-            <NodePanel
-              api={api}
-              projectID={projectID}
-              view={view}
-              onSelect={setSelectedNode}
-              selected={selectedNode}
-            />
-          ) : (
-            <PathPanel
-              api={api}
-              projectID={projectID}
-              view={view}
-              onSelect={setSelectedPath}
-              selected={selectedPath}
-              canWrite={canWrite}
-              agentAvailable={agentAvailable}
-              onWorkbench={onWorkbench}
-            />
-          )}
-          {view.limitations.length ? (
-            <details className="limitations">
-              <summary>覆盖说明与限制</summary>
-              <ul>
-                {view.limitations.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
-            </details>
+                  <section
+                    className="entry-explorer-main"
+                    aria-label="入口局部图谱"
+                  >
+                    {selectedEntry ? (
+                      <EntryInspector
+                        key={selectedEntry.node_id}
+                        api={api}
+                        projectID={projectID}
+                        view={view}
+                        entry={selectedEntry}
+                      />
+                    ) : (
+                      <EmptyState title="选择程序入口">
+                        从左侧入口开始，查看局部调用关系与源码。
+                      </EmptyState>
+                    )}
+                  </section>
+                </div>
+              ) : layer === "scg" ? (
+                <SymbolPanel
+                  api={api}
+                  projectID={projectID}
+                  view={view}
+                  onSelect={setSelectedSymbol}
+                  selected={selectedSymbol}
+                />
+              ) : layer === "asg" ? (
+                <NodePanel
+                  api={api}
+                  projectID={projectID}
+                  view={view}
+                  onSelect={setSelectedNode}
+                  selected={selectedNode}
+                />
+              ) : (
+                <PathPanel
+                  api={api}
+                  projectID={projectID}
+                  view={view}
+                  onSelect={setSelectedPath}
+                  selected={selectedPath}
+                  canWrite={canWrite}
+                  agentAvailable={agentAvailable}
+                  onWorkbench={onWorkbench}
+                />
+              )}
+              {view.limitations.length ? (
+                <details className="limitations">
+                  <summary>覆盖说明与限制</summary>
+                  <ul>
+                    {view.limitations.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </details>
+              ) : null}
+            </>
           ) : null}
-        </>
-      ) : null}
+        </div>
+        {mode === "graph" && (
+          <GraphAgentChat
+            key={`${projectID}:${snapshotID}`}
+            api={api}
+            projectID={projectID}
+            canWrite={canWrite}
+            agentAvailable={agentAvailable}
+            onOpenWorkbench={onWorkbench ? () => onWorkbench() : undefined}
+          />
+        )}
+      </div>
 
       <Modal
         open={!!selectedSymbol}
@@ -2292,9 +2309,14 @@ function PathPanel({
                               : row.target_subject.replace(/^sink:/, "") ||
                                 "敏感操作路径"}
                         </strong>
-                        <span className="path-priority">
-                          优先级{" "}
-                          {row.score ? row.score.priority.toFixed(2) : "未评分"}
+                        <span className="path-row-badges">
+                          {checked.includes(row.path_id) && (
+                            <span className="path-selected-badge">已选</span>
+                          )}
+                          <span className="path-priority">
+                            优先级{" "}
+                            {row.score ? row.score.priority.toFixed(2) : "未评分"}
+                          </span>
                         </span>
                       </span>
                       <code>

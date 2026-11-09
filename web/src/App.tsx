@@ -468,6 +468,14 @@ export default function App() {
             <small>{identity.role} · 已连接</small>
           </span>
           <button
+            aria-label="刷新数据"
+            className="icon-button"
+            title="刷新数据"
+            onClick={() => refresh((n) => n + 1)}
+          >
+            <RefreshCw size={16} />
+          </button>
+          <button
             aria-label="退出登录"
             className="icon-button"
             onClick={async () => {
@@ -485,61 +493,6 @@ export default function App() {
         </div>
       </aside>
       <div className="main-shell">
-        <header className="topbar">
-          <div className="breadcrumbs">
-            <a href="#/projects">{configuration ? "工作区" : "项目"}</a>
-            {configuration && (
-              <>
-                <ChevronRight size={13} />
-                <span>配置</span>
-                <ChevronRight size={13} />
-                <span>
-                  {configurationSection === "models" ? "模型设置" : "数据存储"}
-                </span>
-              </>
-            )}
-            {route.project && (
-              <>
-                <ChevronRight size={13} />
-                <a
-                  href={routeHash({
-                    project: route.project,
-                    view: limitedTasks ? "sources" : "overview",
-                  })}
-                >
-                  {project?.name || "…"}
-                </a>
-              </>
-            )}
-            {route.project && !route.task && (
-              <>
-                <ChevronRight size={13} />
-                <span>
-                  {navItems.find((item) => item.id === route.view)?.label}
-                </span>
-              </>
-            )}
-            {route.task && (
-              <>
-                <ChevronRight size={13} />
-                <span>{task ? taskName(task) : "任务详情"}</span>
-              </>
-            )}
-          </div>
-          <div className="topbar-right">
-            <span className="environment">
-              <span />
-              本地工作区
-            </span>
-            <button
-              className="icon-button"
-              aria-label="刷新数据"
-              onClick={() => refresh((n) => n + 1)}
-            >
-              <RefreshCw size={16} />
-            </button>
-          </div>
-        </header>
         <main id="workspace-content" tabIndex={-1}>
           {(error ||
             directory.error ||
@@ -654,32 +607,31 @@ export default function App() {
             />
           ) : (
             <>
-              <div className="page-heading">
-                <div>
-                  <div className="eyebrow">PROJECT WORKSPACE</div>
-                  <h1>
-                    {route.view === "overview"
-                      ? project.name
-                      : navItems.find((n) => n.id === route.view)?.label ||
-                        "项目总览"}
-                  </h1>
-                  <p>
-                    {route.view === "tasks"
-                      ? "为每一次挖掘设定目标，复用项目已积累的知识。"
-                      : route.view === "workflows"
-                        ? "编辑插件流程，保存不可变版本，编译固定输入与知识版本的计划。"
-                        : route.view === "paths"
-                          ? "查看筛选依据，选择高价值路径并交给 Agent 审查。"
-                          : route.view === "knowledge"
-                            ? "项目级代码事实与攻击面，供所有任务共同查询。"
-                            : route.view === "artifacts"
-                              ? "查看固定快照的输入产物、内容摘要和来源，核对后下载。"
-                              : route.view === "reports"
-                                ? "按所选快照固定真实发现、证据与来源，保存可复核的报告。"
-                                : route.view === "findings"
-                                  ? "汇总任务发现，按证据结论与漏洞严重度查看。"
-                                  : route.view === "assistant"
-                                    ? "与主 Agent 对话，查看路径审查的执行情况，随时进入任务介入。"
+              {route.view !== "assistant" && (
+                <div className="page-heading">
+                  <div>
+                    <div className="eyebrow">PROJECT WORKSPACE</div>
+                    <h1>
+                      {route.view === "overview"
+                        ? project.name
+                        : navItems.find((n) => n.id === route.view)?.label ||
+                          "项目总览"}
+                    </h1>
+                    <p>
+                      {route.view === "tasks"
+                        ? "为每一次挖掘设定目标，复用项目已积累的知识。"
+                        : route.view === "workflows"
+                          ? "编辑插件流程，保存不可变版本，编译固定输入与知识版本的计划。"
+                          : route.view === "paths"
+                            ? "查看筛选依据，选择高价值路径并交给 Agent 审查。"
+                            : route.view === "knowledge"
+                              ? "项目级代码事实与攻击面，供所有任务共同查询。"
+                              : route.view === "artifacts"
+                                ? "查看固定快照的输入产物、内容摘要和来源，核对后下载。"
+                                : route.view === "reports"
+                                  ? "按所选快照固定真实发现、证据与来源，保存可复核的报告。"
+                                  : route.view === "findings"
+                                    ? "汇总任务发现，按证据结论与漏洞严重度查看。"
                                     : route.view === "sources"
                                       ? projectInputState(projectInput) !==
                                         "legacy"
@@ -691,45 +643,54 @@ export default function App() {
                                         ? project.description ||
                                           "一份源码 · 一次审计。"
                                         : project.source ||
-                                          (route.view === "plugins" ? "按阶段管理工具、固定版本与执行能力。" : "项目代码源独立管理。")}
-                  </p>
-                </div>
-                <div className="heading-actions">
-                  {!limitedTasks && ["overview", "tasks", "assistant", "paths"].includes(route.view) && (
-                    <ProjectPathStop api={api} projectID={project.id} disabled={!canWrite} onChanged={() => refresh((n) => n + 1)} />
-                  )}
-                  {project.source &&
-                    route.view !== "sources" &&
-                    projectInputState(projectInput) === "legacy" && (
+                                          (route.view === "plugins"
+                                            ? "按阶段管理工具、固定版本与执行能力。"
+                                            : "项目代码源独立管理。")}
+                    </p>
+                  </div>
+                  <div className="heading-actions">
+                    {!limitedTasks &&
+                      ["overview", "tasks", "paths"].includes(route.view) && (
+                        <ProjectPathStop
+                          api={api}
+                          projectID={project.id}
+                          disabled={!canWrite}
+                          onChanged={() => refresh((n) => n + 1)}
+                        />
+                      )}
+                    {project.source &&
+                      route.view !== "sources" &&
+                      projectInputState(projectInput) === "legacy" && (
+                        <button
+                          className="button secondary"
+                          disabled={!canWrite || !!busy}
+                          onClick={() => setDialog("snapshot")}
+                        >
+                          <GitBranch size={15} />
+                          更新代码版本
+                        </button>
+                      )}
+                    {route.view === "tasks" && (
                       <button
-                        className="button secondary"
-                        disabled={!canWrite || !!busy}
-                        onClick={() => setDialog("snapshot")}
+                        className="button primary"
+                        disabled={
+                          !canWrite ||
+                          !!busy ||
+                          !snapshots.data?.length ||
+                          limitedTasks
+                        }
+                        onClick={() => {
+                          setTaskSnapshot(undefined);
+                          setDialog("task");
+                        }}
                       >
-                        <GitBranch size={15} />
-                        更新代码版本
+                        <Plus size={16} />
+                        新建任务
                       </button>
                     )}
-                  {route.view === "tasks" && (
-                    <button
-                      className="button primary"
-                      disabled={
-                        !canWrite ||
-                        !!busy ||
-                        !snapshots.data?.length ||
-                        limitedTasks
-                      }
-                      onClick={() => {
-                        setTaskSnapshot(undefined);
-                        setDialog("task");
-                      }}
-                    >
-                      <Plus size={16} />
-                      新建任务
-                    </button>
-                  )}
+                  </div>
                 </div>
-              </div>
+              )}
               {route.view === "sources" ? (
                 <Sources
                   key={project.id}
@@ -772,6 +733,7 @@ export default function App() {
                   projectName={project.name}
                   tasks={tasks.data?.tasks || []}
                   revision={revision}
+                  onPathsChanged={() => refresh((n) => n + 1)}
                   onTask={(taskID) =>
                     navigate({
                       project: project.id,
@@ -987,7 +949,9 @@ export default function App() {
           busy={!!busy}
           network={identity.features.network}
           onSubmit={(values) =>
-            action("建立项目并开始图谱化分析", async () => {
+            action(
+              values.projectID ? "保存源码" : "建立项目并开始图谱化分析",
+              async () => {
               if (values.kind === "legacy_auto") {
                 const created = await api.post<{ project: Project }>(
                   "/projects",
@@ -1090,6 +1054,8 @@ export default function App() {
                   await setupSource();
                 }
               } catch (error) {
+                // Keep the project visible whether source setup or the
+                // following analysis start failed.
                 refresh((n) => n + 1);
                 throw error;
               }
@@ -1099,7 +1065,8 @@ export default function App() {
                 project: projectID,
                 view: creationTarget || "overview",
               });
-            })
+            },
+            )
           }
         />
       </Modal>
@@ -3425,8 +3392,8 @@ function ProjectForm({
           </label>
         )}
         <Hint>
-          创建时保存一份只读源码目录，不自动构建图谱，也不会启动 Agent。
-          名称与说明之后可编辑；换一份代码请另建项目。
+          创建时保存一份只读源码目录，源码就绪后自动开始默认图谱化流程；
+          图谱准备完成前不会启动路径 Agent。名称与说明之后可编辑；换一份代码请另建项目。
           {kind === "local_folder" &&
             "本地目录包含未提交修改；目录内的 .git 不会切换读取方式。"}
         </Hint>
@@ -3438,7 +3405,7 @@ function ProjectForm({
       </fieldset>
       {busy && kind.startsWith("uploaded_") && (
         <div role="status">
-          <progress /> 正在上传并保存只读源码…{" "}
+          <progress /> 正在上传并保存只读源码，随后自动开始图谱化…{" "}
           <button
             type="button"
             className="text-button"
@@ -3448,7 +3415,7 @@ function ProjectForm({
           </button>
         </div>
       )}
-      <FormFooter busy={busy} label="创建项目并保存源码" />
+      <FormFooter busy={busy} label="创建并开始图谱化" />
     </form>
   );
 }

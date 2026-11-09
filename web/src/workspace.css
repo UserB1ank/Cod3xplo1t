@@ -139,18 +139,6 @@
 .sidebar-bottom {
   font-size: 11px;
 }
-.topbar {
-  background: white;
-  height: 65px;
-  padding-inline: 34px;
-}
-.breadcrumbs {
-  gap: 9px;
-  font-size: 11px;
-}
-.breadcrumbs span {
-  color: #314b3c;
-}
 main {
   padding: 32px 34px 48px;
   max-width: 1600px;
@@ -315,7 +303,6 @@ textarea::placeholder {
   padding: 12px 15px;
   background: #f4f8f5;
   border: 0;
-  border-left: 2px solid var(--accent);
 }
 .stage-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -863,9 +850,10 @@ textarea::placeholder {
 .agent-workspace-summary {
   display: flex;
   align-items: center;
-  gap: 22px;
+  gap: 18px;
   font-size: 11px;
-  margin: -5px 0 20px;
+  min-height: 34px;
+  margin: 0 0 10px;
   flex-wrap: wrap;
 }
 .agent-workspace-summary > span {
@@ -874,18 +862,28 @@ textarea::placeholder {
   gap: 8px;
   color: var(--muted);
 }
-.agent-workspace-summary > .text-button {
+.agent-workspace-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
   margin-left: auto;
+}
+.agent-workspace-actions > .button {
+  min-height: 30px;
+  padding: 5px 9px;
   font-size: 11px;
 }
-.agent-workspace-summary details {
+.agent-workspace-actions > .text-button {
+  font-size: 11px;
+}
+.agent-workspace-actions details {
   position: relative;
 }
-.agent-workspace-summary summary {
+.agent-workspace-actions summary {
   cursor: pointer;
   color: var(--muted);
 }
-.agent-workspace-summary details p {
+.agent-workspace-actions details p {
   position: absolute;
   right: 0;
   z-index: 3;
@@ -1510,13 +1508,6 @@ textarea::placeholder {
     padding: 6px;
     font-size: 10px;
   }
-  .topbar {
-    padding: 0 18px;
-    height: 48px;
-  }
-  .topbar-right .environment {
-    display: none;
-  }
   main {
     padding: 24px 16px 32px;
   }
@@ -1675,7 +1666,7 @@ textarea::placeholder {
   background: #f2f8f4;
 }
 .review-path-row.checked {
-  box-shadow: inset 3px 0 0 var(--accent);
+  background: #f7fbf8;
 }
 .review-path-row > input[type="checkbox"] {
   appearance: auto;
@@ -1705,6 +1696,21 @@ textarea::placeholder {
   justify-content: space-between;
   gap: 8px;
   margin-bottom: 10px;
+}
+.path-row-badges {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.path-selected-badge {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
 }
 .review-path-row strong {
   font-size: 14px;
@@ -2402,42 +2408,13 @@ textarea::placeholder {
 .supervisor-layout.command-workspace.focus-reading .supervisor-message.user {
   max-width: min(80%, 72ch);
 }
-main#workspace-content:has(.supervisor-layout.command-workspace.focus-reading) {
-  padding-top: 20px;
-}
-main#workspace-content:has(.supervisor-layout.command-workspace.focus-reading)
-  .page-heading {
-  min-height: 42px;
-  margin-bottom: 8px;
-  gap: 16px;
-  align-items: center;
-}
-main#workspace-content:has(.supervisor-layout.command-workspace.focus-reading)
-  .page-heading
-  .eyebrow,
-main#workspace-content:has(.supervisor-layout.command-workspace.focus-reading)
-  .page-heading
-  > div
-  > p {
-  display: none;
-}
-main#workspace-content:has(.supervisor-layout.command-workspace.focus-reading)
-  .page-heading
-  h1 {
-  margin: 0;
-  font-size: 24px;
-  line-height: 1.15;
-}
-main#workspace-content:has(.supervisor-layout.command-workspace.focus-reading)
-  .page-heading
-  .heading-actions {
-  padding-top: 0;
-}
-main#workspace-content:has(.supervisor-layout.command-workspace.focus-reading)
-  .agent-workspace-summary {
-  min-height: 28px;
-  margin: 0 0 8px;
-  gap: 16px;
+@media (max-width: 850px) {
+  .agent-workspace-actions {
+    width: 100%;
+    margin-left: 0;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+  }
 }
 
 /* Child review: answer first, protocol log on demand. */

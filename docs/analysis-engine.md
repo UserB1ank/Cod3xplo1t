@@ -34,7 +34,7 @@ stateDiagram-v2
     CANCELLING --> CANCELLED: 执行器退出、迟到结果栅栏完成
 ```
 
-预检失败返回 `503 analysis_engine_unavailable`，不创建任务或运行。预检通过不代替每次调用前后的全包完整性检查。项目页读取 `GET /api/v1/projects/{id}/analysis-engine`，显示实际就绪情况；入口仍是一个“开始图谱化分析”按钮，Agent 默认关闭。
+预检失败返回 `503 analysis_engine_unavailable`，不创建任务或运行。预检通过不代替每次调用前后的全包完整性检查。项目页读取 `GET /api/v1/projects/{id}/analysis-engine`，显示实际就绪情况。新建项目在源码输入变为 ready 后由正式页面自动提交默认图谱化分析；超过 500 MiB 时仍先要求确认实际目录大小。Agent 默认关闭，图谱页右侧可独立开始主 Agent 对话。
 
 每个阶段独立记录 invocation、operation、输入输出和终态。parse / taint / paths / enhance 的 PARTIAL 显式接受后继续，但整个运行仍是 PARTIAL；静态覆盖局限不被发布阶段的成功覆盖。失败会跳过下游，不回退到 Go 解析器。取消、暂停、重试与恢复由既有工作流状态机执行。项目停止接口须等工作流和 AnalysisRun 状态投影都落定后才报告 STOPPED，避免提前报告停止而删除仍被活动记录阻止。
 

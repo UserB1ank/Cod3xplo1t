@@ -365,7 +365,11 @@ export function ProjectHome({
             className={`analysis-run-summary ${selected.state.toLowerCase()}`}
           >
             <div>
-              <strong>{runStateLabel(selected.state)}</strong>
+              <strong
+                className={`analysis-state-badge ${selected.state.toLowerCase()}`}
+              >
+                {runStateLabel(selected.state)}
+              </strong>
               <small>
                 {selected.engine ? `${selected.engine.plugin_id}@${selected.engine.plugin_version} · ` : "历史固定计划 · "}
                 分析 {short(selected.analysis_run_id)} · 计划{" "}

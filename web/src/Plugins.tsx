@@ -61,6 +61,7 @@ interface Invocation {
   request: {
     plugin_id: string;
     plugin_version: string;
+    operation_id?: string;
     package_digest: string;
     scope: ArtifactRef["scope"];
     inputs: ArtifactRef[];
@@ -1016,6 +1017,7 @@ export function Plugins({
                     <li key={index}>{note}</li>
                   ))}
                 </ul>
+                {detail.request.plugin_id === "codexploit.joern" && <p className="muted">此调用的 max_files 限制输出产物数量，不限制输入源码文件数；max_file_bytes / max_ast_nodes 是兼容字段，不用于 Joern 的源码裁剪。实际处理范围以上方覆盖统计为准。</p>}
                 <pre className="artifact-preview">
                   {JSON.stringify(
                     {

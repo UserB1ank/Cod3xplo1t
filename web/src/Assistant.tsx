@@ -23,6 +23,7 @@ import { projectAgentConversation } from "./agent-conversation";
 import { AgentConversationFeed } from "./AgentConversationFeed";
 import { isFollowingLatest } from "./agent-scroll";
 import { AgentToolActivity } from "./AgentToolActivity";
+import { ProjectPathStop } from "./ProjectPathStop";
 import { toolDisplayName as toolLabel } from "./agent-tool-label";
 import { Badge, EmptyState, Failure, Hint, Panel } from "./components";
 import type {
@@ -140,6 +141,7 @@ export function Assistant({
   projectName,
   tasks,
   revision,
+  onPathsChanged,
   onTask,
   onNavigate,
 }: {
@@ -149,6 +151,7 @@ export function Assistant({
   projectName: string;
   tasks: Task[];
   revision: number;
+  onPathsChanged: () => void;
   onTask: (taskID: string) => void;
   onNavigate: (view: string) => void;
 }) {
@@ -398,16 +401,25 @@ export function Assistant({
           {activeRun ? "正在执行" : available ? "等待对话" : "模型不可用"}
         </span>
         <span>{selections.length} 个路径审查任务</span>
-        <button className="text-button" onClick={() => onNavigate("paths")}>
-          选择审查路径 <ArrowRight size={13} />
-        </button>
-        <details>
-          <summary>执行能力</summary>
-          <p>
-            主 Agent 可查看当前项目的源码、导入、分析阶段、工作流、插件、任务、发现、报告和脱敏诊断。
-            图谱未就绪时仍可读取源码并排查构建状态。
-          </p>
-        </details>
+        <div className="agent-workspace-actions">
+          <button className="text-button" onClick={() => onNavigate("paths")}>
+            选择审查路径 <ArrowRight size={13} />
+          </button>
+          <ProjectPathStop
+            api={api}
+            projectID={projectID}
+            disabled={!canWrite}
+            onChanged={onPathsChanged}
+          />
+          <details>
+            <summary>执行能力</summary>
+            <p>
+              主 Agent
+              可查看当前项目的源码、导入、分析阶段、工作流、插件、任务、发现、报告和脱敏诊断。
+              图谱未就绪时仍可读取源码并排查构建状态。
+            </p>
+          </details>
+        </div>
       </div>
       <div
         className={`supervisor-layout command-workspace ${focusReading ? "focus-reading" : ""}`.trim()}
