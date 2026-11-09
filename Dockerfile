@@ -23,6 +23,7 @@ RUN go mod download
 COPY . .
 COPY --from=frontend /src/web/dist ./web/dist
 RUN CGO_ENABLED=0 go build -trimpath -tags "embedui,${BUILD_FLAVOR}" -ldflags="-s -w" -o /out/server ./cmd/server \
+    && CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w" -o /out/backfill-findings ./cmd/backfill-findings \
     && CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w" -o /out/scanner ./cmd/scanner \
     && mkdir -p "/out/plugin-packages/codexploit.static-patterns@1.0.15" \
     && cp /out/scanner "/out/plugin-packages/codexploit.static-patterns@1.0.15/scanner" \
@@ -59,6 +60,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends git openssh-cli
     && mkdir -p /data /repos && chown 10001:10001 /data /repos
 WORKDIR /app
 COPY --from=backend /out/server ./server
+COPY --from=backend /out/backfill-findings ./backfill-findings
 COPY --from=backend /out/plugin-packages ./plugin-packages
 COPY --chown=10001:10001 --from=joern-package /joern/ ./plugin-packages/
 COPY --from=piworker /usr/local/bin/node /usr/local/bin/node

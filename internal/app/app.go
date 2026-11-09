@@ -706,6 +706,11 @@ func (r *Runtime) wireAgent(cfg AgentConfig) error {
 	if cfg.HeartbeatSeconds > 0 {
 		r.Agent.HeartbeatEvery = time.Duration(cfg.HeartbeatSeconds) * time.Second
 	}
+	// Candidate findings are reviewable records, not verification verdicts. Wire
+	// their materializer even when the verification executor is disabled so a
+	// completed path cannot leave its accepted finding candidate as a hypothesis
+	// only.
+	r.Agent.FindingSeeder = graph.NewVerifyPlanner(r.Store, r.Graph)
 	return nil
 }
 

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/open-mcp-ai/Codexploit/internal/path"
+	"github.com/open-mcp-ai/Codexploit/internal/verify"
 )
 
 // The orchestrator tests exercise the whole loop against in-memory fakes: the
@@ -805,6 +806,55 @@ func runnerTestRunner(store Store, paths PathCoordinator, tasks TaskBuilder, run
 	return &Runner{
 		Store: store, Registry: registry, Runtime: runtime, Tasks: tasks, Paths: paths,
 		Policy: policy, Owner: "worker-1", Now: runnerTestNow,
+	}
+}
+
+type runnerTestFindingSeeder struct {
+	hypothesisIDs []string
+}
+
+func (s *runnerTestFindingSeeder) EnsureFinding(_ context.Context, hypothesisID string) (*verify.Finding, error) {
+	s.hypothesisIDs = append(s.hypothesisIDs, hypothesisID)
+	return &verify.Finding{
+		ID: verify.FindingID(hypothesisID), HypothesisID: hypothesisID,
+		Status: verify.FindingCandidate,
+	}, nil
+}
+
+func TestRunnerMaterializesAFindingCandidate(t *testing.T) {
+	store := newRunnerTestStore()
+	paths := newRunnerTestPaths(runnerTestPath("audit-1", "path-1"))
+	registry := NewRegistry()
+	answer := runnerTestAnswer()
+	answer.FindingCandidate = true
+	runtime := NewScriptedRuntime("scripted", "1.0", []ScriptStep{ScriptAnswer(answer)})
+	seeder := &runnerTestFindingSeeder{}
+	r := runnerTestRunner(store, paths, &runnerTestTasks{}, runtime, registry, runnerTestPolicy())
+	r.FindingSeeder = seeder
+
+	run, err := r.RunOnce(context.Background(), "audit-1")
+	if err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+	if run.Status != RunSucceeded {
+		t.Fatalf("run = %s/%s (%s), want success", run.Status, run.StopReason, run.Error)
+	}
+	wantHypothesis := HypothesisID("path-1", answer.Hypothesis.Statement)
+	if len(seeder.hypothesisIDs) != 1 || seeder.hypothesisIDs[0] != wantHypothesis {
+		t.Fatalf("seeded hypotheses = %v, want [%s]", seeder.hypothesisIDs, wantHypothesis)
+	}
+	events, err := store.ListRunEvents(EventQuery{RunID: run.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var findingEvent bool
+	for _, event := range events {
+		if event.Type == EventFindingCandidate && event.Detail["finding_id"] == verify.FindingID(wantHypothesis) {
+			findingEvent = true
+		}
+	}
+	if !findingEvent {
+		t.Fatalf("finding candidate event missing: %+v", events)
 	}
 }
 

@@ -190,6 +190,7 @@ const (
 	StopAdapterFailed         = "adapter_failed"
 	StopLeaseLost             = "lease_lost"
 	StopPathNotActive         = "path_not_active"
+	StopFindingNotStored      = "finding_not_stored"
 )
 
 // Event types of a run. A request and its result share a CallID.
@@ -223,6 +224,7 @@ const (
 	EventRepairRefused        = "repair_refused"
 	EventOutputRejected       = "output_rejected"
 	EventHypothesis           = "hypothesis_recorded"
+	EventFindingCandidate     = "finding_candidate_recorded"
 	EventRunHeartbeat         = "run_heartbeat"
 	EventRunFinished          = "run_finished"
 	EventRunError             = "run_error"

@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/open-mcp-ai/Codexploit/internal/path"
+	"github.com/open-mcp-ai/Codexploit/internal/verify"
 )
 
 const (
@@ -108,6 +109,13 @@ type TaskBuilder interface {
 	BuildTask(ctx context.Context, p path.Path, policy ExplorationPolicy) (Task, error)
 }
 
+// FindingSeeder materializes a stored hypothesis as a candidate Finding. It is
+// deliberately narrower than the verification planner: path runners may create
+// reviewable candidates, but they never confirm a vulnerability.
+type FindingSeeder interface {
+	EnsureFinding(ctx context.Context, hypothesisID string) (*verify.Finding, error)
+}
+
 // Runner is the orchestrator of one adapter over the path queue.
 //
 // It owns everything durable about a run — the lease, the budget, the retries and
@@ -125,6 +133,9 @@ type Runner struct {
 	RuntimeFor func(auditID string) string
 	Tasks      TaskBuilder
 	Paths      PathCoordinator
+	// FindingSeeder materializes finding candidates after an accepted answer.
+	// A nil seeder leaves candidate claims as hypotheses only.
+	FindingSeeder FindingSeeder
 	// Policy is the starting exploration policy of a run. It is normalized, then
 	// handed to the task builder, and it is the policy every request is judged
 	// against until an approved expansion widens it.
@@ -598,15 +609,28 @@ func (r *Runner) finish(ctx context.Context, p *path.Path, owner string, session
 	}
 
 	settleCtx := context.WithoutCancel(ctx)
+	findingID := ""
 	if session.status == RunSucceeded {
 		run.Answer = session.answer
 		// SaveHypotheses upserts by (path_id, digest) and appends the
 		// hypothesis_recorded event in the same transaction, which is why the
 		// orchestrator does not append one itself.
-		if err := r.Store.SaveHypotheses(runnerHypotheses(run, session.task, session.answer, r.now())); err != nil {
+		hypotheses := runnerHypotheses(run, session.task, session.answer, r.now())
+		if err := r.Store.SaveHypotheses(hypotheses); err != nil {
 			session.stop = StopAdapterFailed
 			session.status = RunFailed
 			session.errText = "hypotheses could not be stored: " + err.Error()
+		} else if session.answer != nil && session.answer.FindingCandidate && r.FindingSeeder != nil {
+			for _, hypothesis := range hypotheses {
+				finding, err := r.FindingSeeder.EnsureFinding(settleCtx, hypothesis.ID)
+				if err != nil {
+					session.stop = StopFindingNotStored
+					session.status = RunFailed
+					session.errText = "the finding candidate could not be stored: " + err.Error()
+					break
+				}
+				findingID = finding.ID
+			}
 		}
 	}
 	if session.status == RunSucceeded {
@@ -632,7 +656,16 @@ func (r *Runner) finish(ctx context.Context, p *path.Path, owner string, session
 		run.ExitCode = session.exitCode
 	}
 
-	events := make([]Event, 0, 2)
+	events := make([]Event, 0, 3)
+	if findingID != "" {
+		events = append(events, Event{
+			Type: EventFindingCandidate, Actor: runnerActorOrchestrator,
+			Summary: "finding candidate recorded: " + findingID,
+			Detail: map[string]string{
+				"finding_id": findingID, "status": string(verify.FindingCandidate),
+			},
+		})
+	}
 	if session.status != RunSucceeded {
 		events = append(events, Event{
 			Type: EventRunError, Actor: runnerActorOrchestrator,

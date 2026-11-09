@@ -221,6 +221,9 @@ func TestBuildWiresAgentOnlyWhenEnabled(t *testing.T) {
 	if enabled.Agent.Tasks == nil || enabled.Agent.Paths == nil || enabled.Agent.Store == nil {
 		t.Errorf("the runner is incomplete: %+v", enabled.Agent)
 	}
+	if enabled.Agent.FindingSeeder == nil {
+		t.Error("the runner cannot materialize accepted finding candidates")
+	}
 	// The advertised allowlist is the registry's own: every name the agent is
 	// told about is one the orchestrator can execute.
 	names := enabled.AgentRegistry.Names()

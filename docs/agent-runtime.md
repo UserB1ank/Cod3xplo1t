@@ -101,6 +101,11 @@ lists, `next_action`, an optional `requested_expansion`, `finding_candidate`,
   absent on purpose**: only the verification phase may confirm a finding. An answer
   that claims it fails validation and the run ends as invalid output.
 - A `finding_candidate` must cite supporting evidence.
+- When a run is wired with the finding planner, an accepted
+  `finding_candidate` is materialized as a candidate Finding in the same
+  orchestration step. The Finding remains unverified; dynamic verification is a
+  separate, optional gate. Existing hypotheses can be idempotently backfilled with
+  `make backfill-findings`.
 
 ## Bounded divergence and expansion (guide §9.3)
 

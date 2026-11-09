@@ -5,7 +5,7 @@ TEST_FLAGS := -count=1 -shuffle=on -race -timeout 240s
 # Staticcheck is pinned: a new release may add checks and turn a green tree red.
 STATICCHECK_VERSION ?= v0.8.2
 
-.PHONY: package-joern package-joern-linux test-joern help run down logs build build-web build-scanner build-backend test-web check-contracts docker-build docker-up postgres-up postgres-down postgres-status postgres-logs test test-stress bench-agent bench-corpus bench-eval bench-runtime bench-tools lint fmt-check vet staticcheck fmt tidy clean run-server run-cli run-mcp
+.PHONY: package-joern package-joern-linux test-joern help run down logs build build-web build-scanner build-backend test-web check-contracts docker-build docker-up postgres-up postgres-down postgres-status postgres-logs test test-stress bench-agent bench-corpus bench-eval bench-runtime bench-tools backfill-findings lint fmt-check vet staticcheck fmt tidy clean run-server run-cli run-mcp
 
 help:
 	@echo "make build        # build Web UI into bin/server, bin/cli, bin/mcp and the scanner package"
@@ -25,6 +25,7 @@ help:
 	@echo "make postgres-logs # follow PostgreSQL application logs"
 	@echo "make test         # go test ./... -count=1 -shuffle=on -race -timeout 240s (same as CI)"
 	@echo "make test-stress  # repeat the suite to catch filesystem/lifecycle races"
+	@echo "make backfill-findings ARGS=\"--postgres-dsn-file /path\"  # materialize candidate findings from hypotheses"
 	@echo "make bench-agent  # replay the golden agent scenarios and write dist/agent-baseline.json"
 	@echo "make lint         # fmt-check + vet + staticcheck (same as the CI lint job)"
 	@echo "make fmt-check    # gofmt over every tracked Go file"
@@ -162,6 +163,9 @@ vet:
 # changes this repository's module graph.
 staticcheck:
 	$(GO) run honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK_VERSION) $(PKG)
+
+backfill-findings:
+	$(GO) run ./cmd/backfill-findings $(ARGS)
 
 lint: fmt-check vet staticcheck
 

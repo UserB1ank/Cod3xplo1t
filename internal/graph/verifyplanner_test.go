@@ -299,6 +299,36 @@ func TestVerifyPlannerEnsureFindingIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestBackfillCandidateFindingsIsBoundedAndIdempotent(t *testing.T) {
+	t.Parallel()
+	fixture := newVerifyFixture(t)
+
+	first, err := graph.BackfillCandidateFindings(
+		context.Background(), fixture.store, fixture.planner,
+		agent.HypothesisQuery{AuditID: fixture.auditID}, 1,
+	)
+	if err != nil {
+		t.Fatalf("first backfill: %v", err)
+	}
+	if first != 1 {
+		t.Fatalf("first backfill ensured %d candidates, want 1", first)
+	}
+	if _, err := fixture.store.GetFinding(verify.FindingID(fixture.hypothesis.ID)); err != nil {
+		t.Fatalf("candidate finding was not materialized: %v", err)
+	}
+
+	second, err := graph.BackfillCandidateFindings(
+		context.Background(), fixture.store, fixture.planner,
+		agent.HypothesisQuery{AuditID: fixture.auditID}, 1,
+	)
+	if err != nil {
+		t.Fatalf("second backfill: %v", err)
+	}
+	if second != 1 {
+		t.Fatalf("idempotent backfill ensured %d candidates, want the same 1", second)
+	}
+}
+
 func TestVerifyPlannerNeverSeedsAfterVerification(t *testing.T) {
 	t.Parallel()
 	fixture := newVerifyFixture(t)
