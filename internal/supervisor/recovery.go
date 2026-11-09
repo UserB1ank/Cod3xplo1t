@@ -20,8 +20,8 @@ func (s *Service) recoverExpiredRuns(ctx context.Context, session storage.Superv
 		if err != nil || lease.After(now) {
 			continue
 		}
-		checkpoint := buildCheckpoint(
-			session, run, StopRecovery, run.ModelTurns, run.ToolCalls,
+		checkpoint := s.buildCheckpoint(
+			ctx, session, run, StopRecovery, run.ModelTurns, run.ToolCalls,
 			run.InputTokens, run.OutputTokens,
 			"the execution host stopped before the run reached a terminal state",
 		)

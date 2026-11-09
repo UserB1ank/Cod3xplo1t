@@ -1,4 +1,4 @@
-import type { AuditBudget, SupervisorRun } from "./types.ts";
+import type { AuditBudget, SupervisorCheckpoint, SupervisorRun } from "./types.ts";
 
 export function supervisorBudgetAvailable(budget: AuditBudget) {
   return Math.max(0, budget.limit_tokens - budget.used_tokens - budget.reserved_tokens);
@@ -17,4 +17,15 @@ export function supervisorBudgetRecovery(run?: SupervisorRun) {
     return "当前 Segment 已保留检查点，可继续；累计 token 预算不会重置。";
   }
   return "";
+}
+
+export function supervisorCheckpointSummary(checkpoint: SupervisorCheckpoint) {
+  const budget = checkpoint.budget;
+  return [
+    `${checkpoint.completed.length} 项已完成`,
+    `${checkpoint.pending.length} 项待办`,
+    budget?.remaining_tokens === undefined ? "" : `剩余 ${budget.remaining_tokens} tokens`,
+    budget?.remaining_rounds === undefined ? "" : `剩余 ${budget.remaining_rounds} 轮`,
+    checkpoint.last_error?.code ? `最后错误 ${checkpoint.last_error.code}` : "",
+  ].filter(Boolean).join(" · ");
 }

@@ -43,6 +43,20 @@ export interface SupervisorMessage {
   message_kind?: 'final' | 'partial' | 'paused' | 'failed' | 'cancelled';
   status: string; seq: number; created_at: string;
 }
+export interface SupervisorCheckpoint {
+  schema_version: 1 | 2; checkpoint_id?: string; trigger?: string; user_message_id: string; stop_reason: string;
+  model_turns: number; tool_calls: number; input_tokens: number; output_tokens: number;
+  completed: string[]; pending: string[]; claim_ids: string[]; evidence_ids: string[];
+  finding_ids?: string[]; receipt_ids?: string[];
+  operations?: Array<{ call_id: string; tool: string; status: string; summary?: string; receipt_id?: string }>;
+  last_tool_error?: string;
+  last_error?: { code: string; message: string; tool?: string; call_id?: string };
+  budget?: {
+    audit_limit_tokens?: number; audit_used_tokens?: number; audit_reserved_tokens?: number;
+    remaining_tokens?: number; remaining_rounds?: number; remaining_tool_calls?: number;
+  };
+  next_action: string; created_at: string;
+}
 export interface SupervisorRun {
   run_id: string; session_id: string; project_id: string; audit_id?: string; status: string; runtime: string;
   model: string; config_version: string; prompt_version: string; tool_digest: string;
@@ -53,12 +67,7 @@ export interface SupervisorRun {
   finalizer_source?: 'model' | 'template';
   user_message_id?: string; resume_of?: string; root_run_id?: string;
   execution_owner?: string; heartbeat_at?: string; lease_until?: string;
-  checkpoint?: {
-    schema_version: 1; user_message_id: string; stop_reason: string;
-    model_turns: number; tool_calls: number; input_tokens: number; output_tokens: number;
-    completed: string[]; pending: string[]; claim_ids: string[]; evidence_ids: string[];
-    last_tool_error?: string; next_action: string; created_at: string;
-  };
+  checkpoint?: SupervisorCheckpoint;
   error?: string; error_code?: string;
   started_at?: string; finished_at?: string; created_at: string; updated_at: string; version: number;
 }

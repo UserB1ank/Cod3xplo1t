@@ -29,7 +29,7 @@
 
 每次真实模型请求前，宿主还会从会话绑定的审计级 token 账本原子预留“保守输入估算 + 最大输出”，响应后按 provider 报告结算；预请求许可失败时不会调用模型，而以 `global_budget` 暂停并保留检查点。Continue 复用同一账本，不重置累计额度。模型上下文同时受 256 KiB / 30k token 估算上限约束，完整持久化历史不删除，裁剪只发生在模型视图并记录 `context_history_trimmed` 事件。
 
-暂停运行保存有界 Checkpoint，包含原始用户消息、模型与工具计数、最后工具错误、下一动作和后续继续所需的稳定引用。Continue 不新增用户消息，也不重置运行限制。
+暂停运行保存 schema 2 有界 Checkpoint：从真实 assistant tool call / tool result 推导 completed、pending、未完成工具、最后结构化错误与下一动作，并收集成功写入的 Claim、Evidence、Finding、receipt ID；同时记录审计 token、轮次和工具剩余额度。稳定 `checkpoint_id` 使软阈值保存幂等，终态 Checkpoint、Run 状态、可见消息与事件在同一会话 CAS 中提交。旧 schema 1 继续可读，Continue 不新增用户消息，也不重置运行限制。
 
 同一工具名与规范化参数连续失败两次后，第三次不会执行，而是返回结构化 `REPEATED_CALL` 并暂停为 `stuck`。默认 90 轮中的 72/81/86 轮软阈值会各注入一次收尾提示。
 

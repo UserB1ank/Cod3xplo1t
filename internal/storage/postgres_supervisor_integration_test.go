@@ -150,11 +150,19 @@ func TestPostgresSupervisorSessionSurvivesRestart(t *testing.T) {
 		UserMessageID: "sm-pg", RootRunID: "srun-pg",
 		ExecutionOwner: "recovery-owner", HeartbeatAt: now, LeaseUntil: now,
 		Checkpoint: &SupervisorCheckpoint{
-			SchemaVersion: 1, UserMessageID: "sm-pg", StopReason: "round_limit",
+			SchemaVersion: 2, CheckpointID: "checkpoint-pg", Trigger: "soft_90",
+			UserMessageID: "sm-pg", StopReason: "round_limit",
 			ModelTurns: 90, ToolCalls: 87, InputTokens: 10, OutputTokens: 2,
-			Completed: []string{}, Pending: []string{"continue"},
-			ClaimIDs: []string{}, EvidenceIDs: []string{},
-			NextAction: "send a new continue request", CreatedAt: now,
+			Completed: []string{"claim:claim-pg"}, Pending: []string{"complete_user_request:sm-pg"},
+			Operations: []SupervisorCheckpointOperation{{CallID: "call-pg", Tool: "propose_claim", Status: "completed", ReceiptID: "receipt-pg"}},
+			ClaimIDs:   []string{"claim-pg"}, EvidenceIDs: []string{"evidence-pg"},
+			FindingIDs: []string{"finding-pg"}, ReceiptIDs: []string{"receipt-pg"},
+			LastError: &SupervisorCheckpointError{Code: "ROUND_LIMIT", Message: "hard limit"},
+			Budget: SupervisorCheckpointBudget{
+				AuditLimitTokens: 60000, AuditUsedTokens: 12, RemainingTokens: 59988,
+				RemainingRounds: 0, RemainingToolCalls: 63,
+			},
+			NextAction: "continue from the checkpoint", CreatedAt: now,
 		},
 		CreatedAt: now, UpdatedAt: now, Version: 1,
 	})
@@ -170,7 +178,12 @@ func TestPostgresSupervisorSessionSurvivesRestart(t *testing.T) {
 		reloaded.Runs[0].RoundLimit != 90 || reloaded.Runs[0].ToolCallLimit != 150 ||
 		reloaded.Runs[0].VisibleMessageID != "sm-pg-2" ||
 		reloaded.Runs[0].Checkpoint == nil ||
-		reloaded.Runs[0].Checkpoint.UserMessageID != "sm-pg" {
+		reloaded.Runs[0].Checkpoint.UserMessageID != "sm-pg" ||
+		reloaded.Runs[0].Checkpoint.SchemaVersion != 2 ||
+		reloaded.Runs[0].Checkpoint.CheckpointID != "checkpoint-pg" ||
+		len(reloaded.Runs[0].Checkpoint.ClaimIDs) != 1 ||
+		reloaded.Runs[0].Checkpoint.Budget.RemainingTokens != 59988 ||
+		len(reloaded.Runs[0].Checkpoint.Operations) != 1 {
 		t.Fatalf("new supervisor fields after reload = %+v", reloaded)
 	}
 	if _, err := reopened.SaveSupervisorSession(ctx, stored, stored.Version); err == nil {

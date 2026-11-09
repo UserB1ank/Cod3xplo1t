@@ -45,7 +45,7 @@ import { shortId, clock, eventNames } from "./domain";
 import { taskState, type Task } from "./workbench";
 import { composerAction, insertComposerNewline } from "./assistant-composer";
 import { Markdown } from "./Markdown";
-import { supervisorBudgetRecovery, supervisorBudgetSummary } from "./supervisor-budget";
+import { supervisorBudgetRecovery, supervisorBudgetSummary, supervisorCheckpointSummary } from "./supervisor-budget";
 
 function objectSummary(args?: string) {
   if (!args) return "";
@@ -1058,6 +1058,46 @@ export function Assistant({
                       {latestRun.finalizer_source
                         ? ` · ${latestRun.finalizer_source === "model" ? "模型收尾" : "模板收尾"}`
                         : ""}
+                    </dd>
+                  </div>
+                )}
+                {latestRun.checkpoint && (
+                  <div>
+                    <dt>结构化检查点</dt>
+                    <dd>
+                      <span className="mono">
+                        {latestRun.checkpoint.checkpoint_id || "旧检查点"}
+                      </span>
+                      <br />
+                      {supervisorCheckpointSummary(latestRun.checkpoint)}
+                      <br />
+                      {latestRun.checkpoint.next_action}
+                      <details className="supervisor-checkpoint-details">
+                        <summary>已完成与待办</summary>
+                        <strong>已完成</strong>
+                        <ul>
+                          {latestRun.checkpoint.completed.map((item) => (
+                            <li key={item}>{item}</li>
+                          ))}
+                        </ul>
+                        <strong>待办</strong>
+                        <ul>
+                          {latestRun.checkpoint.pending.map((item) => (
+                            <li key={item}>{item}</li>
+                          ))}
+                        </ul>
+                        {(latestRun.checkpoint.claim_ids.length > 0 ||
+                          latestRun.checkpoint.evidence_ids.length > 0 ||
+                          latestRun.checkpoint.finding_ids?.length ||
+                          latestRun.checkpoint.receipt_ids?.length) && (
+                          <p className="mono">
+                            Claim {latestRun.checkpoint.claim_ids.join(", ") || "—"} · Evidence{" "}
+                            {latestRun.checkpoint.evidence_ids.join(", ") || "—"} · Finding{" "}
+                            {latestRun.checkpoint.finding_ids?.join(", ") || "—"} · Receipt{" "}
+                            {latestRun.checkpoint.receipt_ids?.join(", ") || "—"}
+                          </p>
+                        )}
+                      </details>
                     </dd>
                   </div>
                 )}

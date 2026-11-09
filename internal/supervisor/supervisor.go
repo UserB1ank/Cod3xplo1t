@@ -594,6 +594,12 @@ func (s *Service) run(ctx context.Context, session storage.SupervisorSession, us
 				"rounds_used":  fmt.Sprint(round + 1),
 				"rounds_limit": fmt.Sprint(s.MaxRounds),
 			})
+			if notice.Percent == 90 {
+				if _, err := s.saveSoftCheckpoint(ctx, session, run, round+1, callsUsed, totalInput, totalOutput, "soft_90"); err != nil {
+					s.finish(ctx, session.ProjectID, session.ID, run, RunFailed, "checkpoint_failed", err.Error(), totalInput, totalOutput)
+					return
+				}
+			}
 			nextSoftNotice++
 		}
 	}

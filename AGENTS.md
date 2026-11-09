@@ -156,6 +156,8 @@
 
 - 2026-11-09 — #116 主 Agent 请求前 token 许可与上下文硬预算：Supervisor session/run 固化审计预算 ID，每次真实模型请求（含 Finalizer）在发出前通过现有审计级 token 账本原子预留“保守输入估算 + 输出上限”，响应后结算实际使用；并发跨实例预留不能超卖。额度不足时 provider 未被调用，运行以 `PAUSED(global_budget)` 保存检查点、用量和可见终态；Continue 复用同一累计账本，不重置额度。模型视图按 256 KiB / 30k token 估算上限整轮裁剪，完整持久化历史保留，tool call/result 仅按完整配对进入上下文，并记录 `context_history_trimmed`。新增 writer + ledger version CAS 的预算 grant/reject API 与页面，显示已用、预留、剩余、上限和恢复动作。隔离提交树通过 1,476 项全量测试、相关四包竞态、三轮完整 `make test-stress`、真实 PostgreSQL 双实例并发预留、合约、前端测试/构建、gofmt、vet 与 pinned Staticcheck。主工作区 `make lint` 仍被既有未跟踪 `internal/app/example_test.go` 阻断，与本 Issue 无关。按交付流程提交并关闭；未 push。
 
+- 2026-11-09 — #117 在软阈值和暂停时保存结构化 Checkpoint：Checkpoint 升至 schema 2，从真实 assistant tool call / tool result 推导 completed、pending、未完成工具、最后结构化错误、下一动作与成功写入的 Claim / Evidence / Finding / receipt ID，并持久化审计 token、轮次和工具剩余额度。稳定 `checkpoint_id` 使 90% 软阈值保存幂等；81% / 86% 提示和硬暂停保持有界，终态 Checkpoint、Run 状态、可见消息与事件在同一 session CAS 中提交，旧 schema 1 继续可读。正式页面展示检查点摘要、完成/待办、写入 ID 与恢复动作，Continue 使用结构化事实避免重复成功写入。隔离提交树通过 1,478 项全量测试、相关四包竞态、三轮完整 `make test-stress`、真实 PostgreSQL 结构化 Checkpoint 重启恢复、合约、前端测试/构建、gofmt、vet 与 pinned Staticcheck。主工作区 `make lint` 仍被既有未跟踪 `internal/app/example_test.go` 阻断，与本 Issue 无关。按交付流程提交并关闭；未 push。
+
 ## Agent skills
 
 ### Issue tracker

@@ -69,20 +69,51 @@ type SupervisorRun struct {
 }
 
 type SupervisorCheckpoint struct {
-	SchemaVersion int      `json:"schema_version"`
-	UserMessageID string   `json:"user_message_id"`
-	StopReason    string   `json:"stop_reason"`
-	ModelTurns    int      `json:"model_turns"`
-	ToolCalls     int      `json:"tool_calls"`
-	InputTokens   int      `json:"input_tokens"`
-	OutputTokens  int      `json:"output_tokens"`
-	Completed     []string `json:"completed"`
-	Pending       []string `json:"pending"`
-	ClaimIDs      []string `json:"claim_ids"`
-	EvidenceIDs   []string `json:"evidence_ids"`
-	LastToolError string   `json:"last_tool_error,omitempty"`
-	NextAction    string   `json:"next_action"`
-	CreatedAt     string   `json:"created_at"`
+	SchemaVersion int                             `json:"schema_version"`
+	CheckpointID  string                          `json:"checkpoint_id,omitempty"`
+	Trigger       string                          `json:"trigger,omitempty"`
+	UserMessageID string                          `json:"user_message_id"`
+	StopReason    string                          `json:"stop_reason"`
+	ModelTurns    int                             `json:"model_turns"`
+	ToolCalls     int                             `json:"tool_calls"`
+	InputTokens   int                             `json:"input_tokens"`
+	OutputTokens  int                             `json:"output_tokens"`
+	Completed     []string                        `json:"completed"`
+	Pending       []string                        `json:"pending"`
+	Operations    []SupervisorCheckpointOperation `json:"operations,omitempty"`
+	ClaimIDs      []string                        `json:"claim_ids"`
+	EvidenceIDs   []string                        `json:"evidence_ids"`
+	FindingIDs    []string                        `json:"finding_ids,omitempty"`
+	ReceiptIDs    []string                        `json:"receipt_ids,omitempty"`
+	LastToolError string                          `json:"last_tool_error,omitempty"`
+	LastError     *SupervisorCheckpointError      `json:"last_error,omitempty"`
+	Budget        SupervisorCheckpointBudget      `json:"budget,omitempty"`
+	NextAction    string                          `json:"next_action"`
+	CreatedAt     string                          `json:"created_at"`
+}
+
+type SupervisorCheckpointOperation struct {
+	CallID    string `json:"call_id"`
+	Tool      string `json:"tool"`
+	Status    string `json:"status"`
+	Summary   string `json:"summary,omitempty"`
+	ReceiptID string `json:"receipt_id,omitempty"`
+}
+
+type SupervisorCheckpointError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	Tool    string `json:"tool,omitempty"`
+	CallID  string `json:"call_id,omitempty"`
+}
+
+type SupervisorCheckpointBudget struct {
+	AuditLimitTokens    int `json:"audit_limit_tokens,omitempty"`
+	AuditUsedTokens     int `json:"audit_used_tokens,omitempty"`
+	AuditReservedTokens int `json:"audit_reserved_tokens,omitempty"`
+	RemainingTokens     int `json:"remaining_tokens,omitempty"`
+	RemainingRounds     int `json:"remaining_rounds,omitempty"`
+	RemainingToolCalls  int `json:"remaining_tool_calls,omitempty"`
 }
 
 type SupervisorEvent struct {

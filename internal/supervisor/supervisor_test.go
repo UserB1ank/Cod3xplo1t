@@ -480,21 +480,21 @@ func TestSupervisorBreaksRepeatedInvalidToolCalls(t *testing.T) {
 
 func TestSupervisorInjectsBudgetSoftThresholdsOnce(t *testing.T) {
 	service, project, _ := supervisorFixture(t)
-	service.MaxRounds = 5
+	service.MaxRounds = 10
 	service.MaxToolCalls = 20
-	var warned atomic.Bool
+	var soft90 atomic.Bool
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
 			Messages []llm.Message `json:"messages"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&request)
 		for _, message := range request.Messages {
-			if strings.Contains(message.Content, "预算提示") {
-				warned.Store(true)
+			if strings.Contains(message.Content, "已使用 9/10") {
+				soft90.Store(true)
 			}
 		}
 		w.Header().Set("Content-Type", "application/json")
-		if warned.Load() {
+		if soft90.Load() {
 			_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"已根据预算提示收尾。"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2}}`))
 			return
 		}
@@ -518,7 +518,8 @@ func TestSupervisorInjectsBudgetSoftThresholdsOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	finished := waitSupervisor(t, service, project.ID, session.ID, run.ID)
-	if finished.Status != RunSucceeded || finished.ModelTurns != 5 {
+	if finished.Status != RunSucceeded || finished.ModelTurns != 10 ||
+		finished.Checkpoint == nil || finished.Checkpoint.Trigger != "soft_90" {
 		t.Fatalf("soft-budget run = %+v", finished)
 	}
 	session, err = service.Get(context.Background(), project.ID, session.ID)
@@ -531,8 +532,17 @@ func TestSupervisorInjectsBudgetSoftThresholdsOnce(t *testing.T) {
 			notices = append(notices, event.Detail["percent"])
 		}
 	}
-	if len(notices) != 1 || notices[0] != "80" {
-		t.Fatalf("budget notices = %v, want one 80%% notice", notices)
+	if len(notices) != 2 || notices[0] != "80" || notices[1] != "90" {
+		t.Fatalf("budget notices = %v, want one 80%% and one 90%% notice", notices)
+	}
+	saved := 0
+	for _, event := range session.Events {
+		if event.RunID == run.ID && event.Type == "checkpoint_saved" {
+			saved++
+		}
+	}
+	if saved != 1 {
+		t.Fatalf("soft checkpoint saved %d times, want 1", saved)
 	}
 }
 

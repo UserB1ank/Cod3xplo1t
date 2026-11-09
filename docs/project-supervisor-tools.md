@@ -4,7 +4,7 @@
 
 轮次、工具和时间上限是 Run Segment 的停止原因，不是审计任务的最终结论。达到上限时宿主停止新工具调用，尝试一次无工具模型收尾；模型收尾失败则使用服务端模板。运行状态、终态 assistant 消息和有序事件一起写入会话，因此刷新页面后仍能看到“已暂停 / 部分完成 / 失败 / 已取消”及真实原因。旧运行保留为未记录终态消息的历史，页面从 Run 状态生成只读兜底说明，不改写历史会话。
 
-暂停运行保存 Checkpoint，并可从最新 `PAUSED/PARTIAL` Segment 创建 Continue；新 Segment 复用原用户消息、保存 `resume_of` / `root_run_id`，不重置预算。重复的相同失败工具调用在两次后熔断，72/81/86 轮软阈值各提示一次。执行 owner、heartbeat 和 lease 随会话保存；过期租约在下一次读取时恢复为 `PAUSED(recovery)`。
+暂停运行保存结构化 Checkpoint，并可从最新 `PAUSED/PARTIAL` Segment 创建 Continue；新 Segment 复用原用户消息、保存 `resume_of` / `root_run_id`，不重置预算。Checkpoint 从真实工具调用与结果推导已完成/待办、成功写回执 ID、最后结构化错误和剩余预算；72/81/86 轮软阈值各提示一次，90% 阈值幂等保存检查点。重复的相同失败工具调用在两次后熔断。执行 owner、heartbeat 和 lease 随会话保存；过期租约在下一次读取时恢复为 `PAUSED(recovery)`。
 
 主 Agent 与路径 Agent 共用审计级 token 账本。每次模型请求前先原子预留输入上界和输出上限，预算不足时请求不会发出，运行以 `PAUSED(global_budget)` 保存检查点；审批 grant / reject 需要 writer 和当前账本版本。持久化对话完整保留，送到模型的视图按 256 KiB / 30k token 上限整轮裁剪，不会发送截断 JSON 或孤立 tool result。
 

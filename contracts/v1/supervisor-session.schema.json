@@ -102,7 +102,9 @@
         "created_at"
       ],
       "properties": {
-        "schema_version": { "const": 1 },
+        "schema_version": { "enum": [1, 2] },
+        "checkpoint_id": { "type": "string", "maxLength": 160 },
+        "trigger": { "type": "string", "maxLength": 80 },
         "user_message_id": { "type": "string", "maxLength": 160 },
         "stop_reason": { "type": "string", "maxLength": 80 },
         "model_turns": { "type": "integer", "minimum": 0 },
@@ -111,9 +113,50 @@
         "output_tokens": { "type": "integer", "minimum": 0 },
         "completed": { "type": "array", "items": { "type": "string" } },
         "pending": { "type": "array", "items": { "type": "string" } },
+        "operations": {
+          "type": "array",
+          "maxItems": 2000,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["call_id", "tool", "status"],
+            "properties": {
+              "call_id": { "type": "string", "maxLength": 160 },
+              "tool": { "type": "string", "maxLength": 160 },
+              "status": { "enum": ["completed", "pending", "failed"] },
+              "summary": { "type": "string", "maxLength": 1000 },
+              "receipt_id": { "type": "string", "maxLength": 200 }
+            }
+          }
+        },
         "claim_ids": { "type": "array", "items": { "type": "string" } },
         "evidence_ids": { "type": "array", "items": { "type": "string" } },
+        "finding_ids": { "type": "array", "items": { "type": "string" } },
+        "receipt_ids": { "type": "array", "items": { "type": "string" } },
         "last_tool_error": { "type": "string", "maxLength": 4000 },
+        "last_error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "message"],
+          "properties": {
+            "code": { "type": "string", "maxLength": 120 },
+            "message": { "type": "string", "maxLength": 4000 },
+            "tool": { "type": "string", "maxLength": 160 },
+            "call_id": { "type": "string", "maxLength": 160 }
+          }
+        },
+        "budget": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "audit_limit_tokens": { "type": "integer", "minimum": 0 },
+            "audit_used_tokens": { "type": "integer", "minimum": 0 },
+            "audit_reserved_tokens": { "type": "integer", "minimum": 0 },
+            "remaining_tokens": { "type": "integer", "minimum": 0 },
+            "remaining_rounds": { "type": "integer", "minimum": 0 },
+            "remaining_tool_calls": { "type": "integer", "minimum": 0 }
+          }
+        },
         "next_action": { "type": "string", "maxLength": 2000 },
         "created_at": { "type": "string", "format": "date-time" }
       }

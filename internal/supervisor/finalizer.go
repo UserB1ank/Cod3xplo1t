@@ -99,10 +99,11 @@ func (s *Service) pauseAtBoundary(
 		// snapshot captured before the model and tools advanced it.
 		session = latest
 	}
+	checkpoint := s.buildCheckpoint(ctx, session, run, stopReason, rounds, tools, input, output, detail)
 	_ = s.updateRun(ctx, session.ProjectID, session.ID, run, func(value *storage.SupervisorRun) {
 		value.Status = RunFinalizing
 		value.StopReason = stopReason
-		value.Checkpoint = buildCheckpoint(session, run, stopReason, rounds, tools, input, output, detail)
+		value.Checkpoint = checkpoint
 		value.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
 		value.Version++
 	})
@@ -115,7 +116,7 @@ func (s *Service) pauseAtBoundary(
 		status: RunPaused, code: stopReason, stopReason: stopReason,
 		message: detail, terminalText: text, messageKind: "paused", finalizerSource: source,
 		input: input + finalizerInput, output: output + finalizerOutput,
-		rounds: rounds, tools: tools,
+		rounds: rounds, tools: tools, checkpoint: checkpoint,
 	})
 }
 
@@ -133,7 +134,7 @@ func (s *Service) pauseGlobalBudget(ctx context.Context, session storage.Supervi
 	if budgetErr != nil {
 		detail += ": " + budgetErr.Error()
 	}
-	checkpoint := buildCheckpoint(session, run, StopGlobalBudget, rounds, tools, input, output, detail)
+	checkpoint := s.buildCheckpoint(ctx, session, run, StopGlobalBudget, rounds, tools, input, output, detail)
 	_ = s.updateRun(ctx, session.ProjectID, session.ID, run, func(value *storage.SupervisorRun) {
 		value.Status = RunFinalizing
 		value.StopReason = StopGlobalBudget
@@ -146,7 +147,7 @@ func (s *Service) pauseGlobalBudget(ctx context.Context, session storage.Supervi
 		owner: run.ExecutionOwner, epoch: run.LeaseEpoch,
 		status: RunPaused, code: StopGlobalBudget, stopReason: StopGlobalBudget,
 		message: detail, terminalText: globalBudgetTemplate(), messageKind: "paused", finalizerSource: "template",
-		input: input, output: output, rounds: rounds, tools: tools,
+		input: input, output: output, rounds: rounds, tools: tools, checkpoint: checkpoint,
 	})
 }
 

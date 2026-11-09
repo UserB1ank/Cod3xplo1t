@@ -2070,6 +2070,17 @@ textarea::placeholder {
   gap: 8px;
   margin-top: 8px;
 }
+.supervisor-checkpoint-details {
+  margin-top: 8px;
+}
+.supervisor-checkpoint-details ul {
+  margin: 6px 0;
+  padding-left: 18px;
+}
+.supervisor-checkpoint-details li,
+.supervisor-checkpoint-details p {
+  overflow-wrap: anywhere;
+}
 .supervisor-boundary {
   font-size: 11px;
 }
