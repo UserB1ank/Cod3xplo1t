@@ -30,7 +30,7 @@ func TestStageRebuildKeepsDistinctImmutableReleaseIdentities(t *testing.T) {
 		}
 		_ = host.Close()
 		if i == 0 {
-			rows, err := index.ListPluginReleases(t.Context(), "codexploit.joern", "2.3.0")
+			rows, err := index.ListPluginReleases(t.Context(), "codexploit.joern", "2.3.4")
 			if err != nil || len(rows) != 1 {
 				t.Fatal("initial build missing")
 			}
@@ -42,7 +42,7 @@ func TestStageRebuildKeepsDistinctImmutableReleaseIdentities(t *testing.T) {
 		}
 
 	}
-	rows, err := index.ListPluginReleases(t.Context(), "codexploit.joern", "2.3.0")
+	rows, err := index.ListPluginReleases(t.Context(), "codexploit.joern", "2.3.4")
 	if err != nil || len(rows) != 3 {
 		t.Fatalf("releases: %+v %v", rows, err)
 	}

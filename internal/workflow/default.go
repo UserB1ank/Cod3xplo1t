@@ -9,10 +9,10 @@ import (
 // an existing run's meaning.
 const (
 	DefaultAnalysisWorkflowID      = "codexploit.default-analysis"
-	DefaultAnalysisWorkflowVersion = "2.2.0"
+	DefaultAnalysisWorkflowVersion = "2.2.2"
 	DefaultEngineID                = "joern"
 	DefaultEnginePluginID          = "codexploit.joern"
-	DefaultEnginePluginVersion     = "2.3.0"
+	DefaultEnginePluginVersion     = "2.3.4"
 )
 
 // DefaultAnalysisSpec returns the four deterministic stages that do not require

@@ -3,11 +3,46 @@ package api
 import (
 	"encoding/json"
 	"github.com/open-mcp-ai/Codexploit/internal/plugin"
+	"github.com/open-mcp-ai/Codexploit/internal/workflow"
 	"net/http"
 	"os"
 	"strings"
 	"testing"
 )
+
+func TestPatchedDefaultProfilePreservesPreviouslySavedEnginePlan(t *testing.T) {
+	env := newTestEnv(t, false)
+	project := createAnalysisProject(t, env, asgFixtureSource(t))
+	endpoint := "/api/v1/projects/" + project + "/workflows"
+	previous := workflow.DefaultAnalysisSpec()
+	previous.Version = "2.2.0"
+	for i := range previous.Nodes {
+		previous.Nodes[i].PluginVersion = "2.3.1"
+	}
+	saved := do(t, env.ts, http.MethodPost, endpoint, map[string]any{"api_version": "codexploit/v1", "spec": previous, "expected_head": ""}, nil)
+	if saved.status != http.StatusCreated {
+		t.Fatalf("save existing engine definition: %d %s", saved.status, saved.body)
+	}
+	var old struct {
+		Workflow workflow.Record `json:"workflow"`
+	}
+	saved.decode(t, &old)
+	updated := do(t, env.ts, http.MethodPost, endpoint, map[string]any{"api_version": "codexploit/v1", "spec": workflow.DefaultAnalysisSpec(), "expected_head": old.Workflow.Digest}, nil)
+	if updated.status != http.StatusCreated {
+		t.Fatalf("new default must have an independent immutable version: %d %s", updated.status, updated.body)
+	}
+	read := do(t, env.ts, http.MethodGet, endpoint+"/"+previous.ID+"/versions/2.2.0", nil, nil)
+	if read.status != http.StatusOK {
+		t.Fatalf("read previous definition: %d %s", read.status, read.body)
+	}
+	var retained struct {
+		Workflow workflow.Record `json:"workflow"`
+	}
+	read.decode(t, &retained)
+	if retained.Workflow.Digest != old.Workflow.Digest || retained.Workflow.Spec.Nodes[0].PluginVersion != "2.3.1" {
+		t.Fatal("engine adoption rewrote the previous immutable definition")
+	}
+}
 
 func TestDefaultAnalysisRefusesMissingJoernBeforeCreatingWork(t *testing.T) {
 	env := newTestEnv(t, false)
@@ -37,13 +72,13 @@ func TestStageReleaseAPIRegistersDigestBoundBuilds(t *testing.T) {
 	if registered.status != 201 {
 		t.Fatalf("register: %d %s", registered.status, registered.body)
 	}
-	record, err := env.rt.PluginCatalog.Get(t.Context(), "codexploit.joern", "2.3.0")
+	record, err := env.rt.PluginCatalog.Get(t.Context(), "codexploit.joern", "2.3.4")
 	if err != nil {
 		t.Fatal(err)
 	}
-	endpoint := "/api/v2/plugins/codexploit.joern/versions/2.3.0/releases"
+	endpoint := "/api/v2/plugins/codexploit.joern/versions/2.3.4/releases"
 	for _, digest := range []string{strings.Repeat("a", 64), strings.Repeat("b", 64)} {
-		release := plugin.Release{PluginID: "codexploit.joern", PluginVersion: "2.3.0", OS: "linux", Arch: "arm64", BuildID: digest, PackageDigest: digest, ManifestDigest: record.ManifestDigest}
+		release := plugin.Release{PluginID: "codexploit.joern", PluginVersion: "2.3.4", OS: "linux", Arch: "arm64", BuildID: digest, PackageDigest: digest, ManifestDigest: record.ManifestDigest}
 		got := do(t, env.ts, http.MethodPost, endpoint, release, nil)
 		if got.status != 201 {
 			t.Fatalf("build release: %d %s", got.status, got.body)
@@ -54,7 +89,7 @@ func TestStageReleaseAPIRegistersDigestBoundBuilds(t *testing.T) {
 			t.Fatalf("accepted mismatched build identity: %d %s", forged.status, forged.body)
 		}
 	}
-	rows, err := env.rt.PluginCatalog.Repository.(plugin.InstallationRepository).ListPluginReleases(t.Context(), "codexploit.joern", "2.3.0")
+	rows, err := env.rt.PluginCatalog.Repository.(plugin.InstallationRepository).ListPluginReleases(t.Context(), "codexploit.joern", "2.3.4")
 	if err != nil || len(rows) != 2 {
 		t.Fatalf("immutable builds missing: %+v %v", rows, err)
 	}

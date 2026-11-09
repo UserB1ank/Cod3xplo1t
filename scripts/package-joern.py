@@ -252,7 +252,7 @@ def build_ghidra_arm(archive, destination):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cache", type=Path, default=Path.home() / ".cache/codexploit/joern")
-    parser.add_argument("--output", type=Path, default=REPO / "bin/plugin-packages/codexploit.joern@2.3.0")
+    parser.add_argument("--output", type=Path, default=REPO / "bin/plugin-packages/codexploit.joern@2.3.4")
     args = parser.parse_args()
     args.output = args.output.absolute()
     args.cache = args.cache.absolute()

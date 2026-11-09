@@ -1,7 +1,7 @@
 {
   "api_version": "codexploit/plugin/v2",
   "id": "codexploit.joern",
-  "version": "2.3.0",
+  "version": "2.3.4",
   "name": "Joern · 多语言污点分析",
   "description": "完整 Joern 前端、原生 CPG、版本化 Java sink 目录、全量命中与固定来源的候选路径。",
   "languages": [

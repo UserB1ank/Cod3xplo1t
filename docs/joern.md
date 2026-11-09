@@ -2,7 +2,7 @@
 
 正式项目从只读源码目录直接分析，不再生成源码 TAR 或校验源码摘要；500 MiB 以上先确认再开始，见 [ADR 0002](adr/0002-read-only-project-source.md)。旧 TAR 任务仍可读取。
 
-`codexploit.joern@2.3.0` 提供四个标准操作：`parse`（代码解析）、`taint`（安全语义 / 污点查询）、`paths`（候选路径）、`enhance`（筛选与排序）。完整发行包作为黑盒进程接入，宿主登记版本、平台、包 / 清单摘要、完整文件锁和层级端口；适配器负责调用 Joern，宿主校验固定输入、预算、输出和来源后原子发布。
+`codexploit.joern@2.3.4` 提供四个标准操作：`parse`（代码解析）、`taint`（安全语义 / 污点查询）、`paths`（候选路径）、`enhance`（筛选与排序）。完整发行包作为黑盒进程接入，宿主登记版本、平台、包 / 清单摘要、完整文件锁和层级端口；适配器负责调用 Joern，宿主校验固定输入、预算、输出和来源后原子发布。
 
 | 组件 | 固定版本 |
 | --- | --- |
@@ -11,7 +11,7 @@
 | PHP CLI | 8.5.12，锁定官方源码构建，供 PHP AST 解析器使用 |
 | Rust compiler / Cargo / std | 1.95.0，锁定官方二进制，供 Rust 项目元数据和语法解析使用 |
 | Ghidra ARM64 原生补充 | 发行 JAR 对应提交 744c5dee92，Linux ARM64 缺少的 decompiler 由固定源码构建 |
-| 适配器 / 查询 | 2.3.0 / 2.0.1 |
+| 适配器 / 查询 | 2.3.4 / 2.0.1 |
 | 传输 | `codexploit/file-job/v2`，包含宿主绑定的输入 ArtifactRef ID |
 
 [sources.lock.json](../plugins/joern/sources.lock.json) 固定四个平台的下载 URL、大小和 SHA-256。`files.lock.json` 覆盖完整依赖、适配器、查询和规则。每次构建的 Build ID 为包摘要，同版本重建不覆盖旧构建，计划继续绑定准确摘要。仓库保存构建配方与源码，发行物保存在构建目录。已登记的旧 1.0.x Go 版本及其历史产物保留，不修改旧清单。
@@ -47,9 +47,9 @@
 
 ```sh
 make package-joern
-# bin/plugin-packages/codexploit.joern@2.3.0；stdout 为 Release JSON
+# bin/plugin-packages/codexploit.joern@2.3.4；stdout 为 Release JSON
 make package-joern-linux
-# bin/joern-linux/codexploit.joern@2.3.0；面向 Docker 原生架构
+# bin/joern-linux/codexploit.joern@2.3.4；面向 Docker 原生架构
 ```
 
 支持 macOS / Linux 的 arm64 / amd64 构建配方；每个 worker 的实测状态单独登记。缓存损坏直接失败，已有输出目录拒绝覆盖。完整包约 3 GiB，宿主允许的封存包上限为 4 GiB / 64,000 文件。
@@ -57,13 +57,13 @@ make package-joern-linux
 把包放入 `--plugin-packages` 目录，或通过认证 API 依次登记清单、release、安装：
 
 1. `POST /api/v2/plugins`，包含 manifest、package_digest 和来源。
-2. `POST /api/v2/plugins/codexploit.joern/versions/2.3.0/releases`，提交打包生成的 Release。
+2. `POST /api/v2/plugins/codexploit.joern/versions/2.3.4/releases`，提交打包生成的 Release。
 3. `POST /api/v2/plugin-installations`，提交同一 Release。
 
 插件中心展示语言、四个操作、上游版本、平台摘要与安装状态。安装不代表所有语言已实测；调用失败保留真实状态。
 
 ```sh
-CODEXPLOIT_JOERN_PACKAGE_DIR="$PWD/bin/joern-linux/codexploit.joern@2.3.0" \
+CODEXPLOIT_JOERN_PACKAGE_DIR="$PWD/bin/joern-linux/codexploit.joern@2.3.4" \
   docker compose -f compose.yaml -f compose.joern.yaml up -d
 ```
 
@@ -78,7 +78,7 @@ Linux 的 Rust 原生前端要求 glibc 2.39+；覆盖文件使用 Debian Trixie
 | `paths` / path.generate | `code`；`security`；`flows` | `paths` discovery.paths / discovery-paths/v2 |
 | `enhance` / path.enhance | `paths` | 保留的 `paths`；`selection` path.enhancement / path-enhancement/v2 |
 
-Schema ID 均带 `codexploit/` 前缀，CPG 除外。当前 2.3.0 清单只接受宿主编排的只读源码目录；旧版本仍可读取既有冻结 tar。正式项目默认使用 500 MiB 输入预算，大型源码可在确认后提高到部署上限；解析超时建议 900 秒，输出文件上限至少 15，输出预算按实际 CPG 设置。语义操作接收对应解析调用的全部 CPG 和代码产物；不凭文件名选择其他快照产物。
+Schema ID 均带 `codexploit/` 前缀，CPG 除外。当前 2.3.4 清单只接受宿主编排的只读源码目录；旧版本仍可读取既有冻结 tar。正式项目默认使用 500 MiB 输入预算，大型源码可在确认后提高到部署上限；解析超时建议 900 秒，输出文件上限至少 15，输出预算按实际 CPG 设置。语义操作接收对应解析调用的全部 CPG 和代码产物；不凭文件名选择其他快照产物。
 
 解析参数示例：
 
@@ -94,7 +94,7 @@ Schema ID 均带 `codexploit/` 前缀，CPG 除外。当前 2.3.0 清单只接�
 
 `taint` 实际运行 Joern OSS data-flow overlay 和 [reachableByFlows](https://docs.joern.io/cpgql/data-flow-steps/)，保留 source → 局部传播 → sink 参数的原生节点轨迹。`max_call_depth` 默认 4（1–10），`max_flows` 默认 100（1–1000）。单个语言 CPG 的语义失败不会丢弃其他语言的真实流；成功语言继续产出 PARTIAL，并在 `failed_frontends` / `failed_cpgs` 与覆盖中列出缺口。source/sink 选择超过每规则 10,000 个时保留有界选择并记录 `selection_truncated`，但仍报告截断前匹配数。全部 CPG 均失败时不发布空成功产物。
 
-2.3.0 同时加载固定 [Java sink 目录](java-sink-catalog.md)：先独立保存全部精确类型 / 方法命中的 sink，再按高风险类别执行真实数据流查询。没有产生流的 sink 仍进入 `security.facts`；目录版本、摘要、dangerous arguments、priority 和局限随节点保存。每个 CPG 的高风险分区最多获得 80% 流预算，剩余 20% 留给配置回退规则；一个语言不能耗尽后续语言的分区预算。原生 `flows` 产物保存每个目录类别和兜底规则的预算、候选数、返回数与 `complete` / `truncated` / `pending` 状态，单次预算耗尽仍是 PARTIAL，不等于安全。
+2.3.4 同时加载固定 [Java sink 目录](java-sink-catalog.md)：先独立保存全部精确类型 / 方法命中的 sink，再按高风险类别执行真实数据流查询。没有产生流的 sink 仍进入 `security.facts`；目录版本、摘要、dangerous arguments、priority 和局限随节点保存。每个 CPG 的高风险分区最多获得 80% 流预算，剩余 20% 留给配置回退规则；一个语言不能耗尽后续语言的分区预算。原生 `flows` 产物保存每个目录类别和兜底规则的预算、候选数、返回数与 `complete` / `truncated` / `pending` 状态，单次预算耗尽仍是 PARTIAL，不等于安全。
 
 可用包内固定 [rules.json](../plugins/joern/rules.json)，也可提交规则：
 
@@ -123,7 +123,7 @@ Schema ID 均带 `codexploit/` 前缀，CPG 除外。当前 2.3.0 清单只接�
 源码分析不执行目标 build / test / hook：Java 禁用 delombok，Rust 禁用 proc-macro / build-script 展开和依赖联网，并在私有副本中移除可注入执行包装器的 Cargo 配置。Rust / Java / Kotlin 等没有离线依赖时会失败或报告覆盖局限，不伪造完整类型解析。
 
 ```sh
-JOERN_TEST_PACKAGE="$PWD/bin/plugin-packages/codexploit.joern@2.3.0" make test-joern
+JOERN_TEST_PACKAGE="$PWD/bin/plugin-packages/codexploit.joern@2.3.4" make test-joern
 ```
 
 真实二进制回归包含 Go、C / JS / Python 混合解析，三种语言的污点 / 常量对照、固定路径来源和错误输入拒绝。未提供包时明确跳过真实工具用例。完整语言前端验收与运行环境记录见 [校验记录](design/plugin-system-v2/validation.md)。
@@ -135,7 +135,7 @@ AUTO 在有受支持源码时只选源码前端，附带的 JAR/CLASS 不会抢�
 
 对截图中的 Spring Framework 只读源码（11,342 文件，约 60.6 MiB）完成了一次真实 JAVASRC 对照：Joern 在 4 GiB 堆内成功生成 CPG 和代码产物，`seen=11342`、`analyzed=5286`、`failed=3947`、`skipped=2109`，不再出现输入未被消费的 `normalization_failed`。失败主体是当前固定 Java 前端未纳入 CPG 的测试源码；覆盖保持 PARTIAL 并逐文件记录 `file_not_in_cpg`，不会把 5,286 个真实结果扩写成 9,233 个 Java 文件均已完成语义分析。后续前端升级仍须重新核对这一分母。
 
-默认四阶段工作流 2.2.0 固定 Joern 2.3.0；parse / taint 的 `heap_mib` 为 4096。该上限来自 Spring 输入的对照验证：1024 MiB 时 Java 源码前端确实出现 `OutOfMemoryError`，4096 MiB 可生成 CPG。图谱导出保留最多 50,000 个 FILE、250,000 个 METHOD、1,000,000 个非 operator CALL，超额明确失败为 `report_budget_exceeded`，不伪造完整覆盖；导出文档大小同时受本次输出字节预算约束，不再另用隐藏的 64 MiB 门槛。
+默认四阶段工作流 2.2.2 固定 Joern 2.3.4；parse / taint 的 `heap_mib` 为 4096。该上限来自 Spring 输入的对照验证：1024 MiB 时 Java 源码前端确实出现 `OutOfMemoryError`，4096 MiB 可生成 CPG。图谱导出保留最多 50,000 个 FILE、250,000 个 METHOD、1,000,000 个非 operator CALL，超额明确失败为 `report_budget_exceeded`，不伪造完整覆盖；导出文档大小同时受本次输出字节预算约束，不再另用隐藏的 64 MiB 门槛。
 
 v2 file-job 的 `max_files` 映射为 `max_output_files`，即输出产物数；`max_file_bytes` 和 `max_ast_nodes` 是旧 Go 适配器的兼容字段，不会把 Joern 输入截成 2000 文件或 100000 个 AST 节点。阶段的实际 seen / analyzed / skipped / failed 与预算字段独立，未观测的统计保持 null；`input_bytes` 是已绑定源码大小，不代表已经逐字节处理。
 
@@ -143,4 +143,4 @@ v2 file-job 的 `max_files` 映射为 `max_output_files`，即输出产物数；
 
 安装记录的 probe 是最近一次符合条件的实际调用结果，不是独立环境健康证明；一次 normalization_failed 会将其置 failed，不能据此反推调用前插件已不可用。
 
-旧运行及计划继续固定旧包与旧配置；对旧 wrun 执行 retry 不会升级插件。修复后从项目页重新开始图谱化，会复用同一只读源码并创建新版本计划，无需重新上传。随宿主构建的扫描器发布为 1.0.15，保留 1.0.14 的清单与历史证据。
+旧运行及计划继续固定旧包与旧配置；对旧 wrun 执行 retry 不会升级插件。修复后从项目页重新开始图谱化，会复用同一只读源码并创建新版本计划，无需重新上传。随宿主构建的扫描器发布为 1.0.20，保留历史版本的清单与证据。

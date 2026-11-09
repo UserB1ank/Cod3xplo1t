@@ -391,7 +391,41 @@
         "sensitivity": {
           "type": "string",
           "minLength": 1
-        }
+        },
+        "has_flow": { "type": "boolean" },
+        "catalog_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "catalog_version": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "catalog_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "method_full_name": { "type": "string", "minLength": 1 },
+        "dangerous_arguments": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 0, "maximum": 63 },
+          "uniqueItems": true
+        },
+        "priority": {
+          "type": "number", "minimum": 0, "maximum": 1,
+          "description": "Sink review ordering hint, not vulnerability severity or exploitability."
+        },
+        "match_evidence": { "enum": ["observed", "inferred"] },
+        "limitations": { "type": "string" }
+      },
+      "if": {
+        "anyOf": [
+          { "required": ["catalog_id"] },
+          { "required": ["catalog_version"] },
+          { "required": ["catalog_digest"] },
+          { "required": ["method_full_name"] },
+          { "required": ["dangerous_arguments"] },
+          { "required": ["priority"] },
+          { "required": ["match_evidence"] },
+          { "required": ["limitations"] }
+        ]
+      },
+      "then": {
+        "required": [
+          "catalog_id", "catalog_version", "catalog_digest", "method_full_name",
+          "dangerous_arguments", "priority", "match_evidence", "limitations", "has_flow"
+        ]
       },
       "required": [
         "id",
@@ -523,6 +557,33 @@
             "digest": {
               "type": "string",
               "pattern": "^[a-f0-9]{64}$"
+            },
+            "catalog_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "catalog_version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "catalog_digest": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "catalog_entries": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 256
+            },
+            "catalog_sink_matches": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "catalog_sink_nodes": {
+              "type": "integer",
+              "minimum": 0
             }
           },
           "required": [
@@ -530,6 +591,26 @@
             "version",
             "digest"
           ],
+          "if": {
+            "anyOf": [
+              { "required": ["catalog_id"] },
+              { "required": ["catalog_version"] },
+              { "required": ["catalog_digest"] },
+              { "required": ["catalog_entries"] },
+              { "required": ["catalog_sink_matches"] },
+              { "required": ["catalog_sink_nodes"] }
+            ]
+          },
+          "then": {
+            "required": [
+              "catalog_id",
+              "catalog_version",
+              "catalog_digest",
+              "catalog_entries",
+              "catalog_sink_matches",
+              "catalog_sink_nodes"
+            ]
+          },
           "additionalProperties": false
         }
       },

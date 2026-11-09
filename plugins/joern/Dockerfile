@@ -6,7 +6,7 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN --mount=type=cache,target=/downloads python3 scripts/package-joern.py --cache /downloads --output /out/codexploit.joern@2.3.0 > /out-release.json
+RUN --mount=type=cache,target=/downloads python3 scripts/package-joern.py --cache /downloads --output /out/codexploit.joern@2.3.4 > /out-release.json
 
 FROM scratch
 COPY --from=package /out/ /

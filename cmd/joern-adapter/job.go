@@ -17,7 +17,7 @@ import (
 	"github.com/open-mcp-ai/Codexploit/pkg/pluginsdk"
 )
 
-const adapterVersion = "2.3.0"
+const adapterVersion = "2.3.4"
 
 type failure struct {
 	Code        string

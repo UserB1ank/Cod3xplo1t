@@ -24,7 +24,7 @@ func TestEnhancementRanksWithoutChangingPinnedPaths(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "paths.json"), raw, 0600); err != nil {
 		t.Fatal(err)
 	}
-	req := pluginsdk.JobRequest{APIVersion: "codexploit/file-job/v2", InvocationID: "inv-enhance", PluginID: "codexploit.joern", PluginVersion: "2.3.0", OperationID: "enhance", Stage: pluginsdk.PathEnhance, OutputDirectory: "outputs", Config: json.RawMessage(`{}`), Budget: pluginsdk.Budget{TimeoutSeconds: 10, MaxInputBytes: 1 << 20, MaxOutputBytes: 1 << 20, MaxOutputFiles: 2}, Inputs: []pluginsdk.LocalInput{{ArtifactID: "paths-fixed", Port: "paths", Kind: "discovery.paths", SchemaID: "codexploit/discovery-paths/v2", Path: "paths.json", Bytes: int64(len(raw)), SHA256: fmtDigest(raw)}}}
+	req := pluginsdk.JobRequest{APIVersion: "codexploit/file-job/v2", InvocationID: "inv-enhance", PluginID: "codexploit.joern", PluginVersion: "2.3.4", OperationID: "enhance", Stage: pluginsdk.PathEnhance, OutputDirectory: "outputs", Config: json.RawMessage(`{}`), Budget: pluginsdk.Budget{TimeoutSeconds: 10, MaxInputBytes: 1 << 20, MaxOutputBytes: 1 << 20, MaxOutputFiles: 2}, Inputs: []pluginsdk.LocalInput{{ArtifactID: "paths-fixed", Port: "paths", Kind: "discovery.paths", SchemaID: "codexploit/discovery-paths/v2", Path: "paths.json", Bytes: int64(len(raw)), SHA256: fmtDigest(raw)}}}
 	request, _ := json.Marshal(req)
 	if err := os.WriteFile(filepath.Join(root, "request.json"), request, 0600); err != nil {
 		t.Fatal(err)

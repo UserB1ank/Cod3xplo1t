@@ -33,7 +33,7 @@ Go 端口在 `internal/plugin`：
 
 | 预算 | 默认 | 允许上限 |
 |---|---|---|
-| `max_input_bytes` | 64 MiB | 256 MiB |
+| `max_input_bytes` | 500 MiB | 8 GiB |
 | `max_output_bytes` | 两项输出合计 16 MiB | 64 MiB |
 | `max_files` | 2000 | 20000 |
 | `max_file_bytes` | Go / go.mod 单文件 1 MiB | 4 MiB |

@@ -25,11 +25,11 @@ COPY --from=frontend /src/web/dist ./web/dist
 RUN CGO_ENABLED=0 go build -trimpath -tags "embedui,${BUILD_FLAVOR}" -ldflags="-s -w" -o /out/server ./cmd/server \
     && CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w" -o /out/backfill-findings ./cmd/backfill-findings \
     && CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w" -o /out/scanner ./cmd/scanner \
-    && mkdir -p "/out/plugin-packages/codexploit.static-patterns@1.0.15" \
-    && cp /out/scanner "/out/plugin-packages/codexploit.static-patterns@1.0.15/scanner" \
-    && cp internal/scanner/manifest.json "/out/plugin-packages/codexploit.static-patterns@1.0.15/manifest.json" \
-    && chmod 0755 "/out/plugin-packages/codexploit.static-patterns@1.0.15/scanner" \
-    && chmod 0644 "/out/plugin-packages/codexploit.static-patterns@1.0.15/manifest.json"
+    && mkdir -p "/out/plugin-packages/codexploit.static-patterns@1.0.20" \
+    && cp /out/scanner "/out/plugin-packages/codexploit.static-patterns@1.0.20/scanner" \
+    && cp internal/scanner/manifest.json "/out/plugin-packages/codexploit.static-patterns@1.0.20/manifest.json" \
+    && chmod 0755 "/out/plugin-packages/codexploit.static-patterns@1.0.20/scanner" \
+    && chmod 0644 "/out/plugin-packages/codexploit.static-patterns@1.0.20/manifest.json"
 
 # The formal default chain includes one sealed, offline Joern release.
 FROM golang:1.26-bookworm AS joern-package
@@ -52,7 +52,7 @@ COPY internal/path/ ./internal/path/
 COPY internal/plugin/ ./internal/plugin/
 COPY plugins/joern/ ./plugins/joern/
 COPY scripts/package-joern.py ./scripts/package-joern.py
-RUN --mount=type=cache,target=/downloads python3 scripts/package-joern.py --cache /downloads --output /joern/codexploit.joern@2.3.0 > /joern-release.json
+RUN --mount=type=cache,target=/downloads python3 scripts/package-joern.py --cache /downloads --output /joern/codexploit.joern@2.3.4 > /joern-release.json
 
 FROM ${RUNTIME_IMAGE} AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends git openssh-client ca-certificates curl libstdc++6 && rm -rf /var/lib/apt/lists/* \

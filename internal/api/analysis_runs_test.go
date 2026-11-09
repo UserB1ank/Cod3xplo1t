@@ -33,10 +33,11 @@ func createAnalysisProject(t *testing.T, env *testEnv, fixture string) string {
 	}
 	var project projectResponse
 	created.decode(t, &project)
-	if added := addLocalSource(t, ts, project.Project.ID, "src-analysis", "/repos/service"); added.status != http.StatusCreated {
+	sourceID := "src-" + project.Project.ID
+	if added := addLocalSource(t, ts, project.Project.ID, sourceID, "/repos/service"); added.status != http.StatusCreated {
 		t.Fatalf("add source: %d %s", added.status, added.body)
 	}
-	captured := do(t, ts, http.MethodPost, "/api/v1/sources/src-analysis/snapshots", map[string]any{
+	captured := do(t, ts, http.MethodPost, "/api/v1/sources/"+sourceID+"/snapshots", map[string]any{
 		"project_id": project.Project.ID, "source_version": 1, "skip_analysis": true,
 	}, nil)
 	if captured.status != http.StatusCreated {

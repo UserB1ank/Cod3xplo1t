@@ -53,13 +53,13 @@ queries/...
 
 这些是普通本地进程驱动，不是 OS 沙箱。`network=none` 是契约声明，不能当作内核网络隔离证明。需要强隔离或不可信二进制时，应由独立受限 worker/容器部署提供；restricted 网络策略及目标代码执行在普通驱动返回 unsupported。source、agent、environment、verification 使用现有领域服务/适配器；普通 process 清单不能授予这些领域权限。
 
-输入预算上限 256 MiB；输出合计默认 256 MiB、上限 512 MiB，标准 JSON/文本报告单项最多 64 MiB，原生文件按预算流式核验。超时默认 300 秒、上限 3600 秒。旧适配器保留原来的 64 MiB/120 秒限制。
+分阶段执行输入默认 500 MiB、上限 8 GiB；输出合计默认 256 MiB、上限 512 MiB。原生文件与标准 JSON/文本都受同一输出总预算约束，不再另设隐藏的 64 MiB 单项门槛。超时默认 300 秒、上限 3600 秒。旧适配器保持 16 MiB 默认 / 64 MiB 输出上限和 120 秒超时；其输入预算同样采用 500 MiB 默认与 8 GiB 上限。
 
 ## 数据与工作流
 
 宿主验证实际 ArtifactRef、Scope、具名端口、基数、参数和预算。required=false 允许缺席；many 可绑定多个同契约产物。工作流依赖根据 kind + schema + output port 解析，不再要求新节点由某个内置 plugin_id 生产。
 
-标准代码事实、安全语义、路径和路径增强由宿主添加 scope、producer、inputs、coverage 与 normalizer 摘要。代码文件/符号/调用 ID 按既有 SCG 身份规则规范化，重写本批引用及 native 映射；未知位置保留 null。同一快照下相同身份跨工具稳定，原生 CPG ID 不能直接进入标准图谱。未解析调用不生成已解析调用边。
+标准代码事实、安全语义、路径和路径增强由宿主添加 scope、producer、inputs、coverage 与 normalizer 摘要。代码文件/符号/调用 ID 按既有 SCG 身份规则规范化，重写本批引用及 native 映射；未知位置保留 null。若两个真实节点的首选字段完全相同，宿主仅对碰撞节点追加固定 native ID 的确定性第二摘要，避免拒绝合法的编译器生成节点。同一快照下相同身份跨工具稳定，原生 CPG ID 不能直接进入标准图谱。未解析调用不生成已解析调用边。
 
 语义引用必须存在于固定代码输入或本批节点；路径固定 `graph_pins.code/security` 为输入产物 ID，校验端点、步骤连续性和对应关系。调用边不能充当 data_flow。path.enhance 使用 `codexploit/path-enhancement/v2`，selected/filtered 必须覆盖且分割原路径集合，保留路径内容逐项一致，分数平局按 ID 稳定排序。
 

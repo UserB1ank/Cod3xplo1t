@@ -40,11 +40,11 @@
   "inputs": ["source-artifact-id"],
   "language": "Go",
   "knowledge_revision": "latest",
-  "max_input_bytes": 67108864
+  "max_input_bytes": 524288000
 }
 ```
 
-inputs 是根产物 ID 列表，每个已声明类型恰好一项。服务端从项目与快照解析 authoritative Scope，再读取并校验产物实际大小、摘要、Schema 与适配器要求，调用方不能提交伪造 ArtifactRef。max_input_bytes 默认 64 MiB，上限 256 MiB；它是根输入总预算，各节点还有 WorkflowSpec 固定的超时。当前宿主上限 120 秒，Schema 通用上限 600 秒不代表当前宿主支持该上限。
+inputs 是根产物 ID 列表，每个已声明类型恰好一项。服务端从项目与快照解析 authoritative Scope，再读取并校验产物实际大小、摘要、Schema 与适配器要求，调用方不能提交伪造 ArtifactRef。max_input_bytes 默认 500 MiB，上限 8 GiB；它是根输入总预算，各节点还有 WorkflowSpec 固定的超时和独立的输入 / 输出预算。分阶段插件节点可按契约使用最长 3600 秒超时。
 
 language 是操作者声明的分析语言，必须被所有插件支持。编译不解析源码，不能把该声明当作实际覆盖证明；后续调用报告才说明分析范围。knowledge_revision 省略或 latest 时解析当前共享版本；rev-0 是无发布事实的初始版本，其稳定摘要为 SHA-256(`rev-0`)。
 

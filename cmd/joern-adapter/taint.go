@@ -520,7 +520,7 @@ func securityFacts(report flowReport, code codeData) (map[string]any, error) {
 		}
 		if len(sinkIDs) == 0 {
 			sinkID := identity("sink", f.RuleID, f.CPG, last.ID)
-			if !seen[sinkID] {
+			if _, exists := sinkRecords[sinkID]; !exists {
 				sinkRecords[sinkID] = map[string]any{"id": sinkID, "symbol_ref": symbol(f.CPG, last.MethodID), "location": nodeLocation(last), "operation_kind": "sink:" + f.RuleID, "sensitivity": "rule_selected", "has_flow": true, "evidence_refs": []string{f.CPG}}
 				sinkOrder = append(sinkOrder, sinkID)
 			}

@@ -62,6 +62,8 @@ canonical ID 由宿主规范化器以固定身份规则生成；适配器可提�
 - relations[]：id、from、to、kind、observed_or_inferred、evidence_refs；
 - ruleset：id、version、digest。
 
+目录驱动的规则集还可成组提供 catalog_id、catalog_version、catalog_digest、catalog_entries、catalog_sink_matches、catalog_sink_nodes。任意一个目录字段出现时，六个字段必须全部存在；摘要为小写 SHA-256，目录条数为 1–256，命中数和去重节点数为非负整数。未使用目录的旧规则集继续只提供 id/version/digest；未知字段仍拒绝。命中数与去重节点数分别表达同一操作匹配多条目录规则的情况，不作为已确认漏洞数量。
+
 关系端点必须存在于固定输入或本批节点内。识别到 sanitizer 名称不证明某条路径已消毒；实际控制是否生效留给带证据的路径/Agent/验证分析。输出候选必须显式 status=candidate。
 
 ## scan：规则扫描

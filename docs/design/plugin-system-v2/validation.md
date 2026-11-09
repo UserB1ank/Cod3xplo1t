@@ -85,7 +85,7 @@ Joern 多语言、污点语义与路径操作已接入，详见 [Joern 手册](.
 
 ## Java sink 目录与高风险分区（2026-10-26）
 
-`codexploit.joern@2.3.0` 随包发布 `java-sink-catalog@1.0.0`。目录以严格 JSON 解码、固定分类和危险参数索引校验，并按解码后的规范字节计算 SHA-256；摘要不随格式空白变化。首批 30 个条目覆盖 Runtime / ProcessBuilder、Java / XML / XStream / SnakeYAML 反序列化、SpEL / ScriptEngine / OGNL、JNDI、JDBC Statement / MyBatis / Hibernate、XXE、HttpClient / RestTemplate、文件、LDAP 与模板入口。
+`codexploit.joern@2.3.4` 随包发布 `java-sink-catalog@1.0.0`。目录以严格 JSON 解码、固定分类和危险参数索引校验，并按解码后的规范字节计算 SHA-256；摘要不随格式空白变化。首批 30 个条目覆盖 Runtime / ProcessBuilder、Java / XML / XStream / SnakeYAML 反序列化、SpEL / ScriptEngine / OGNL、JNDI、JDBC Statement / MyBatis / Hibernate、XXE、HttpClient / RestTemplate、文件、LDAP 与模板入口。
 
 语义阶段先在固定 Java CPG 上保存全部精确类型 / 方法命中的 sink，再对目录安全和兜底规则执行数据流。未产生流的 XMLDecoder 调用仍出现在 inventory；高风险类别最多使用 80% `max_flows`，剩余预算交给配置规则，类别按最高 priority 排序并滚动复用未用份额。路径记录 `priority_hint`，`joern.static-support/v2` 只改变审查顺序，不改变严重度或裁定。
 
