@@ -244,7 +244,7 @@ func (m *Manager) ensureCloneCache(ctx context.Context, url string) (string, err
 		if explicit {
 			remote = url
 		}
-		args := []string{"fetch", "--prune", "--no-tags", "--", remote, "+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*"}
+		args := []string{"fetch", "--prune", "--no-tags", remote, "+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*"}
 		if explicit {
 			args = append(args, "+HEAD:refs/codexploit/remote-head")
 		}
