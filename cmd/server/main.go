@@ -56,6 +56,7 @@ func run() error {
 		storageDriver   = flag.String("storage", "sqlite", "storage profile: postgres (maintained) or sqlite (legacy, unmaintained)")
 		postgresDSNFile = flag.String("postgres-dsn-file", "", "runtime PostgreSQL credential file; never put a DSN in arguments")
 		settingsKeyFile = flag.String("settings-key-file", "", "independent installation key for encrypted PostgreSQL model settings")
+		modelEnvFile    = flag.String("model-env-file", ".env", "deployment-owned dotenv file containing DSF_API_KEY, DSF_BASE_URL and DSF_MODEL (missing file falls back to saved settings)")
 		allowNetwork    = flag.Bool("allow-network", false, "permit cloning remote git URLs")
 		gitBin          = flag.String("git", "git", "git executable")
 		gitCAFile       = flag.String("git-ca-file", "", "deployment-owned HTTPS CA bundle for Git")
@@ -156,6 +157,7 @@ func run() error {
 		StorageDriver:      *storageDriver,
 		PostgresDSNFile:    *postgresDSNFile,
 		SettingsKeyFile:    *settingsKeyFile,
+		ModelEnvFile:       *modelEnvFile,
 		AllowNetwork:       *allowNetwork,
 		GitBin:             *gitBin,
 		GitCAFile:          *gitCAFile,

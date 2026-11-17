@@ -21,6 +21,8 @@ interface Settings {
   timeout_seconds: number;
   max_output_tokens: number;
   version: string;
+  source: string;
+  read_only: boolean;
 }
 
 export function LLMSettings({
@@ -72,10 +74,17 @@ export function LLMSettings({
     const testing =
       (event.nativeEvent as SubmitEvent).submitter?.getAttribute("value") ===
       "test";
+    if (!testing && settings.read_only) return;
     setBusy(testing ? "test" : "save");
     setError("");
     setNotice("");
-    const { version, api_key_configured: _configured, ...draft } = settings;
+    const {
+      version,
+      api_key_configured: _configured,
+      source: _source,
+      read_only: _readOnly,
+      ...draft
+    } = settings;
     const body = {
       ...draft,
       clear_api_key: clearKey,
@@ -116,7 +125,11 @@ export function LLMSettings({
         <div>
           <div className="eyebrow">MODEL CONNECTION</div>
           {embedded ? <h2>模型设置</h2> : <h1>模型设置</h1>}
-          <p>为所有项目配置挖掘模型，保存后立即生效。</p>
+          <p>
+            {settings?.read_only
+              ? "DSF 模型连接由部署环境提供，当前页面用于核验配置和测试连接。"
+              : "为所有项目配置挖掘模型，保存后立即生效。"}
+          </p>
         </div>
         <span
           className={`status-pill ${identity.features.agent ? "healthy" : ""}`}
@@ -124,7 +137,11 @@ export function LLMSettings({
           <span
             className={`connection-dot ${identity.features.agent ? "connected" : ""}`}
           />
-          {identity.features.agent ? "模型已启用" : "等待配置"}
+          {settings?.read_only
+            ? "环境配置"
+            : identity.features.agent
+              ? "模型已启用"
+              : "等待配置"}
         </span>
       </div>
       <RuntimeStatus api={api} />
@@ -174,6 +191,7 @@ export function LLMSettings({
                   <input
                     type="checkbox"
                     checked={settings.enabled}
+                    disabled={settings.read_only}
                     onChange={(e) => update("enabled", e.target.checked)}
                   />
                   启用 LLM 漏洞挖掘
@@ -182,6 +200,7 @@ export function LLMSettings({
                   接口协议
                   <select
                     value={settings.protocol}
+                    disabled={settings.read_only}
                     onChange={(e) => update("protocol", e.target.value)}
                   >
                     <option value="chat-completions">
@@ -197,6 +216,7 @@ export function LLMSettings({
                     type="url"
                     maxLength={2048}
                     value={settings.base_url}
+                    disabled={settings.read_only}
                     onChange={(e) => update("base_url", e.target.value)}
                     placeholder="https://api.openai.com/v1"
                     spellCheck={false}
@@ -215,38 +235,41 @@ export function LLMSettings({
                     required
                     maxLength={200}
                     value={settings.model}
+                    disabled={settings.read_only}
                     onChange={(e) => update("model", e.target.value)}
                     placeholder="填写服务商提供的模型 ID"
                     spellCheck={false}
                   />
                 </label>
-                <label>
-                  API Key
-                  <span className="secret-state">
-                    <KeyRound size={13} />
-                    {settings.api_key_configured
-                      ? "已加密保存"
-                      : "尚未设置 · 本地无鉴权模型可留空"}
-                  </span>
-                  <input
-                    type="password"
-                    name="llm-api-key"
-                    autoComplete="new-password"
-                    maxLength={8192}
-                    value={key}
-                    disabled={clearKey}
-                    onChange={(e) => {
-                      setKey(e.target.value);
-                      setNotice("");
-                    }}
-                    placeholder={
-                      settings.api_key_configured
-                        ? "留空保留原 Key；输入新 Key 可替换"
-                        : "输入 API Key"
-                    }
-                  />
-                </label>
-                {settings.api_key_configured && (
+                {!settings.read_only && (
+                  <label>
+                    API Key
+                    <span className="secret-state">
+                      <KeyRound size={13} />
+                      {settings.api_key_configured
+                        ? "已加密保存"
+                        : "尚未设置 · 本地无鉴权模型可留空"}
+                    </span>
+                    <input
+                      type="password"
+                      name="llm-api-key"
+                      autoComplete="new-password"
+                      maxLength={8192}
+                      value={key}
+                      disabled={clearKey}
+                      onChange={(e) => {
+                        setKey(e.target.value);
+                        setNotice("");
+                      }}
+                      placeholder={
+                        settings.api_key_configured
+                          ? "留空保留原 Key；输入新 Key 可替换"
+                          : "输入 API Key"
+                      }
+                    />
+                  </label>
+                )}
+                {!settings.read_only && settings.api_key_configured && (
                   <label className="checkbox-label">
                     <input
                       type="checkbox"
@@ -268,6 +291,7 @@ export function LLMSettings({
                       min={5}
                       max={600}
                       value={settings.timeout_seconds}
+                      disabled={settings.read_only}
                       onChange={(e) =>
                         update("timeout_seconds", Number(e.target.value))
                       }
@@ -281,6 +305,7 @@ export function LLMSettings({
                       min={256}
                       max={32768}
                       value={settings.max_output_tokens}
+                      disabled={settings.read_only}
                       onChange={(e) =>
                         update("max_output_tokens", Number(e.target.value))
                       }
@@ -296,13 +321,22 @@ export function LLMSettings({
                     )}
                     {busy === "test" ? "正在测试…" : "测试连接"}
                   </button>
-                  <button type="submit" value="save" className="button primary">
+                  <button
+                    type="submit"
+                    value="save"
+                    className="button primary"
+                    disabled={settings.read_only}
+                  >
                     {busy === "save" ? (
                       <Loader2 size={16} className="spin" />
                     ) : (
                       <Save size={16} />
                     )}
-                    {busy === "save" ? "正在保存…" : "保存配置"}
+                    {settings.read_only
+                      ? "由 .env 管理"
+                      : busy === "save"
+                        ? "正在保存…"
+                        : "保存配置"}
                   </button>
                 </div>
               </fieldset>
@@ -318,7 +352,9 @@ export function LLMSettings({
                   Responses；兼容服务选择 Chat Completions。
                 </p>
                 <p>
-                  连接测试会发送一条无源码的工具调用请求，可能产生少量模型费用。测试通过后仍需点击保存。
+                  {settings.read_only
+                    ? "连接测试会发送一条无源码的工具调用请求，可能产生少量模型费用；测试不会修改当前部署环境配置。"
+                    : "连接测试会发送一条无源码的工具调用请求，可能产生少量模型费用。测试通过后仍需点击保存。"}
                 </p>
                 <p>
                   模型启用后，常驻调度器会处理待运行任务；取消启用可停止领取新任务。正在运行的请求会继续完成。
@@ -327,15 +363,30 @@ export function LLMSettings({
             </Panel>
             <Panel title="凭据存储">
               <div className="settings-explanation">
-                <p>
-                  API Key 经服务端加密写入 Docker
-                  数据卷，页面只返回“是否已设置”。不会写入浏览器持久存储或
-                  Compose 文件。
-                </p>
-                <p>
-                  更换 Base URL 时需重新输入 Key，或勾选清除
-                  Key。请备份整个数据卷以保留配置与解密密钥。
-                </p>
+                {settings.read_only ? (
+                  <>
+                    <p>
+                      当前连接来自部署侧 DSF 环境配置。页面只显示非敏感字段和
+                      “Key 已设置”，不会返回或持久化 Key。
+                    </p>
+                    <p>
+                      修改模型、地址或凭据需要更新部署环境文件并重启服务。
+                      运行中的任务继续使用接受时的固定配置版本。
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p>
+                      API Key 经服务端加密写入 Docker
+                      数据卷，页面只返回“是否已设置”。不会写入浏览器持久存储或
+                      Compose 文件。
+                    </p>
+                    <p>
+                      更换 Base URL 时需重新输入 Key，或勾选清除
+                      Key。请备份整个数据卷以保留配置与解密密钥。
+                    </p>
+                  </>
+                )}
                 <p>
                   Docker Desktop 访问宿主机模型时，可将地址中的 localhost 换为
                   host.docker.internal。

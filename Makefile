@@ -1,11 +1,12 @@
 GO ?= go
 BUILD_FLAVOR ?= dev
 PKG := ./...
+DSF_ENV_FILE ?= $(if $(wildcard .env),$(CURDIR)/.env,$(HOME)/.config/codexploit/.env)
 TEST_FLAGS := -p 1 -parallel 1 -count=1 -shuffle=on -race -timeout 240s
 # Staticcheck is pinned: a new release may add checks and turn a green tree red.
 STATICCHECK_VERSION ?= v0.8.2
 
-.PHONY: package-joern package-joern-linux test-joern help run down logs build build-web build-scanner build-backend test-web check-contracts docker-build docker-up postgres-up postgres-down postgres-status postgres-logs test test-stress bench-agent bench-corpus bench-eval bench-runtime bench-tools backfill-findings lint fmt-check vet staticcheck fmt tidy clean run-server run-cli run-mcp
+.PHONY: package-joern package-joern-linux test-joern help run run-dsf down logs build build-web build-scanner build-backend test-web check-contracts docker-build docker-up postgres-up postgres-down postgres-status postgres-logs test test-stress bench-agent bench-corpus bench-eval bench-runtime bench-tools backfill-findings lint fmt-check vet staticcheck fmt tidy clean run-server run-cli run-mcp
 
 help:
 	@echo "make build        # build Web UI into bin/server, bin/cli, bin/mcp and the scanner package"
@@ -16,6 +17,7 @@ help:
 	@echo "make test-web     # frontend domain and API tests"
 	@echo "make check-contracts # validate offline interface schemas and examples"
 	@echo "make run          # default deployment: application + PostgreSQL at http://127.0.0.1:18085"
+	@echo "make run-dsf      # same deployment with a read-only DSF dotenv (auto-detects ./.env, then ~/.config/codexploit/.env)"
 	@echo "make down         # stop whichever stack is running"
 	@echo "make logs         # follow the default deployment logs"
 	@echo "make docker-up    # build and launch the persistent single-container service"
@@ -81,6 +83,11 @@ check-contracts:
 run:
 	docker compose up -d --build --wait
 	@echo "Codexploit (PostgreSQL) is running at http://127.0.0.1:$${CODEXPLOIT_PORT:-18085}"
+
+run-dsf:
+	@test -f "$(DSF_ENV_FILE)" || (echo "error: create $(DSF_ENV_FILE) with DSF_API_KEY, DSF_BASE_URL and DSF_MODEL first"; exit 1)
+	CODEXPLOIT_DSF_ENV_FILE="$(DSF_ENV_FILE)" docker compose -f compose.yaml -f compose.dsf.yaml up -d --build --wait
+	@echo "Codexploit (DSF environment model) is running at http://127.0.0.1:$${CODEXPLOIT_PORT:-18085}"
 
 down:
 	-docker compose down

@@ -204,7 +204,9 @@ func Test(ctx context.Context, c Config) error {
 	c.TimeoutSeconds = min(c.TimeoutSeconds, 30)
 	c.MaxOutputTokens = min(c.MaxOutputTokens, 1024)
 	tool := Tool{Name: "connection_check", Description: "Confirm that the model connection supports function calls.", Parameters: map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}}
-	result, err := Complete(ctx, c, []Message{{Role: "user", Content: "Call connection_check once. Do not return any other content."}}, []Tool{tool}, tool.Name)
+	// Advertise the function but let the provider choose it. Thinking-capable
+	// models can reject a forced tool_choice even when function calls are allowed.
+	result, err := Complete(ctx, c, []Message{{Role: "user", Content: "Call connection_check once. Do not return any other content."}}, []Tool{tool}, "")
 	if err != nil {
 		return err
 	}

@@ -70,6 +70,66 @@ func TestBuildDefaultsToInMemoryStore(t *testing.T) {
 	}
 }
 
+func TestBuildUsesDSFEnvironmentSettings(t *testing.T) {
+	t.Parallel()
+	envFile := filepath.Join(t.TempDir(), ".env")
+	content := strings.Join([]string{
+		"DSF_API_KEY=test-only-dsf-build-secret",
+		"DSF_BASE_URL=https://dsf.invalid/v1",
+		"DSF_MODEL=dsf-build-model",
+		"",
+	}, "\n")
+	if err := os.WriteFile(envFile, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rt, err := Build(context.Background(), Config{
+		Workspace:    filepath.Join(t.TempDir(), "work"),
+		DBPath:       "memory",
+		ModelEnvFile: envFile,
+		Agent: AgentConfig{
+			Enabled: true,
+			Runtime: AgentRuntimeLLM,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	defer rt.Close()
+	if rt.LLMSettings == nil || rt.AgentConfig.ModelSettings != rt.LLMSettings {
+		t.Fatal("environment model settings were not wired into the agent")
+	}
+	cfg, err := rt.LLMSettings.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Model != "dsf-build-model" || cfg.APIKey != "test-only-dsf-build-secret" {
+		t.Fatalf("environment model configuration = %+v", cfg)
+	}
+}
+
+func TestBuildRejectsInvalidDSFEnvironmentSettings(t *testing.T) {
+	t.Parallel()
+	envFile := filepath.Join(t.TempDir(), ".env")
+	if err := os.WriteFile(envFile, []byte("DSF_API_KEY=test-only-partial-secret\nDSF_MODEL=missing-endpoint\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rt, err := Build(context.Background(), Config{
+		Workspace:    filepath.Join(t.TempDir(), "work"),
+		DBPath:       "memory",
+		ModelEnvFile: envFile,
+		Agent: AgentConfig{
+			Enabled: true,
+			Runtime: AgentRuntimeLLM,
+		},
+	})
+	if rt != nil {
+		rt.Close()
+	}
+	if err == nil || !strings.Contains(err.Error(), "DSF_BASE_URL") {
+		t.Fatalf("invalid DSF configuration = %v", err)
+	}
+}
+
 func TestBuildWithSQLiteMigratesAndPersists(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

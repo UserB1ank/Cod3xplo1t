@@ -80,13 +80,19 @@ func (s *Server) handleTestLLMSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, "llm_test_failed", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": "模型连接与工具调用测试通过；尚未保存的修改需要点击保存"})
+	message := "模型连接与工具调用测试通过；尚未保存的修改需要点击保存"
+	if public, err := s.LLMSettings.Public(); err == nil && public.ReadOnly {
+		message = "环境配置的模型连接与工具调用测试通过；该配置只读，修改部署环境文件并重启后生效"
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": message})
 }
 
 func writeLLMError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, llm.ErrConflict):
 		writeError(w, http.StatusPreconditionFailed, "settings_conflict", err)
+	case errors.Is(err, llm.ErrReadOnly):
+		writeError(w, http.StatusConflict, "settings_read_only", err)
 	case errors.Is(err, llm.ErrKeyUnavailable), errors.Is(err, llm.ErrDecrypt):
 		w.Header().Set("Cache-Control", "no-store")
 		writeError(w, http.StatusServiceUnavailable, "settings_unavailable", err)

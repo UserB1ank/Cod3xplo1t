@@ -71,3 +71,22 @@ func TestComposeEnablesRemoteGitByDefault(t *testing.T) {
 		}
 	}
 }
+
+func TestDSFComposeOverlayMountsDotEnvReadOnly(t *testing.T) {
+	raw, err := os.ReadFile("../compose.dsf.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "CODEXPLOIT_DSF_ENV_FILE") || !strings.Contains(string(raw), ":/app/.env:ro") {
+		t.Fatal("DSF overlay does not mount an external .env read-only")
+	}
+	ignored, err := os.ReadFile("../.dockerignore")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, pattern := range []string{"**/.env", "**/.env.*"} {
+		if !strings.Contains(string(ignored), pattern) {
+			t.Fatalf("Docker context does not exclude %s", pattern)
+		}
+	}
+}

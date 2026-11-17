@@ -165,6 +165,11 @@ available for CLI clients and custom multi-role deployments.
    active runs retain their original configuration. Disabling the model stops
    new claims. Unconfigured/disabled models do not consume queued attempts.
 
+If the server starts with a deployment-owned DSF dotenv file, the same page
+shows **环境配置** and a read-only form. The administrator can test the live
+connection, but changing the endpoint, model or key requires updating the
+external file and restarting the service.
+
 Settings apply to the whole installation; project knowledge remains isolated.
 In the SQLite and memory profiles the server encrypts configuration using
 AES-256-GCM in `/data/settings/llm.enc` with `/data/settings/settings.key`.

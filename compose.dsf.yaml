@@ -1,0 +1,7 @@
+# Optional deployment overlay for a DSF model connection.
+#
+# Keep the real .env outside the repository. make run-dsf supplies this path.
+services:
+  codexploit:
+    volumes:
+      - ${CODEXPLOIT_DSF_ENV_FILE:?set CODEXPLOIT_DSF_ENV_FILE to an external dotenv file}:/app/.env:ro

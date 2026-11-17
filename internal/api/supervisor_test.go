@@ -1,15 +1,19 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/open-mcp-ai/Codexploit/internal/agent"
+	"github.com/open-mcp-ai/Codexploit/internal/app"
 	"github.com/open-mcp-ai/Codexploit/internal/llm"
 	"github.com/open-mcp-ai/Codexploit/internal/storage"
 	"github.com/open-mcp-ai/Codexploit/internal/supervisor"
@@ -163,6 +167,72 @@ func TestProjectSupervisorReportsUnavailableModel(t *testing.T) {
 	created := do(t, env.ts, http.MethodPost, base, map[string]any{"api_version": "codexploit/v1"}, nil)
 	if created.status != http.StatusConflict || !strings.Contains(string(created.body), "agent_unavailable") {
 		t.Fatalf("unavailable session = %d %s", created.status, created.body)
+	}
+}
+
+func TestProjectSupervisorUsesDSFEnvironmentSettings(t *testing.T) {
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"已使用 DSF 环境模型回答。"},"finish_reason":"stop"}],"usage":{"prompt_tokens":7,"completion_tokens":5}}`))
+	}))
+	t.Cleanup(provider.Close)
+	envFile := filepath.Join(t.TempDir(), ".env")
+	content := strings.Join([]string{
+		"DSF_API_KEY=test-only-supervisor-environment-secret",
+		"DSF_BASE_URL=" + provider.URL + "/v1",
+		"DSF_MODEL=dsf-supervisor-test",
+		"",
+	}, "\n")
+	if err := os.WriteFile(envFile, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rt, err := app.Build(context.Background(), app.Config{
+		Workspace:    filepath.Join(t.TempDir(), "work"),
+		DBPath:       "memory",
+		ModelEnvFile: envFile,
+		Agent: app.AgentConfig{
+			Enabled: true,
+			Runtime: app.AgentRuntimeLLM,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := serveTestEnv(t, rt, false)
+	env.source = newTestSource(t)
+	projectID := createAnalysisProject(t, env, asgFixtureSource(t))
+	base := "/api/v1/projects/" + projectID + "/agent-sessions"
+	created := do(t, env.ts, http.MethodPost, base, map[string]any{"api_version": "codexploit/v1"}, nil)
+	if created.status != http.StatusCreated {
+		t.Fatalf("create session: %d %s", created.status, created.body)
+	}
+	var page struct {
+		Session storage.SupervisorSession `json:"session"`
+	}
+	created.decode(t, &page)
+	sent := do(t, env.ts, http.MethodPost, base+"/"+page.Session.ID+"/messages", map[string]any{
+		"api_version": "codexploit/v1", "content": "使用环境配置回答", "client_message_id": "dsf-env-1",
+	}, nil)
+	if sent.status != http.StatusAccepted {
+		t.Fatalf("send: %d %s", sent.status, sent.body)
+	}
+	var receipt struct {
+		Run storage.SupervisorRun `json:"run"`
+	}
+	sent.decode(t, &receipt)
+	session, run := waitSupervisorAPI(t, env, projectID, page.Session.ID, receipt.Run.ID)
+	if run.Status != supervisor.RunSucceeded || run.Model != "dsf-supervisor-test" ||
+		run.InputTokens != 7 || run.OutputTokens != 5 {
+		t.Fatalf("environment-model run = %+v", run)
+	}
+	var answered bool
+	for _, message := range session.Messages {
+		if message.Role == "assistant" && strings.Contains(message.Content, "DSF 环境模型") {
+			answered = true
+		}
+	}
+	if !answered {
+		t.Fatalf("environment-model answer missing: %+v", session.Messages)
 	}
 }
 

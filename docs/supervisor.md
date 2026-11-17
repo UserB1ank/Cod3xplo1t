@@ -25,6 +25,8 @@
 
 当前项目助手运行时为 `llm`（复用应用内模型设置），记录 model / config version / prompt version / tool schema digest / tokens。模型未配置时 API 返回 `agent_unavailable`，页面显示原因，不回退 ScriptedRuntime。Pi 的路径 Agent 与项目会话是不同运行身份；Pi 主会话适配属于后续切片。
 
+部署可通过 `--model-env-file` 从项目外只读挂载的 `.env` 读取 DSF 配置。此时主 Agent 和 llm 子运行使用“模型 + 配置版本”固定 pin，设置页明确显示环境来源并禁止保存；密钥只存在于服务进程内存，不进入公开响应、浏览器存储、运行事件或证据。环境文件缺失时继续使用原有加密设置；文件存在但 `DSF_API_KEY`、`DSF_BASE_URL` 或 `DSF_MODEL` 不完整时启动失败，避免静默连接错误目标。
+
 普通会话默认预算为 90 个模型回合、150 次工具调用和 600 秒。边界耗尽时运行进入 `PAUSED` 或 `PARTIAL`，并由无工具 Finalizer 或模板生成用户可见终态消息；`round_limit`、`tool_limit` 和 `time_limit` 记录在 `stop_reason`，不再等同于不可恢复失败。
 
 每次真实模型请求前，宿主还会从会话绑定的审计级 token 账本原子预留“保守输入估算 + 最大输出”，响应后按 provider 报告结算；预请求许可失败时不会调用模型，而以 `global_budget` 暂停并保留检查点。Continue 复用同一账本，不重置累计额度。模型上下文同时受 256 KiB / 30k token 估算上限约束，完整持久化历史不删除，裁剪只发生在模型视图并记录 `context_history_trimmed` 事件。

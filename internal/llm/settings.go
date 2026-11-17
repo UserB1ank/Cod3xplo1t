@@ -33,6 +33,9 @@ var (
 	// ErrRepositoryUnavailable reports that the shared settings store cannot be
 	// reached.
 	ErrRepositoryUnavailable = errors.New("模型设置暂不可用：共享设置存储不可达")
+	// ErrReadOnly reports that the effective configuration comes from a
+	// deployment-owned environment file and cannot be edited through the API.
+	ErrReadOnly = errors.New("模型设置由部署环境配置提供，不能在此修改")
 )
 
 // Repository stores encrypted model settings and their effective configuration
@@ -63,6 +66,8 @@ type Public struct {
 	TimeoutSeconds   int    `json:"timeout_seconds"`
 	MaxOutputTokens  int    `json:"max_output_tokens"`
 	Version          string `json:"version"`
+	Source           string `json:"source"`
+	ReadOnly         bool   `json:"read_only"`
 }
 
 // Update distinguishes retaining a secret from replacing or deleting it.
@@ -87,6 +92,8 @@ type Manager struct {
 	unavailable error
 	cfg         Config
 	version     string
+	source      string
+	readOnly    bool
 }
 
 func defaultConfig() Config {
@@ -135,7 +142,7 @@ func Open(dir string) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	m := &Manager{file: filepath.Join(dir, "llm.enc"), aead: aead, version: "initial", cfg: defaultConfig()}
+	m := &Manager{file: filepath.Join(dir, "llm.enc"), aead: aead, version: "initial", source: "workspace", cfg: defaultConfig()}
 	raw, err := os.ReadFile(m.file)
 	if errors.Is(err, os.ErrNotExist) {
 		return m, nil
@@ -167,7 +174,7 @@ func NewRepository(repo Repository, key []byte) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Manager{repo: repo, aead: aead, version: "0", cfg: defaultConfig()}, nil
+	return &Manager{repo: repo, aead: aead, version: "0", source: "postgres", cfg: defaultConfig()}, nil
 }
 
 func newAEAD(key []byte) (cipher.AEAD, error) {
@@ -249,7 +256,7 @@ func NewUnavailableRepository(repo Repository, reason error) *Manager {
 	if reason == nil {
 		reason = ErrKeyUnavailable
 	}
-	return &Manager{repo: repo, unavailable: reason, version: "0", cfg: defaultConfig()}
+	return &Manager{repo: repo, unavailable: reason, version: "0", source: "postgres", cfg: defaultConfig()}
 }
 
 // LoadInstallationKey reads a 32-byte key, either raw or as 64 hex characters.
@@ -286,8 +293,12 @@ func (m *Manager) Unavailable() error {
 
 func versionString(version int64) string { return strconv.FormatInt(version, 10) }
 
-func publicOf(c Config, version string) Public {
-	return Public{c.Enabled, c.Protocol, c.BaseURL, c.Model, c.APIKey != "", c.TimeoutSeconds, c.MaxOutputTokens, version}
+func publicOf(c Config, version, source string, readOnly bool) Public {
+	return Public{
+		Enabled: c.Enabled, Protocol: c.Protocol, BaseURL: c.BaseURL, Model: c.Model,
+		APIKeyConfigured: c.APIKey != "", TimeoutSeconds: c.TimeoutSeconds,
+		MaxOutputTokens: c.MaxOutputTokens, Version: version, Source: source, ReadOnly: readOnly,
+	}
 }
 
 // loadRepository returns the stored configuration and its effective version.
@@ -331,11 +342,11 @@ func (m *Manager) Public() (Public, error) {
 		if err != nil {
 			return Public{}, err
 		}
-		return publicOf(cfg, versionString(version)), nil
+		return publicOf(cfg, versionString(version), m.source, m.readOnly), nil
 	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return publicOf(m.cfg, m.version), nil
+	return publicOf(m.cfg, m.version, m.source, m.readOnly), nil
 }
 
 func (m *Manager) Current() (Config, error) {
@@ -439,6 +450,9 @@ func (m *Manager) Save(u Update, version string) (Public, error) {
 	if m.unavailable != nil {
 		return Public{}, m.unavailable
 	}
+	if m.readOnly {
+		return Public{}, ErrReadOnly
+	}
 	if m.repo != nil {
 		current, currentVersion, err := m.loadRepository()
 		if err != nil {
@@ -469,7 +483,7 @@ func (m *Manager) Save(u Update, version string) (Public, error) {
 		if !saved {
 			return Public{}, ErrConflict
 		}
-		return publicOf(c, versionString(savedVersion)), nil
+		return publicOf(c, versionString(savedVersion), m.source, false), nil
 	}
 
 	m.mu.Lock()
@@ -501,7 +515,7 @@ func (m *Manager) Save(u Update, version string) (Public, error) {
 	if err != nil {
 		return Public{}, errors.New("无法保存模型配置，请检查数据卷是否可写")
 	}
-	return publicOf(c, m.version), nil
+	return publicOf(c, m.version, m.source, false), nil
 }
 
 func versionOf(raw []byte) string { sum := sha256.Sum256(raw); return hex.EncodeToString(sum[:]) }
@@ -544,7 +558,7 @@ func (m *Manager) Snapshot() (Config, Public, error) {
 		if !cfg.Enabled || cfg.Model == "" {
 			return Config{}, Public{}, ErrNotConfigured
 		}
-		return cfg, publicOf(cfg, versionString(version)), nil
+		return cfg, publicOf(cfg, versionString(version), m.source, m.readOnly), nil
 	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -552,5 +566,5 @@ func (m *Manager) Snapshot() (Config, Public, error) {
 	if !c.Enabled || c.Model == "" {
 		return Config{}, Public{}, ErrNotConfigured
 	}
-	return c, publicOf(c, m.version), nil
+	return c, publicOf(c, m.version, m.source, m.readOnly), nil
 }

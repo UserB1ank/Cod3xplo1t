@@ -94,3 +94,37 @@ func TestClientErrorsNeverExposeProviderBodyAndRefuseRedirects(t *testing.T) {
 		t.Fatal("followed redirect with credentials")
 	}
 }
+
+func TestConnectionTestDoesNotForceThinkingModelToolChoice(t *testing.T) {
+	t.Parallel()
+	for _, protocol := range []string{"chat-completions", "responses"} {
+		t.Run(protocol, func(t *testing.T) {
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body map[string]json.RawMessage
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Error(err)
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				if _, forced := body["tool_choice"]; forced {
+					http.Error(w, "thinking mode does not support tool_choice", http.StatusBadRequest)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				if protocol == "responses" {
+					_, _ = w.Write([]byte(`{"status":"completed","output":[{"type":"function_call","call_id":"call-1","name":"connection_check","arguments":"{}"}],"usage":{"input_tokens":4,"output_tokens":2}}`))
+					return
+				}
+				_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call-1","type":"function","function":{"name":"connection_check","arguments":"{}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":4,"completion_tokens":2}}`))
+			}))
+			defer ts.Close()
+			cfg := Config{
+				Protocol: protocol, BaseURL: ts.URL + "/v1", Model: "thinking-model",
+				APIKey: "test-only-key", TimeoutSeconds: 5, MaxOutputTokens: 1024,
+			}
+			if err := Test(context.Background(), cfg); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}

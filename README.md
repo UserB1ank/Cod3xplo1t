@@ -89,6 +89,27 @@ environment variables or repository files. Settings are encrypted in the data
 volume and take effect on new runs without restarting the container. The resident
 scheduler waits until a model is enabled before claiming queued work.
 
+For a deployment-owned DSF connection, mount a secret dotenv file read-only and
+start the server with `--model-env-file=/path/to/.env`. It may contain
+`DSF_API_KEY`, `DSF_BASE_URL`, `DSF_MODEL`, and optional
+`DSF_PROTOCOL`, `DSF_TIMEOUT_SECONDS` and `DSF_MAX_OUTPUT_TOKENS`. This source
+takes precedence over saved settings; the settings page reports it as read-only
+and never returns the key. A missing file falls back to saved encrypted
+settings. Never commit or bake the dotenv file into the image.
+
+The unprefixed `api_key`, `base_url`, `model`, `protocol`, `timeout_seconds` and
+`max_output_tokens` names are accepted as well. Explicit `DSF_*` values win if
+both forms are present.
+
+The provided Compose overlay mounts the selected file at `/app/.env` read-only.
+`make run-dsf` prefers an ignored project-root `.env`, then falls back to
+`~/.config/codexploit/.env`:
+
+```bash
+make run-dsf
+# or: DSF_ENV_FILE=/absolute/path/.env make run-dsf
+```
+
 Remote Git cloning is enabled by default in the Compose deployments. Set
 `CODEXPLOIT_ALLOW_NETWORK=false` before starting to forbid outbound Git access and
 work only from uploaded or mounted source. Local source can be uploaded as
@@ -447,6 +468,7 @@ may themselves contain `:`.
 | `--storage` | `sqlite` | `postgres` (maintained, shared execution profile) or `sqlite` (legacy, unmaintained) |
 | `--postgres-dsn-file` | — | runtime PostgreSQL credential file; never pass a DSN in arguments |
 | `--settings-key-file` | — | independent installation key for encrypted PostgreSQL model settings |
+| `--model-env-file` | `.env` | deployment-owned DSF dotenv file; a missing file falls back to saved settings |
 | `--api-token` | — | `name:role:secret`, repeatable; role is `reader`, `writer` or `admin` |
 | `--allow-network` | `false` | permit cloning remote git URLs |
 | `--git` | `git` | git executable |

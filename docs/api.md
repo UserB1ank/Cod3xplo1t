@@ -1177,8 +1177,11 @@ in `If-Match`. Their JSON body contains `enabled`, `protocol`
 it, or send `clear_api_key: true` to delete it. A new service URL requires
 re-entering or clearing the saved key. A stale version returns 412; a missing
 version returns 428. The test endpoint sends a real, bounded function-call
-request without repository content and does not save the draft. It returns
-502 on provider/connection failure, with a sanitized message.
+request without repository content and does not save the draft. It advertises
+the function without forcing `tool_choice`, because thinking-capable providers
+such as `deepseek-flash` reject forced tool selection while still supporting
+function calls. It returns 502 on provider/connection failure, with a sanitized
+message.
 
 In the SQLite and memory profiles settings persist encrypted in the runtime
 data volume. The PostgreSQL execution profile stores only ciphertext and its
@@ -1189,6 +1192,19 @@ Compose, logs or API responses. A missing, unreadable or mismatched key leaves
 settings in an explicit unavailable state: GET and PUT/POST answer `503
 settings_unavailable` and no saved ciphertext is reset. Database failures also
 answer 503, with a sanitized message.
+
+`--model-env-file` can load a deployment-owned dotenv file before persisted
+settings. A DSF block uses `DSF_API_KEY`, `DSF_BASE_URL`, `DSF_MODEL`, and
+optional `DSF_PROTOCOL`, `DSF_TIMEOUT_SECONDS` and
+`DSF_MAX_OUTPUT_TOKENS`; `DSF_API_BASE` is accepted as the URL alias. The
+equivalent `api_key`, `base_url` and `model` names, plus optional `protocol`,
+`timeout_seconds` and `max_output_tokens`, are also accepted; explicitly
+prefixed DSF values win when both forms are present. A missing file, or a file
+without any recognized model key, falls back to the encrypted settings store.
+An incomplete or invalid block fails startup rather than silently mixing
+sources. GET reports `source=environment` and `read_only=true`; the key remains
+masked. PUT returns 409 `settings_read_only`, while the bounded connection test
+remains available because it does not persist the environment configuration.
 
 Settings apply to new runs without restarting. A successful save advances the
 configuration version used for the ETag and recorded in each workflow run's

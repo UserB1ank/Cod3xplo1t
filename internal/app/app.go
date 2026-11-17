@@ -99,6 +99,10 @@ type Config struct {
 	// model settings stored in PostgreSQL. SQLite and memory keep the workspace
 	// settings.key and ignore it.
 	SettingsKeyFile string
+	// ModelEnvFile optionally supplies a deployment-owned dotenv file containing
+	// the DSF_API_KEY, DSF_BASE_URL and DSF_MODEL block. When present it takes
+	// precedence over persisted app settings and remains read-only in the API.
+	ModelEnvFile string
 }
 
 // SchedulerConfig describes the resident scheduler of a deployment.
@@ -376,7 +380,7 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 			store.Close()
 			return nil, err
 		}
-		if err := rt.wireModelSettings(cfg.SettingsKeyFile); err != nil {
+		if err := rt.wireModelSettings(cfg.SettingsKeyFile, cfg.ModelEnvFile); err != nil {
 			rt.Close()
 			store.Close()
 			return nil, err
@@ -419,7 +423,7 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 		if err := rt.wirePlugins(executors); err != nil {
 			return nil, err
 		}
-		if err := rt.wireModelSettings(cfg.SettingsKeyFile); err != nil {
+		if err := rt.wireModelSettings(cfg.SettingsKeyFile, cfg.ModelEnvFile); err != nil {
 			return nil, err
 		}
 		if err := rt.wireAgent(rt.AgentConfig); err != nil {
@@ -467,7 +471,7 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 		sqlStore.Close()
 		return nil, err
 	}
-	if err := rt.wireModelSettings(cfg.SettingsKeyFile); err != nil {
+	if err := rt.wireModelSettings(cfg.SettingsKeyFile, cfg.ModelEnvFile); err != nil {
 		sqlStore.Close()
 		return nil, err
 	}
@@ -503,9 +507,18 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 // key file; SQLite and memory keep the existing workspace files. A missing or
 // invalid key leaves the manager in an explicit unavailable state instead of
 // failing the whole server or resetting saved ciphertext.
-func (r *Runtime) wireModelSettings(keyFile string) error {
+func (r *Runtime) wireModelSettings(keyFile, envFile string) error {
 	if r.AgentConfig.ModelSettings != nil {
 		r.LLMSettings = r.AgentConfig.ModelSettings
+		return nil
+	}
+	envSettings, loaded, err := llm.LoadEnvSettings(envFile)
+	if err != nil {
+		return fmt.Errorf("load DSF model environment: %w", err)
+	}
+	if loaded {
+		r.LLMSettings = envSettings
+		r.AgentConfig.ModelSettings = envSettings
 		return nil
 	}
 	needsModel := strings.EqualFold(strings.TrimSpace(r.AgentConfig.Runtime), AgentRuntimeLLM) ||
