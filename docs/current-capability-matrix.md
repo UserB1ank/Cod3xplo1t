@@ -8,7 +8,7 @@ audit loop is complete.
 
 | Item | Fixed value |
 |---|---|
-| Branch / committed baseline | `dev` at `a7989cc`; unrelated worktree WIP is preserved |
+| Branch / committed baseline | R0 implementation `dev` at `6ddfef7`; the pre-R0 baseline was `a7989cc`; unrelated worktree WIP is preserved |
 | Local toolchain observed | Go 1.27.0, Docker 29.8.2, Docker Compose 5.5.0 |
 | CI toolchain | Go from `go.mod`; Node 22.19 for Pi worker; Node 22 for Web |
 | Primary target stack | Go application, Grafana 8.3.0 / 8.3.1 |
@@ -38,7 +38,7 @@ unless an explicit replacement decision is made.
 | Candidate detection metrics | Corrected in report v2 | TP/FN/FP/TN, abstention, execution failure and non-binary labels are separate |
 | Dynamic verification metrics | Schema ready, no new evidence | `verification_status` is separate; R0 has no real verifier-generated samples |
 | Historical benchmark numbers | Historical only | Version 1 metric defect is documented; raw samples are unavailable, so no new percentages are asserted |
-| CI on active development branch | Configured and under remote verification | Workflow pushes cover `main` and `dev`; the matrix is pinned to `ubuntu-24.04`, macOS and Windows after `ubuntu-latest` repeatedly lost its runner |
+| CI on active development branch | Passing on `dev` | Run `44016636540` passed Web, lint, Ubuntu 24.04, macOS and Windows on `6ddfef7`; the matrix is pinned to explicit `ubuntu-24.04` after `ubuntu-latest` repeatedly lost its runner |
 
 ## Baseline checks
 
@@ -54,7 +54,7 @@ Checks run on 2026-11-17 against the current worktree:
 | `make check-contracts` | v1 and v2 contract packages passed |
 | Frontend | 78 tests, TypeScript check and production build passed; Vite retained a chunk-size warning |
 | Docker target oracle | Grafana 8.3.0 returned HTTP 200 with `root:x:0:0`; 8.3.1 returned HTTP 404 without the marker |
-| Remote `dev` CI | not run because this turn is prohibited from pushing; local commands match the workflow |
+| Remote `dev` CI | passed: Web, lint, Ubuntu 24.04, macOS and Windows (`44016636540`) |
 
 These are engineering-baseline results. They do not establish candidate quality,
 dynamic-confirmation quality, or completion of the R1 autonomous-audit loop.
