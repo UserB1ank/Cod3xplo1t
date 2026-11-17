@@ -303,8 +303,16 @@ func (m *Manager) extractCommitTree(ctx context.Context, repoPath, commit, dst s
 	if err != nil {
 		return nil, err
 	}
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
+	stderr, err := os.CreateTemp("", "codexploit-git-archive-stderr-*")
+	if err != nil {
+		return nil, err
+	}
+	stderrName := stderr.Name()
+	defer func() {
+		_ = stderr.Close()
+		_ = os.Remove(stderrName)
+	}()
+	cmd.Stderr = stderr
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
@@ -318,7 +326,11 @@ func (m *Manager) extractCommitTree(ctx context.Context, repoPath, commit, dst s
 	}
 	waitErr := cmd.Wait()
 	if waitErr != nil {
-		return nil, fmt.Errorf("git archive %s: %w: %s", commit, waitErr, strings.TrimSpace(stderr.String()))
+		var detail []byte
+		if _, seekErr := stderr.Seek(0, io.SeekStart); seekErr == nil {
+			detail, _ = io.ReadAll(io.LimitReader(stderr, 64<<10))
+		}
+		return nil, fmt.Errorf("git archive %s: %w: %s", commit, waitErr, strings.TrimSpace(string(detail)))
 	}
 	return plan, nil
 }
