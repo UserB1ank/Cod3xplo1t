@@ -62,15 +62,38 @@ func captureStdout(t *testing.T, fn func() error) (string, error) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	type readResult struct {
+		data []byte
+		err  error
+	}
+	readDone := make(chan readResult, 1)
+	go func() {
+		data, err := io.ReadAll(r)
+		readDone <- readResult{data: data, err: err}
+	}()
 	os.Stdout = w
 	runErr := fn()
-	w.Close()
+	_ = w.Close()
 	os.Stdout = old
-	out, err := io.ReadAll(r)
+	read := <-readDone
+	_ = r.Close()
+	if read.err != nil {
+		t.Fatal(read.err)
+	}
+	return string(read.data), runErr
+}
+
+func TestCaptureStdoutDrainsOutputBeyondThePipeBuffer(t *testing.T) {
+	out, err := captureStdout(t, func() error {
+		_, err := os.Stdout.Write([]byte(strings.Repeat("x", 256<<10)))
+		return err
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return string(out), runErr
+	if len(out) != 256<<10 {
+		t.Fatalf("captured %d bytes, want %d", len(out), 256<<10)
+	}
 }
 
 func TestRunManifestWritesManifestNextToSnapshot(t *testing.T) {

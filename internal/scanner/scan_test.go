@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -72,7 +73,7 @@ func run(input string) {
 import "os"
 
 func init() {
-	_ = os.WriteFile("` + sentinel + `", []byte("executed"), 0o600)
+	_ = os.WriteFile(` + strconv.Quote(sentinel) + `, []byte("executed"), 0o600)
 }
 `
 	report, err := scanOnce(t, map[string]string{

@@ -459,7 +459,11 @@ func TestCLIRuntimeDeadlineKillsHangingProcess(t *testing.T) {
 	if elapsed := time.Since(started); elapsed > 10*time.Second {
 		t.Fatalf("the run took %s after a 200ms deadline", elapsed)
 	}
-	if result.ExitCode != -1 {
+	if runtime.GOOS == "windows" {
+		if result.ExitCode == 0 {
+			t.Fatal("exit code = 0, want a non-zero terminated process on windows")
+		}
+	} else if result.ExitCode != -1 {
 		t.Fatalf("exit code = %d, want -1 for a killed process", result.ExitCode)
 	}
 }

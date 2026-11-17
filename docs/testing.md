@@ -9,7 +9,7 @@ comment, not a contract.
 
 | Command | What it runs |
 |---|---|
-| `make test` | `go test ./... -count=1 -shuffle=on -race -timeout 240s` — identical to CI |
+| `make test` | `go test ./... -p 2 -count=1 -shuffle=on -race -timeout 240s` — identical to CI |
 | `make test-stress` | the same suite with `-count=3`, for filesystem and lifecycle races the race detector cannot see |
 | `make test-postgres` | real PostgreSQL catalog acceptance in an isolated Compose project; temporary runtime credentials, no database host port; see [catalog deployment](postgres-catalog.md) |
 | `make lint` | `make fmt-check` + `go vet ./...` + Staticcheck at the pinned version — identical to the CI `lint` job |
@@ -65,7 +65,7 @@ another's). Per runner:
 1. check out the repository and install Go as above;
 2. `go vet ./...` — repeated here on purpose, because it is the one analysis that
    sees platform-specific files;
-3. `go test ./... -count=1 -shuffle=on -race -timeout 240s`.
+3. `go test ./... -p 2 -count=1 -shuffle=on -race -timeout 240s`.
 
 The formatting gate takes its file list from `git ls-files`, not from a recursive
 walk, so a git-ignored `.cache/gomod` (dependency fixtures that are intentionally
