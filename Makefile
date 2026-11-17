@@ -122,9 +122,9 @@ test-postgres:
 	python3 scripts/test-postgres.py
 
 # The race detector cannot see filesystem and lifecycle races; repeat the suite
-# on a dirty machine instead.
+# on a dirty machine instead. The timeout covers all three runs in one package.
 test-stress:
-	$(GO) test $(PKG) $(TEST_FLAGS) -count=3
+	$(GO) test $(PKG) $(TEST_FLAGS) -count=3 -timeout=15m
 
 # Stop-quality baseline: the golden scenarios replay without a model, so the same
 # script always produces the same counters. The summary is machine readable and is

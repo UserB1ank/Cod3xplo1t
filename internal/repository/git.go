@@ -321,8 +321,16 @@ func (m *Manager) extractCommitTree(ctx context.Context, repoPath, commit, dst s
 		if cmd.Process != nil {
 			_ = cmd.Process.Kill()
 		}
+		_ = stdout.Close()
 		_ = cmd.Wait()
 		return nil, extractErr
+	}
+	if _, err := io.Copy(io.Discard, stdout); err != nil {
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		_ = cmd.Wait()
+		return nil, fmt.Errorf("repository: drain git archive output: %w", err)
 	}
 	waitErr := cmd.Wait()
 	if waitErr != nil {
