@@ -1,7 +1,7 @@
 GO ?= go
 BUILD_FLAVOR ?= dev
 PKG := ./...
-TEST_FLAGS := -p 2 -count=1 -shuffle=on -race -timeout 240s
+TEST_FLAGS := -p 2 -parallel 2 -count=1 -shuffle=on -race -timeout 240s
 # Staticcheck is pinned: a new release may add checks and turn a green tree red.
 STATICCHECK_VERSION ?= v0.8.2
 
@@ -23,7 +23,7 @@ help:
 	@echo "make postgres-down # stop PostgreSQL but keep its data volumes"
 	@echo "make postgres-status # show PostgreSQL containers and URL"
 	@echo "make postgres-logs # follow PostgreSQL application logs"
-	@echo "make test         # go test ./... -p 2 -count=1 -shuffle=on -race -timeout 240s (same as CI)"
+	@echo "make test         # go test ./... -p 2 -parallel 2 -count=1 -shuffle=on -race -timeout 240s (same as CI)"
 	@echo "make test-stress  # repeat the suite to catch filesystem/lifecycle races"
 	@echo "make backfill-findings ARGS=\"--postgres-dsn-file /path\"  # materialize candidate findings from hypotheses"
 	@echo "make bench-agent  # replay the golden agent scenarios and write dist/agent-baseline.json"

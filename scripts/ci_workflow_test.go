@@ -25,7 +25,7 @@ func TestCILimitsPackageConcurrencyToAvoidRunnerExhaustion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pattern := regexp.MustCompile(`(?m)^\s+run: go test \./\.\.\. -p 2 -count=1 -shuffle=on -race -timeout 240s\s*$`)
+	pattern := regexp.MustCompile(`(?m)^\s+run: go test \./\.\.\. -p 2 -parallel 2 -count=1 -shuffle=on -race -timeout 240s\s*$`)
 	if !pattern.Match(raw) {
 		t.Fatalf("%s must bound package concurrency while retaining the full race suite:\n%s", path, raw)
 	}
@@ -34,7 +34,7 @@ func TestCILimitsPackageConcurrencyToAvoidRunnerExhaustion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !regexp.MustCompile(`(?m)^TEST_FLAGS := -p 2 -count=1 -shuffle=on -race -timeout 240s\s*$`).Match(makefile) {
+	if !regexp.MustCompile(`(?m)^TEST_FLAGS := -p 2 -parallel 2 -count=1 -shuffle=on -race -timeout 240s\s*$`).Match(makefile) {
 		t.Fatalf("Makefile TEST_FLAGS must match CI package concurrency")
 	}
 }
