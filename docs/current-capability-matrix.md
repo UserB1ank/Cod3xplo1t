@@ -31,7 +31,9 @@ unless an explicit replacement decision is made.
 | Java/Spring static graph | Secondary compatibility | Existing Joern capability remains available; large-source runs can remain PARTIAL and must report coverage gaps |
 | Source search and direct source reads | Usable independently | Must remain available when graph creation fails or is partial |
 | Existing finding / evidence ledger and reports | Limited but usable | Historical findings and reports remain readable; they are not yet linked through one audit-root job identity |
-| Main Agent conversation and project MCP tools | Experimental for this target | Existing supervisor sessions/tools are real, but the complete investigation-to-verification loop is not connected |
+| Deployment model configuration | Usable | Existing encrypted settings remain the default; an external read-only DSF dotenv file can provide a masked, versioned environment source |
+| Main Agent conversation and project MCP tools | Experimental for this target | Real DSF runs independently investigated Grafana 8.3.0 and 8.3.1 from frozen source; the complete investigation-to-verification loop is not connected |
+| R1 real-model source investigation | Passed for the fixed pair | 8.3.0: 49 turns / 71 tool calls; 8.3.1: 31 / 45; raw evidence is retained and graph/knowledge errors remain visible |
 | Real child Agent work | Limited | Existing path/batch workers exist, but not as the R1 unified parent/child work protocol |
 | Direction messages, global/child control and crash takeover | Partial / disconnected | Owner/epoch and lease mechanisms exist in separate execution domains; unified audit semantics remain R2 |
 | Dynamic verification implementation | Experimental / not on the main line | Historical verification is API-only; R0 only fixes a real Docker target and oracle |
@@ -54,6 +56,7 @@ Checks run on 2026-11-17 against the current worktree:
 | `make check-contracts` | v1 and v2 contract packages passed |
 | Frontend | 78 tests, TypeScript check and production build passed; Vite retained a chunk-size warning |
 | Docker target oracle | Grafana 8.3.0 returned HTTP 200 with `root:x:0:0`; 8.3.1 returned HTTP 404 without the marker |
+| Real DSF source audit | Both Grafana versions succeeded; exact token, turn and tool facts plus raw sessions are retained under `benchmarks/r1/grafana-cve-2021-43798` |
 | Remote `dev` CI | passed: Web, lint, Ubuntu 24.04, macOS and Windows (`44016636540`) |
 
 These are engineering-baseline results. They do not establish candidate quality,

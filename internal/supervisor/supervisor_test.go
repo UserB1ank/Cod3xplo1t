@@ -215,8 +215,32 @@ func TestSupervisorDefaultsToNinetyRounds(t *testing.T) {
 	if service.LeaseTTL != 12*time.Minute {
 		t.Fatalf("default lease ttl = %s, want 12m", service.LeaseTTL)
 	}
-	if PromptVersion != "supervisor/v5" {
-		t.Fatalf("prompt version = %q, want supervisor/v5", PromptVersion)
+	if PromptVersion != "supervisor/v7" {
+		t.Fatalf("prompt version = %q, want supervisor/v7", PromptVersion)
+	}
+}
+
+func TestSupervisorPromptDefinesAutonomousAuditFlowWithoutFixedToolPlayback(t *testing.T) {
+	for _, required := range []string{
+		"Audit flow:",
+		"fixed input, requested goal, and authorization scope",
+		"Choose tools and child investigations yourself",
+		"vulnerable and safe versions separately",
+		"environment failure, timeout, or unavailable target is not a refutation",
+		"Only the platform verification verdict can mark a finding confirmed",
+	} {
+		if !strings.Contains(systemPrompt, required) {
+			t.Fatalf("system prompt is missing %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		"always call project_api",
+		"first call list_project_operations",
+		"tool sequence",
+	} {
+		if strings.Contains(strings.ToLower(systemPrompt), forbidden) {
+			t.Fatalf("system prompt contains fixed playback instruction %q", forbidden)
+		}
 	}
 }
 
