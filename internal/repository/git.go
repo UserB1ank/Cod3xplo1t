@@ -309,10 +309,14 @@ func (m *Manager) extractCommitTree(ctx context.Context, repoPath, commit, dst s
 		return nil, err
 	}
 	plan, extractErr := extractSourceTar(stdout, dst, l, submodules, integrity)
-	waitErr := cmd.Wait()
 	if extractErr != nil {
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		_ = cmd.Wait()
 		return nil, extractErr
 	}
+	waitErr := cmd.Wait()
 	if waitErr != nil {
 		return nil, fmt.Errorf("git archive %s: %w: %s", commit, waitErr, strings.TrimSpace(stderr.String()))
 	}

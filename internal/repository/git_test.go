@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // gitRepo is a throwaway repository with a pinned committer identity so that
@@ -186,6 +188,36 @@ func TestGitSnapshotPinsExplicitOlderCommit(t *testing.T) {
 	if !bytes.Contains(body, []byte(`"v1"`)) {
 		t.Errorf("snapshot does not contain the pinned revision: %q", body)
 	}
+}
+
+func TestGitArchiveExtractionErrorDoesNotWaitForBlockedWriter(t *testing.T) {
+	repo := newGitRepo(t)
+	for index := 0; index < 128; index++ {
+		repo.write(filepath.ToSlash(filepath.Join("files", "file-"+threeDigits(index)+".txt")), strings.Repeat("x", 1024))
+	}
+	head := repo.commit("large tree")
+
+	manager := newTestManager(t)
+	parent := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(parent, []byte("occupied"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	started := time.Now()
+	_, err := manager.extractCommitTree(ctx, repo.dir, head, filepath.Join(parent, "tree"), DefaultLimits(), nil, true)
+	elapsed := time.Since(started)
+	if err == nil {
+		t.Fatal("extractCommitTree succeeded with an impossible destination")
+	}
+	if elapsed >= time.Second {
+		t.Fatalf("extraction error waited %s for the blocked git writer", elapsed)
+	}
+}
+
+func threeDigits(value int) string {
+	return fmt.Sprintf("%03d", value)
 }
 
 func TestGitSnapshotRejectsUnknownRevision(t *testing.T) {
