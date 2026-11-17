@@ -38,3 +38,15 @@ func TestCILimitsPackageConcurrencyToAvoidRunnerExhaustion(t *testing.T) {
 		t.Fatalf("Makefile TEST_FLAGS must match CI package concurrency")
 	}
 }
+
+func TestCITestMatrixUsesStableUbuntuLTS(t *testing.T) {
+	path := filepath.Join("..", ".github", "workflows", "test.yml")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pattern := regexp.MustCompile(`(?m)^\s+os: \[ubuntu-24\.04, macos-latest, windows-latest\]\s*\r?$`)
+	if !pattern.Match(raw) {
+		t.Fatalf("%s must use an explicit stable Ubuntu LTS for the test matrix:\n%s", path, raw)
+	}
+}

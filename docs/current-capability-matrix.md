@@ -38,7 +38,7 @@ unless an explicit replacement decision is made.
 | Candidate detection metrics | Corrected in report v2 | TP/FN/FP/TN, abstention, execution failure and non-binary labels are separate |
 | Dynamic verification metrics | Schema ready, no new evidence | `verification_status` is separate; R0 has no real verifier-generated samples |
 | Historical benchmark numbers | Historical only | Version 1 metric defect is documented; raw samples are unavailable, so no new percentages are asserted |
-| CI on active development branch | Locally equivalent checks pass; remote run not yet observed | Workflow push branches now include `main` and `dev`; before this slice only `main` was configured and the repository Actions API reported zero workflow runs |
+| CI on active development branch | Configured and under remote verification | Workflow pushes cover `main` and `dev`; the matrix is pinned to `ubuntu-24.04`, macOS and Windows after `ubuntu-latest` repeatedly lost its runner |
 
 ## Baseline checks
 

@@ -58,7 +58,7 @@ three times.
 2. `make lint` — `make fmt-check`, `go vet ./...`, then Staticcheck at the
    version pinned in the Makefile.
 
-**`test`** runs on a matrix of `ubuntu-latest`, `macos-latest` and
+**`test`** runs on a matrix of `ubuntu-24.04`, `macos-latest` and
 `windows-latest` (`fail-fast: false`, so one platform's failure does not hide
 another's). Per runner:
 
