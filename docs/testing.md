@@ -42,8 +42,9 @@ Two environment details matter:
 
 ## What CI does
 
-`.github/workflows/test.yml` runs on every push to `main` and every pull request.
-It has Go lint and test jobs, plus a Web UI job.
+`.github/workflows/test.yml` runs on every push to `main` or the active `dev`
+branch and on every pull request. It has Go lint and test jobs, plus a Web UI
+job.
 
 The Web UI job installs locked packages on Node 22, runs frontend tests and the
 production build, then compiles the embedded Go server and checks its handlers.

@@ -1,5 +1,12 @@
 # Runtime comparison report — seeded corpus
 
+> Historical report format version 1, generated 2026-10-20. Its `recall` and
+> `FP` columns treated both `candidate` and `refuted` as positive predictions,
+> and treated `undecidable` / `edge` as ordinary negatives. The numbers below are
+> retained verbatim as historical output and must not be compared with the
+> corrected version-2 candidate and verification metrics. The raw samples were
+> not retained, so this report cannot be re-summarized without inventing data.
+
 Maintainer decision (2026-10-20): the deployment default runtime was switched to `pi`; `llm` remains available for per-task selection and as the `CODEXPLOIT_AGENT_RUNTIME=llm` fallback. Existing runs keep their pinned runtime.
 
 Provider: `deepseek-chat` at `https://api.deepseek.com`.  Corpus: `seeded-go-v1` (80 synthetic tasks, 20 per group; one path per task; 3 repetitions per runtime; 480 real runs total).  Verification is disabled in this deployment, so confirmed findings and cost per confirmed finding are N/A.

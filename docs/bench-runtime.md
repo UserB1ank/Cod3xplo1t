@@ -15,6 +15,8 @@ refuses to infer from missing data:
   **unavailable**; its tokens are not zero and it never wins on cost;
 - fewer samples than `expected_runs` are **missing**, and the verdict becomes
   `insufficient_evidence`;
+- execution success is independent of usage availability: every non-`SUCCEEDED`
+  sample remains in `execution_failures` and in the success-rate denominator;
 - scripted samples live in the `fixture` section and are never compared with the
   real `real` section;
 - cost per confirmed finding is reported only when a verifier confirmed findings;
@@ -23,6 +25,47 @@ refuses to infer from missing data:
 Verdicts are `real_run_pending` (no real samples), `insufficient_evidence` (fewer
 than 20 available samples per runtime, any unavailable sample or any missing run)
 and `comparable` (raw numbers only — choosing a winner remains a human decision).
+`comparable` means the sample base is usable; it does not mean detection or
+verification quality is good.
+
+## Metric semantics
+
+Report version 2 separates candidate detection from dynamic verification.
+
+Candidate classification uses only successfully executed `vulnerable` and `safe`
+samples with a conclusive `candidate` or `refuted` prediction:
+
+| ground truth | prediction | bucket |
+|---|---|---|
+| vulnerable | candidate | TP |
+| vulnerable | refuted | FN |
+| safe | candidate | FP |
+| safe | refuted | TN |
+
+`coverage = decided / all vulnerable+safe samples`. `inconclusive`, execution
+failures and unavailable usage never become TN or FN. They remain visible as
+`abstained`, `execution_failures` and `unavailable`. `undecidable` and `edge` are
+reported separately and are never treated as ordinary safe negatives.
+
+Dynamic verification has its own `verification_status`, independent of the
+candidate prediction:
+
+- `confirmed`: the fixed oracle observed the required positive signal;
+- `refuted`: the fixed oracle observed an explicit negative signal;
+- `inconclusive`: execution completed but the oracle was insufficient;
+- `error`: target readiness, verifier, timeout or environment failure. It never
+  becomes `refuted`;
+- empty: verification was not attempted.
+
+`verification.success_rate = vulnerable_confirmed / vulnerable_attempted`.
+False confirmations and `false_confirmation_rate` are reported separately for
+safe samples. A candidate TP and a dynamic confirmation are therefore distinct
+facts, even when they occur on the same sample.
+
+Report version 1 must not be compared with version 2. Version 1 used
+`candidate OR refuted` as a positive prediction and used `undecidable` / `edge`
+as ordinary negatives. The historical record is retained, but its raw samples
+were not kept, so it cannot be recomputed without fabricating numbers.
 
 ## Sample input
 
@@ -42,6 +85,7 @@ and `comparable` (raw numbers only — choosing a winner remains a human decisio
       "novelty": [2], "elapsed_ms": 8400,
       "evidence_items": 3, "valid_evidence": 3,
       "confirmed_findings": 1,
+      "verification_status": "confirmed",
       "obligations_total": 4, "obligations_closed": 4
     }
   ]
@@ -49,9 +93,10 @@ and `comparable` (raw numbers only — choosing a winner remains a human decisio
 ```
 
 `label` is `vulnerable`, `safe`, `undecidable` or `edge`; `predicted` is
-`candidate`, `refuted` or `inconclusive`. Recall and the false-positive rate use
-those labels. `confirmed_findings` is only for a real verifier's confirmed
-findings.
+`candidate`, `refuted` or `inconclusive`. The candidate metrics use the
+`vulnerable` and `safe` labels as described above. `confirmed_findings` is only
+for a real verifier's confirmed findings; `verification_status` records whether
+verification was attempted and what happened.
 
 ## Running
 
@@ -71,13 +116,15 @@ official run needs operator credentials and an approved budget.
 
 ## Current status
 
-The harness and its unavailable/failed semantics are in place and tested. No
-real-model evaluation has been run in this environment (no operator credentials
-were supplied), so the report is `real_run_pending` and the default runtime stays
-`llm`. Pi remains selectable per task. When the real run is approved, produce the
-samples, run the command, review recall / false positives / obligations /
-unavailable counts and the raw cost, then decide whether to change the default in
-a separate change. Existing runs keep the runtime they pinned.
+The harness now reports candidate classification and dynamic verification
+separately and keeps abstention, execution failure and non-binary labels visible.
+The historical 2026-10-20 real-model report remains available as version 1, but
+its recall and false-positive numbers are not comparable with version 2 because
+its raw samples were not retained.
+
+No new real-model or dynamic-verifier run is represented by the R0 baseline.
+Until a new version-2 run is produced, do not cite the historical percentages as
+current detection or false-positive rates.
 
 ## Running a real evaluation
 
