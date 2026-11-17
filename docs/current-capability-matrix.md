@@ -47,7 +47,7 @@ Checks run on 2026-11-17 against the current worktree:
 | Check | Result |
 |---|---|
 | R0 affected packages with `-race -shuffle` | 21 tests passed in 4 packages |
-| Full Go suite `go test ./... -p 2 -parallel 2 -count=1 -shuffle=on -race -timeout 240s` | 1,506 tests passed in 58 packages |
+| Full Go suite `go test ./... -p 1 -parallel 1 -count=1 -shuffle=on -race -timeout 240s` | 1,506 tests passed in 58 packages |
 | `make test-stress` | passed with the full suite repeated three times |
 | `make test-postgres` | storage and API PostgreSQL acceptance passed |
 | `make lint` | `go vet` and pinned Staticcheck passed |

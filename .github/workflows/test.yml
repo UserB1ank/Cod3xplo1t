@@ -43,7 +43,7 @@ jobs:
         if: runner.os == 'Linux'
         run: make pi-worker
       - name: go test
-        run: go test ./... -p 2 -parallel 2 -count=1 -shuffle=on -race -timeout 240s
+        run: go test ./... -p 1 -parallel 1 -count=1 -shuffle=on -race -timeout 240s
 
   web:
     runs-on: ubuntu-latest

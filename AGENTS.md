@@ -190,7 +190,7 @@ added. New persistence work targets PostgreSQL.
 
 Whenever you write or modify a test, remember it must pass in
 `.github/workflows/test.yml` — ubuntu, macos and windows, via
-`go test ./... -p 2 -parallel 2 -count=1 -shuffle=on -race -timeout 240s` (identical to
+`go test ./... -p 1 -parallel 1 -count=1 -shuffle=on -race -timeout 240s` (identical to
 `make test`). For races the detector cannot see — filesystem and lifecycle
 races — run `make test-stress` locally before pushing. Assume concurrency, a
 fresh runner, and dirty state from other tests or processes. Never hardcode a
